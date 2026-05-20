@@ -1,0 +1,21 @@
+.venv/
+.venv-codex/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor/project-local state
+.idea/
+.vscode/
+
+# Build and coverage artifacts
+dist/
+build/
+*.egg-info/
+.coverage
+htmlcov/

@@ -1,0 +1,2 @@
+"""FastAPI server adapter."""
+
