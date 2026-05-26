@@ -16,6 +16,10 @@ class Settings(BaseModel):
     crewai_verbose: bool = False
     crewai_max_iter: int = Field(default=5, gt=0)
     crewai_max_execution_time: int = Field(default=60, gt=0)
+    agent_conversation_ttl_seconds: int = Field(default=86400, gt=0)
+    agent_conversation_max_messages: int = Field(default=12, gt=0)
+    agent_conversation_max_sessions: int = Field(default=5000, gt=0)
+    agent_conversation_cleanup_interval_seconds: int = Field(default=300, gt=0)
 
 
 def get_settings() -> Settings:
@@ -30,6 +34,18 @@ def get_settings() -> Settings:
         crewai_verbose=_bool_env("CREWAI_VERBOSE", False),
         crewai_max_iter=_int_env("CREWAI_MAX_ITER", 5),
         crewai_max_execution_time=_int_env("CREWAI_MAX_EXECUTION_TIME", 60),
+        agent_conversation_ttl_seconds=_int_env(
+            "AGENT_CONVERSATION_TTL_SECONDS", 86400
+        ),
+        agent_conversation_max_messages=_int_env(
+            "AGENT_CONVERSATION_MAX_MESSAGES", 12
+        ),
+        agent_conversation_max_sessions=_int_env(
+            "AGENT_CONVERSATION_MAX_SESSIONS", 5000
+        ),
+        agent_conversation_cleanup_interval_seconds=_int_env(
+            "AGENT_CONVERSATION_CLEANUP_INTERVAL_SECONDS", 300
+        ),
     )
 
 
@@ -52,4 +68,3 @@ def _bool_env(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
-

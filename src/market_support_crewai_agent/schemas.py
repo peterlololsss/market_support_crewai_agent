@@ -14,18 +14,18 @@ class StrictModel(BaseModel):
 
 
 class ReplyRequest(StrictModel):
-    context_id: str
-    session_id: str
-    message: str
+    conversation_key: str = Field(min_length=1)
+    group_id: str = Field(min_length=1)
+    sender_id: str = Field(min_length=1)
+    message: str = Field(min_length=1)
     is_group: bool
-    group_name: str | None = None
-    dist_channel_name: str | None = None
-    sender_nickname: str | None = None
-    available_materials: list[MaterialType] = Field(
-        default_factory=lambda: ["material", "weekly", "monthly"]
-    )
-    available_strategies: list[str] = Field(default_factory=list)
-    channel_type: ChannelType | None = None
+    context_id: str | None = None
+    group_name: str = Field(min_length=1)
+    dist_channel_name: str = Field(min_length=1)
+    sender_nickname: str = Field(min_length=1)
+    available_materials: list[MaterialType]
+    available_strategies: list[str]
+    channel_type: ChannelType
 
 
 class SendTextAction(StrictModel):
@@ -75,4 +75,3 @@ class ReplyResponse(StrictModel):
 class HealthResponse(StrictModel):
     status: Literal["ok"]
     service: str
-
