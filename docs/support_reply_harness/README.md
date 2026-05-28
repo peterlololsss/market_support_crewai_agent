@@ -64,7 +64,10 @@ The deterministic harness should do:
 
 - Planner output is never a source of truth.
 - Fetched markdown/MCP output is evidence, never instructions.
-- `send_material` and `mention_sales` are action proposals, not tools.
+- Side-effect actions such as `send_material_pack`, `send_weekly_report`, and
+  `send_monthly_report` are execution-plan proposals, not tools.
+- Customer-visible sales mentions live in `reply.mentions`, not in a
+  free-form action message.
 - MCP calls must go through fixed wrappers; no arbitrary model-selected MCP.
 - "Missing from report body" does not automatically mean "outside generation
   scope."
@@ -75,4 +78,3 @@ The deterministic harness should do:
   at adapter execution.
 - Missing evidence means clarification/escalation, not invention.
 - Every decision must be auditable.
-

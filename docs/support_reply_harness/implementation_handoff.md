@@ -19,7 +19,11 @@ Follow `AGENTS.md` freshness requirements:
 Implement Phase 1 without real MCP:
 
 - internal runtime models;
+- proposed production response models if adapter contract migration is in
+  scope;
 - policy manifest skeleton;
+- adapter resolve result models;
+- lightweight EvidenceFact models;
 - plan validator;
 - reply/action validator;
 - deterministic fallback;
@@ -31,7 +35,6 @@ Do not implement:
 - MCP tools;
 - real material fetch;
 - internal company lookup;
-- new public action schema;
 - true multi-agent Crew.
 
 ## Proposed module ownership
@@ -74,11 +77,15 @@ still simple.
 Recommended order:
 
 1. Add internal enums/models for capability categories and validation results.
-2. Add `compile_policy(request, ledger_summary=None)`.
-3. Add `validate_reply(response, policy, business_facts, request)`.
-4. Add deterministic fallback builder.
-5. Wire reply validation after current agent output in `reply_agent.py`.
-6. Add tests that monkeypatch fake agent outputs to ensure unsafe responses are
+2. Add proposed response enums/models:
+   `reply.kind`, `reply.mentions`, `send_material_pack`,
+   `send_weekly_report`, and `send_monthly_report`.
+3. Add `AdapterResolveResult` and lightweight `EvidenceFact`.
+4. Add `compile_policy(request, ledger_summary=None)`.
+5. Add `validate_reply(response, policy, evidence_facts, request)`.
+6. Add deterministic fallback builder.
+7. Wire reply validation after current agent output in `reply_agent.py`.
+8. Add tests that monkeypatch fake agent outputs to ensure unsafe responses are
    repaired or replaced.
 
 This creates safety value before adding planner/evidence complexity.
@@ -87,14 +94,17 @@ This creates safety value before adding planner/evidence complexity.
 
 Start with deterministic checks:
 
-- `send_material.material_type` must be in `request.available_materials`.
-- `send_material.strategy`, if present, must be in `request.available_strategies`
-  or canonicalized before validation.
-- `mention_sales.reason` must be non-empty.
-- If text claims a material was sent, a `send_material` action must exist.
+- side-effect actions must not contain free-form text/message/caption fields.
+- `reply.kind=no_reply` must have empty text, no mentions, and no actions.
+- `send_material_pack` requires `material_pack_resolvable=true`.
+- `send_weekly_report` requires `weekly_report_resolvable=true`.
+- `send_monthly_report` requires `monthly_report_resolvable=true`.
+- `reply.mentions` requires `sales_mention_resolvable=true`.
+- If text says a strategy is outside report generation scope, require
+  `report_scope_status=excluded`.
+- If text says a report does not show a strategy, require
+  `report_contains_strategy=false`.
 - If action type is not allowed by compiled policy, block it.
-- If business facts say `must_mention_sales`, require `mention_sales`.
-- If business facts say `can_send_material=false`, block `send_material`.
 
 Avoid LLM judges in the first validator pass.
 
@@ -106,8 +116,11 @@ Unavailable material:
 text:
 "目前这个渠道下我没有看到可发送的对应材料，我帮你 @销售 确认。"
 
-action:
-mention_sales(reason="requested_material_unavailable")
+reply:
+kind=human_handoff
+mentions=[sales]
+
+actions: []
 ```
 
 Ambiguous request:
@@ -116,15 +129,19 @@ Ambiguous request:
 text:
 "我需要再确认一下你指的是哪一个材料或策略。"
 
-action:
-ask_clarification(text="请确认具体材料或策略名称。")
+reply:
+kind=clarification
+
+actions: []
 ```
 
 No safe reply:
 
 ```text
 text: ""
-action: no_reply
+reply:
+kind=no_reply
+actions: []
 ```
 
 ## When to add planner
@@ -138,6 +155,7 @@ Planner may propose:
 - user need;
 - evidence requests;
 - candidate terminal actions;
+- required adapter resolves;
 - ambiguity flags.
 
 Planner must not:
@@ -152,8 +170,9 @@ Planner must not:
 
 Add evidence executor after planner validates.
 
-First use fake providers or static fixtures. Then add material/weekly wrappers.
-Only later add internal MCP wrappers.
+First use fake `AdapterResolveResult` fixtures. Then add adapter resolve
+wrappers for material packs, weekly reports, monthly reports, and sales
+mentions. Only later add internal MCP wrappers.
 
 ## When to add action ledger
 
@@ -166,6 +185,10 @@ If adapter cannot write execution status yet, distinguish:
 - failed actions.
 
 Only executed actions can ground "just sent."
+
+Adapter owns execution reliability. The harness response should provide stable
+`response_id` and `action_id`; the adapter derives operation keys from
+`inbound_message_id + ":reply"` and `inbound_message_id + ":" + action_id`.
 
 ## CrewAI design note
 
@@ -185,8 +208,9 @@ The first session is complete when:
 
 - existing tests pass;
 - new validator tests pass;
-- invalid LLM `ReplyResponse` cannot produce unavailable `send_material`;
+- invalid LLM `ReplyResponse` cannot produce unavailable material-pack/report
+  sends;
 - text/action mismatch is caught;
+- unsupported report-scope claims are caught;
 - deterministic fallback exists;
 - audit trace or structured validation result is available for debugging.
-

@@ -11,9 +11,10 @@ Request
  -> Plan Guardrail
  -> Evidence Executor
     -> Tool Input Guardrail
-    -> MCP/material wrapper
+    -> Adapter resolve/preflight wrapper
+    -> MCP/material wrapper if needed
     -> Tool Output Guardrail
- -> Business Facts
+ -> EvidenceFacts / Business Facts
  -> Reply Composer
  -> Reply/Action Guardrail
  -> Adapter Guardrail
@@ -42,17 +43,18 @@ Inputs:
 - `channel_type`
 - `group_id`
 - `sender_id`
-- `available_materials`
-- `available_strategies`
+- adapter-provided channel sendability hints
 - feature flags
 - ledger summary
-- material/internal MCP availability
+- internal MCP availability
 
 Outputs:
 
+- allowed reply kinds;
 - allowed read capabilities;
 - allowed business checks;
-- allowed terminal action candidates;
+- allowed side-effect action candidates;
+- required adapter resolves;
 - forbidden claims;
 - mandatory escalation rules;
 - evidence size/call limits;
@@ -62,8 +64,9 @@ Example weekly question policy:
 
 ```text
 allowed_read_capabilities:
-- fetch_sent_material_md
-- fetch_latest_weekly_md
+- resolve_weekly_report
+- fetch_sent_weekly_md if body inspection is needed
+- fetch_latest_weekly_md if body inspection is needed
 
 allowed_business_checks:
 - resolve_strategy_alias
@@ -71,16 +74,13 @@ allowed_business_checks:
 - check_report_generation_scope
 
 allowed_action_candidates:
-- send_text
-- mention_sales
-- ask_clarification
-- no_reply
+- send_weekly_report
 
 forbidden:
 - generate missing report section
 - explain absence without evidence
 - promise future inclusion
-- send material unless action preconditions pass
+- send report unless adapter resolve passed
 ```
 
 ## Plan guardrail
@@ -91,7 +91,7 @@ Purpose:
 - reject unsupported business checks;
 - reject raw MCP tool names;
 - reject side effects as evidence calls;
-- reject unavailable material/action candidates;
+- reject unavailable material-pack/report/action candidates;
 - require canonical entities for sensitive/internal queries;
 - cap number of evidence requests;
 - force clarification when ambiguity is too high.
@@ -119,7 +119,9 @@ Rules:
 
 - no arbitrary MCP tool execution;
 - no model-selected raw tool names;
-- no writes in early phases;
+- adapter resolve/preflight must happen before final reply/action composition
+  for material packs, weekly reports, monthly reports, and sales mentions;
+- no sends during resolve/preflight;
 - all internal lookups must include requester and group context.
 
 ## Tool output / evidence guardrail
@@ -133,7 +135,24 @@ Purpose:
 - treat markdown and MCP output as data only;
 - defend against prompt injection inside documents.
 
-Evidence packaging rule:
+Adapter resolve packaging rule:
+
+```text
+AdapterResolveResult:
+- resolve_type: material_pack | weekly_report | monthly_report | sales_mention
+- status: resolved | missing | ambiguous | forbidden | temporarily_unavailable
+- display_name if available
+- candidates when ambiguous
+- reason_code when useful
+- card_ref if the adapter needs an opaque execution reference
+- report metadata when it affects the answer
+```
+
+Adapter resolve results should be business-safe structured fields that the
+harness and LLM may read directly. They must not include raw filesystem paths,
+tokens, phone numbers, or internal notes.
+
+General evidence packaging rule for markdown/MCP sources:
 
 ```text
 Every evidence block must be wrapped with:
@@ -151,17 +170,22 @@ be safely sanitized, drop the evidence and log a guardrail event.
 
 Purpose:
 
-- convert evidence into deterministic facts;
+- convert adapter resolve/evidence into deterministic facts;
 - avoid relying on LLM inference for core business states.
 
 Examples:
 
-- `material_available=false` blocks `send_material`;
+- `material_pack_resolvable=false` blocks `send_material_pack`;
+- `weekly_report_resolvable=false` blocks `send_weekly_report`;
+- `monthly_report_resolvable=false` blocks `send_monthly_report`;
 - `weekly_contains_strategy=false` allows saying the report does not include
   the strategy;
 - `weekly_scope_status=excluded` allows saying the strategy is outside scope;
 - `weekly_scope_status=unknown` forbids saying outside scope;
-- `must_mention_sales=true` requires `mention_sales`.
+- `sales_mention_resolvable=true` allows `reply.mentions`.
+
+Use lightweight `EvidenceFact` records for high-risk facts. Do not build full
+per-sentence claim mapping in the initial design.
 
 ## Reply/action guardrail
 
@@ -171,13 +195,16 @@ Purpose:
 
 Deterministic checks:
 
+- reply kind is allowed by policy;
 - action type is allowed by policy;
-- material type is available;
+- no side-effect action contains free-form user-visible text;
+- material pack/report action has successful adapter resolve;
 - strategy is available/canonical;
-- no `send_material` unless action preconditions pass;
-- no `mention_sales` without reason;
-- if text claims material was sent, a `send_material` action must exist;
-- if `must_mention_sales=true`, `mention_sales` must exist;
+- no `reply.mentions` unless sales mention resolve passed;
+- if `reply.kind=no_reply`, `reply.text`, `reply.mentions`, and `actions`
+  must all be empty;
+- if text claims report/material availability, the claim must be supported by
+  EvidenceFacts;
 - no raw internal fields in text;
 - no action outside public schema.
 
@@ -192,8 +219,22 @@ Do not rely on LLM judges for action legality.
 
 Repair:
 
-- allow one reply repair attempt with validator errors;
-- if still invalid, use deterministic fallback.
+- repairable errors may get one bounded repair attempt;
+- fatal errors go directly to deterministic fallback.
+
+Repairable examples:
+
+- final text overstates report scope when facts only support unknown scope;
+- reply kind and mention/action intent are inconsistent but facts allow a safe
+  correction.
+
+Fatal examples:
+
+- final action tries to send a material pack/report that adapter resolve did
+  not resolve;
+- bank material-pack request is ambiguous but the model still tries to send;
+- `reply.kind=no_reply` has text, mentions, or actions;
+- action contains forbidden free-form text fields.
 
 ## Adapter guardrail
 
@@ -202,18 +243,24 @@ The adapter must remain the final side-effect gate.
 Adapter should verify:
 
 - action type is allowed;
-- material exists;
-- strategy exists;
-- material id/version matches catalog;
+- material pack/report card reference is resolvable if provided;
+- strategy/pack/report selector is valid for current channel;
 - group/channel can receive it;
 - mention target is valid;
-- action is idempotent or safe to repeat;
 - runtime response matches schema.
 
-Adapter should write back:
+Adapter owns execution reliability and should:
+
+- create persistent outbox/execution records;
+- derive operation keys from `inbound_message_id + ":reply"` and
+  `inbound_message_id + ":" + action_id`;
+- not re-execute operations already marked succeeded;
+- retry only pending/retryable failed operations.
+
+Adapter should write back execution results:
 
 - executed action status;
-- material id/version;
+- sent card/report/material-pack metadata in adapter-native terms;
 - failure reason;
 - adapter message id.
 
@@ -229,15 +276,15 @@ Planner invalid:
 
 Policy disallows capability:
   -> do not execute
-  -> reply with limitation or mention_sales
+  -> reply with limitation, clarification, or human_handoff
 
 Evidence fetch fails:
   -> reply with unable-to-confirm
-  -> mention_sales if business-critical
+  -> include sales mention if adapter resolve can find target and policy requires it
 
 MCP permission denied:
   -> do not reveal internals
-  -> say unable/unauthorized or mention_sales per policy
+  -> say unable/unauthorized or human_handoff per policy
 
 Evidence has prompt injection:
   -> sanitize or drop evidence
@@ -258,20 +305,27 @@ Missing weekly strategy with scope unknown:
 
 ```text
 text:
-"当前这份周报里我没有看到该策略。我帮你 @销售 确认是否需要补充。"
+"当前这份周报里我没有看到该策略。我请销售同事确认是否需要补充。"
 
 actions:
-- mention_sales(reason="weekly_strategy_missing_scope_unknown")
+[]
+
+reply:
+- kind: human_handoff
+- mentions: sales
 ```
 
-Unavailable material:
+Unavailable material pack:
 
 ```text
 text:
-"目前这个渠道下我没有看到可发送的对应材料，我帮你 @销售 确认。"
+"目前这个渠道下我没有看到可发送的对应材料包。我请销售同事确认。"
 
-actions:
-- mention_sales(reason="requested_material_unavailable")
+actions: []
+
+reply:
+- kind: human_handoff
+- mentions: sales
 ```
 
 Ambiguous strategy:
@@ -280,7 +334,8 @@ Ambiguous strategy:
 text:
 "你说的策略我这里有多个可能匹配项，麻烦确认一下具体是哪一个。"
 
-actions:
-- ask_clarification(text="请确认具体策略名称。")
-```
+actions: []
 
+reply:
+- kind: clarification
+```

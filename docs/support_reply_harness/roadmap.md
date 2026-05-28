@@ -19,6 +19,8 @@ Deliverables:
 Acceptance criteria:
 
 - `ReplyResponse` remains the external boundary.
+- Production response contract separates `reply`, `reply.mentions`, and
+  side-effect `actions`.
 - No arbitrary MCP tools go directly to LLM.
 - Missing evidence means clarification/escalation, not invention.
 - "Missing from report" and "outside generation scope" are different facts.
@@ -31,7 +33,8 @@ Build:
 
 - `PolicyManifest`
 - `ReplyPlan`
-- `EvidenceBundle`
+- `AdapterResolveResult`
+- lightweight `EvidenceFact`
 - `BusinessFacts`
 - `ValidationResult`
 - `AuditTrace`
@@ -54,7 +57,8 @@ Acceptance criteria:
 - New tests cover valid and invalid plans.
 - New tests cover invalid final `ReplyResponse`.
 - Service can still reply when planner/reply fails via fallback.
-- Audit trace records plan, validation errors, repair/fallback path.
+- Audit trace records plan, adapter resolve summaries, EvidenceFacts,
+  validation errors, and repair/fallback path.
 
 ## Phase 2 - Policy compiler
 
@@ -65,17 +69,21 @@ Inputs:
 - `channel_type`
 - `group_id`
 - `sender_id`
-- `available_materials`
-- `available_strategies`
+- adapter-provided channel sendability hints;
+- canonical strategy hints when available;
+- adapter resolve capability for material packs, weekly reports, monthly
+  reports, and sales mentions
 - recent action ledger summary
 - feature flags
-- material/internal MCP availability
+- internal MCP availability
 
 Outputs:
 
 - allowed read capabilities;
 - allowed business checks;
 - allowed action candidates;
+- allowed reply kinds;
+- required adapter resolves;
 - forbidden claims;
 - required escalations;
 - evidence limits;
@@ -106,14 +114,14 @@ Ledger entry fields:
 
 ```text
 conversation_key
-context_id/message_id
+inbound_message_id
 group_id
 sender_id
 action_type
-material_type
+action_id
+sendable_type: material_pack | weekly_report | monthly_report
 strategy
-material_id
-version
+adapter_result_metadata
 status: proposed | executed | failed
 created_at
 executed_at
@@ -125,7 +133,7 @@ Acceptance criteria:
 - "Just sent weekly report" resolves to ledger item, not generic latest.
 - If no ledger entry exists, system does not pretend it knows.
 - Failed/proposed-only actions are not treated as sent.
-- Audit trace links evidence fetch to ledger material id/version.
+- Audit trace links evidence/resolve to ledger adapter metadata.
 
 ## Phase 4 - Entity canonicalization
 
@@ -155,37 +163,39 @@ Acceptance criteria:
 - Multiple candidates force clarification or sales mention.
 - Raw user text is not sent directly into internal wrappers.
 
-## Phase 5 - Material/weekly evidence integration
+## Phase 5 - Adapter resolve integration
 
-Goal: fetch whole markdown safely.
+Goal: resolve material packs, weekly reports, monthly reports, and sales
+mentions before final reply composition.
 
 Build wrappers:
 
-- `list_materials`
-- `fetch_latest_weekly_md`
-- `fetch_sent_material_md`
-- `fetch_material_md`
+- `resolve_material_pack`
+- `resolve_weekly_report`
+- `resolve_monthly_report`
+- `resolve_sales_mention`
 
-Evidence metadata required:
+Resolve metadata:
 
-- `material_id`
-- `material_type`
+- `resolve_type`
+- `status`
+- `display_name`
+- `candidates`
+- `reason_code`
+- optional `card_ref`
+- `period` / `report_date` for reports when relevant
 - `strategy`
-- `channel_type`
-- `version`
-- `published_at`
-- `source_key`
 - `generated_strategies` if available
-- `scope_strategies` if available
-- `markdown_body`
+- `scope_status` if available
 
 Acceptance criteria:
 
-- Full markdown fetch works under size limit.
-- Prompt injection inside markdown is ignored.
+- Adapter resolve works before reply composition.
 - Missing strategy in body only does not become missing scope.
-- Missing strategy in explicit scope metadata triggers mention_sales.
-- Unavailable weekly material forces clarification or mention_sales.
+- Missing strategy in explicit scope metadata permits generation-scope claims.
+- Unavailable material pack/report forces clarification, human_handoff, or
+  unable_to_answer.
+- Bank-channel ambiguous material-pack requests force clarification.
 
 ## Phase 6 - Business facts layer
 
@@ -194,6 +204,10 @@ Goal: keep factual decisions out of LLM where possible.
 Business checks:
 
 - `check_material_availability`
+- `check_material_pack_resolvable`
+- `check_weekly_report_resolvable`
+- `check_monthly_report_resolvable`
+- `check_sales_mention_resolvable`
 - `check_report_contains_strategy`
 - `check_report_generation_scope`
 - `check_user_permission`
@@ -204,8 +218,10 @@ Acceptance criteria:
 
 - Reply composer receives business facts.
 - Validator checks final reply against business facts.
-- If `must_mention_sales=true`, final response has `mention_sales`.
-- If `can_send_material=false`, final response has no `send_material`.
+- If final reply includes `reply.mentions`, sales mention resolve succeeded.
+- If `can_send_material_pack=false`, final response has no
+  `send_material_pack`.
+- If report scope is unknown, final text does not claim scope exclusion.
 
 ## Phase 7 - Planner integration
 
@@ -254,7 +270,8 @@ Reply input:
 - original user message;
 - bounded recent turns;
 - validated plan summary;
-- evidence bundle;
+- adapter resolve results;
+- lightweight EvidenceFacts;
 - business facts;
 - allowed action candidates;
 - forbidden claims;
@@ -262,9 +279,10 @@ Reply input:
 
 Acceptance criteria:
 
-- Public response contract remains unchanged.
+- Public response contract follows the proposed `reply` / `mentions` /
+  side-effect action separation.
 - Invalid text/action mismatches are caught.
-- "I sent it" without `send_material` is caught.
+- "I sent it" before adapter execution is discouraged/caught.
 - Missing strategy scope behavior matches policy.
 
 ## Phase 9 - Internal MCP integration
@@ -298,31 +316,31 @@ Acceptance criteria:
 - Sensitive fields are removed before reply LLM sees evidence.
 - Internal MCP failure does not crash `/reply`.
 
-## Phase 10 - Adapter feedback loop
+## Phase 10 - Adapter execution loop
 
 Goal: adapter remains final side-effect gate.
 
 Adapter should verify:
 
 - action type allowed;
-- material exists;
-- strategy exists;
-- material id/version matches catalog;
+- material pack/report card can be executed from the resolved reference or
+  selector;
+- strategy/pack/report selector is valid for the current channel;
 - group/channel can receive it;
 - mention target valid;
-- idempotency;
 - schema validity.
 
 Adapter should write back:
 
 - executed action status;
-- material id/version;
+- adapter-native sent artifact metadata;
 - failure reason;
 - adapter message id.
+- provider/card ids when available.
 
 Acceptance criteria:
 
-- Bad `send_material` is refused by adapter.
+- Bad `send_material_pack` / report action is refused by adapter.
 - Ledger records executed vs failed.
 - Repeated requests do not duplicate unsafe actions.
 - Runtime resolves "just sent" from adapter-confirmed ledger.
@@ -334,6 +352,7 @@ Goal: make every decision replayable.
 Log/audit:
 
 - request id/context id;
+- inbound message id;
 - conversation key;
 - policy manifest id/hash;
 - canonical entities;
@@ -341,6 +360,8 @@ Log/audit:
 - plan validation result;
 - evidence requests;
 - evidence source ids/versions;
+- adapter resolve results;
+- lightweight EvidenceFacts;
 - business facts;
 - reply output;
 - reply validation result;
@@ -376,8 +397,9 @@ Acceptance criteria before production:
 
 - zero critical action violations in golden set;
 - zero internal data leakage in adversarial set;
-- high precision for `send_material`;
-- mandatory `mention_sales` never missed in missing-scope cases;
+- high precision for `send_material_pack` and report actions;
+- required sales mentions never missed when policy and adapter resolve allow
+  them;
 - no unsupported "why" explanations in weekly absence cases.
 
 ## Phase 13 - Production hardening
@@ -387,7 +409,7 @@ Goal: make runtime reliable under real usage.
 Work items:
 
 - persistent conversation/ledger storage;
-- idempotency keys;
+- adapter-owned outbox/execution records;
 - request timeout budget;
 - evidence fetch timeout budget;
 - LLM retry policy;
@@ -417,8 +439,8 @@ Recommended new-session breakdown:
 3. Policy compiler.
 4. Planner stage.
 5. Action ledger.
-6. Material evidence skeleton.
-7. Real material/weekly integration.
+6. Adapter resolve skeleton.
+7. Real material-pack/report resolve integration.
 8. Reply composer hardening.
 9. Internal MCP integration.
 10. Adapter feedback loop.
@@ -433,8 +455,8 @@ Minimum safe useful version:
 2. reply/action validator
 3. deterministic fallback
 4. planner with typed `ReplyPlan`
-5. `EvidenceBundle` with fake provider
-6. material weekly fetch
+5. lightweight `EvidenceFact` with fake adapter resolve
+6. adapter resolve for material packs / reports / sales mention
 7. action ledger
 8. real MCP/internal info
 
@@ -447,8 +469,9 @@ RAG. Do not expand the public action schema unless the adapter needs it.
 - Letting markdown prompt injection override policy.
 - Treating missing report text as missing generation scope.
 - Sending material based on fuzzy strategy match.
+- Guessing among multiple bank-channel material packs.
 - Querying internal MCP with raw ambiguous text.
-- No adapter feedback, making "just sent" unreliable.
+- No adapter resolve/execution feedback, making "just sent" unreliable.
 - Conversation memory leaking across users/groups.
 - LLM reply text disagreeing with action list.
 - Overusing LLM judge for deterministic safety.
@@ -460,11 +483,10 @@ RAG. Do not expand the public action schema unless the adapter needs it.
 
 - Where will action ledger live: runtime memory, existing adapter DB, new table?
 - Can adapter write back executed/failed action status?
-- Does material metadata include `generated_strategies` or `scope_strategies`?
+- Can adapter resolve return `generated_strategies` or equivalent report scope
+  metadata?
 - What exactly is weekly report generation scope and where is it stored?
-- Are `available_strategies` authoritative or only UI hints?
-- Who is sales mention target: adapter decides, or runtime provides reason only?
-- Are bank/non-bank policy differences already defined?
+- Are bank/non-bank material-pack resolution rules fully defined?
 - Which internal MCP fields are allowed per group/channel/user?
 - What is max acceptable `/reply` latency?
 - Is full markdown content allowed in logs, or only source ids/hashes?
@@ -480,11 +502,10 @@ The project is safe enough when:
 - every evidence claim is traceable to source id/version or business fact;
 - unavailable material is never sent;
 - missing strategy in weekly report never produces invented explanation;
-- mandatory sales escalation is never missed in golden cases;
+- mandatory sales mention/handoff is never missed in golden cases;
 - markdown/MCP prompt injection tests pass;
 - internal MCP data is permission-filtered and redacted;
 - adapter has final execution guardrail;
 - action ledger can resolve "just sent" reliably;
 - eval suite runs before prompt/model/tool changes;
 - audit trace can explain why any reply/action happened.
-
