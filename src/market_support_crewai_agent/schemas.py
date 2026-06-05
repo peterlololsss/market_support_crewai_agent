@@ -1,16 +1,47 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 MaterialType = Literal["material", "weekly", "monthly"]
 ChannelType = Literal["bank", "non_bank"]
+AdapterResolveType = Literal[
+    "material_pack",
+    "weekly_report",
+    "monthly_report",
+    "sales_mention",
+]
+AdapterResolveStatus = Literal[
+    "resolved",
+    "missing",
+    "ambiguous",
+    "forbidden",
+    "temporarily_unavailable",
+]
+ActionExecutionStatus = Literal["executed", "failed", "skipped"]
+ActionExecutionType = Literal["send_text", "send_material", "mention_sales"]
+ReplyKind = Literal[
+    "answer",
+    "clarification",
+    "human_handoff",
+    "unable_to_answer",
+    "no_reply",
+]
+ReplyMentionType = Literal["sales"]
+SideEffectActionType = Literal[
+    "send_material_pack",
+    "send_weekly_report",
+    "send_monthly_report",
+]
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+MetricCount = Annotated[int, Field(ge=0)]
 
 
 class ReplyRequest(StrictModel):
@@ -28,48 +59,263 @@ class ReplyRequest(StrictModel):
     channel_type: ChannelType
 
 
-class SendTextAction(StrictModel):
-    type: Literal["send_text"]
-    text: str
-
-
-class SendMaterialAction(StrictModel):
-    type: Literal["send_material"]
-    material_type: MaterialType
+class AdapterResolveRequest(StrictModel):
+    resolve_type: AdapterResolveType
+    dist_name: str = Field(min_length=1)
     strategy: str | None = None
-    message: str | None = None
 
 
-class MentionSalesAction(StrictModel):
-    type: Literal["mention_sales"]
-    reason: str
-    message: str | None = None
+class AdapterResolveResult(StrictModel):
+    contract_version: Literal["adapter-resolve.v1"]
+    resolve_type: AdapterResolveType
+    status: AdapterResolveStatus
+    display_name: str
+    reason_code: str
+    candidates: list[str] = Field(default_factory=list)
+    channel_type: ChannelType = "non_bank"
+    available_materials: list[MaterialType] = Field(default_factory=list)
+    available_strategies: list[str] = Field(default_factory=list)
+    resolved_at: int
+    detail: str | None = None
+    card_ref: str | None = None
+    strategy: str | None = None
+    period: str | None = None
+    report_date: str | None = None
+    contains_strategy: bool | None = None
+    generated_strategies: list[str] = Field(default_factory=list)
+    scope_status: Literal["included", "excluded", "unknown"] | None = None
+
+    @field_validator("detail")
+    @classmethod
+    def validate_detail_is_sanitized(cls, value: str | None) -> str | None:
+        _reject_raw_locator_text(value, "detail")
+        return value
+
+    @field_validator("card_ref")
+    @classmethod
+    def validate_card_ref_is_opaque(cls, value: str | None) -> str | None:
+        _reject_raw_locator_text(value, "card_ref")
+        return value
 
 
-class AskClarificationAction(StrictModel):
-    type: Literal["ask_clarification"]
-    text: str
+class AdapterResolveBatchRequest(StrictModel):
+    requests: list[AdapterResolveRequest] = Field(min_length=1, max_length=16)
 
 
-class NoReplyAction(StrictModel):
-    type: Literal["no_reply"]
+class AdapterResolveBatchResult(StrictModel):
+    contract_version: Literal["adapter-resolve-batch.v1"]
+    results: list[AdapterResolveResult]
 
 
-ReplyAction = Annotated[
+class AdapterCapabilityEndpoints(StrictModel):
+    health: str
+    capabilities: str
+    metrics: str
+    resolve: str
+    batch_resolve: str
+
+
+class AdapterCapabilityAuth(StrictModel):
+    header_schemes: list[str] = Field(default_factory=list)
+    protected_endpoints: list[str] = Field(default_factory=list)
+
+
+class AdapterCapabilities(StrictModel):
+    service: Literal["xiaoyan-wecom-market-agent-adapter"]
+    contract_version: Literal["adapter-resolve.v1"]
+    batch_contract_version: Literal["adapter-resolve-batch.v1"]
+    endpoints: AdapterCapabilityEndpoints
+    resolve_types: list[AdapterResolveType]
+    statuses: list[AdapterResolveStatus]
+    max_batch_requests: int = Field(gt=0)
+    max_request_body_bytes: int = Field(gt=0)
+    cache_ttl_seconds: float = Field(default=0, ge=0)
+    cache_max_entries: int = Field(default=0, ge=0)
+    auth: AdapterCapabilityAuth | None = None
+
+
+class AdapterCacheMetrics(StrictModel):
+    ttl_seconds: float = Field(ge=0)
+    max_entries: int = Field(ge=0)
+    entries: int = Field(ge=0)
+    hits: int = Field(ge=0)
+    misses: int = Field(ge=0)
+    sets: int = Field(ge=0)
+    expired: int = Field(ge=0)
+    evictions: int = Field(ge=0)
+
+
+class AdapterResolverMetrics(StrictModel):
+    cache: AdapterCacheMetrics
+
+
+class AdapterDurationMetrics(StrictModel):
+    count: MetricCount
+    total: float = Field(ge=0)
+    max: float = Field(ge=0)
+
+
+class AdapterTransportRouteMetrics(StrictModel):
+    requests: MetricCount
+    errors: MetricCount
+    status_codes: dict[str, MetricCount] = Field(default_factory=dict)
+    duration_ms: AdapterDurationMetrics
+
+
+class AdapterTransportMetrics(StrictModel):
+    requests_total: MetricCount
+    inflight_requests: MetricCount
+    errors_total: MetricCount
+    status_codes: dict[str, MetricCount] = Field(default_factory=dict)
+    duration_ms: AdapterDurationMetrics
+    routes: dict[str, AdapterTransportRouteMetrics] = Field(default_factory=dict)
+
+
+class AdapterMetrics(StrictModel):
+    service: Literal["xiaoyan-wecom-market-agent-adapter"]
+    uptime_seconds: int = Field(ge=0)
+    resolver: AdapterResolverMetrics
+    transport: AdapterTransportMetrics
+
+
+class ReplyMention(StrictModel):
+    type: ReplyMentionType
+    reason: str | None = None
+
+
+class PrimaryReply(StrictModel):
+    kind: ReplyKind
+    text: str = ""
+    text_format: Literal["plain_text"] = "plain_text"
+    mentions: list[ReplyMention] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_no_reply_shape(self):
+        if self.kind == "no_reply" and (self.text.strip() or self.mentions):
+            raise ValueError("no_reply must not include text or mentions")
+        return self
+
+
+class SideEffectActionBase(StrictModel):
+    action_id: str = ""
+
+
+class SendMaterialPackAction(SideEffectActionBase):
+    type: Literal["send_material_pack"]
+    strategy: str | None = None
+
+
+class SendWeeklyReportAction(SideEffectActionBase):
+    type: Literal["send_weekly_report"]
+
+
+class SendMonthlyReportAction(SideEffectActionBase):
+    type: Literal["send_monthly_report"]
+
+
+SideEffectAction = Annotated[
     Union[
-        SendTextAction,
-        SendMaterialAction,
-        MentionSalesAction,
-        AskClarificationAction,
-        NoReplyAction,
+        SendMaterialPackAction,
+        SendWeeklyReportAction,
+        SendMonthlyReportAction,
     ],
     Field(discriminator="type"),
 ]
 
 
 class ReplyResponse(StrictModel):
-    text: str = ""
-    actions: list[ReplyAction] = Field(default_factory=list)
+    contract_version: Literal["reply"] = "reply"
+    response_id: str = ""
+    reply: PrimaryReply
+    actions: list[SideEffectAction] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_no_reply_has_no_actions(self):
+        if self.reply.kind == "no_reply" and self.actions:
+            raise ValueError("no_reply must not include side-effect actions")
+        return self
+
+
+_SENSITIVE_ADAPTER_RESULT_KEYS = {
+    "dist_name",
+    "file_path",
+    "group_id",
+    "material_url",
+    "path",
+    "receiver",
+    "report_url",
+    "sender_id",
+    "target_id",
+    "url",
+}
+
+
+def _reject_sensitive_adapter_result(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if str(key) in _SENSITIVE_ADAPTER_RESULT_KEYS:
+                raise ValueError("adapter_result contains adapter-owned fields")
+            _reject_sensitive_adapter_result(nested)
+        return
+    if isinstance(value, list):
+        for nested in value:
+            _reject_sensitive_adapter_result(nested)
+        return
+    if isinstance(value, str):
+        _reject_raw_locator_text(value, "adapter_result")
+
+
+def _reject_raw_locator_text(value: str | None, field_name: str) -> None:
+    if not value:
+        return
+    if (
+        "://" in value
+        or "/" in value
+        or "\\" in value
+        or "file:" in value
+        or value.startswith("~")
+    ):
+        raise ValueError(f"{field_name} contains raw locator values")
+
+
+class ActionExecutionFeedback(StrictModel):
+    action_type: ActionExecutionType
+    status: ActionExecutionStatus
+    action_id: str | None = None
+    material_type: MaterialType | None = None
+    strategy: str | None = None
+    material_id: str | None = None
+    version: str | None = None
+    adapter_result: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("material_id")
+    @classmethod
+    def validate_opaque_material_id(cls, value: str | None) -> str | None:
+        if not value:
+            return value
+        if "://" in value or "/" in value or "\\" in value:
+            raise ValueError("material_id must be an opaque adapter reference")
+        return value
+
+    @field_validator("adapter_result")
+    @classmethod
+    def validate_adapter_result_is_sanitized(cls, value: dict[str, Any]) -> dict[str, Any]:
+        _reject_sensitive_adapter_result(value)
+        return value
+
+
+class ActionFeedbackRequest(StrictModel):
+    conversation_key: str = Field(min_length=1)
+    group_id: str = Field(min_length=1)
+    sender_id: str = Field(min_length=1)
+    context_id: str | None = None
+    response_id: str | None = None
+    executions: list[ActionExecutionFeedback] = Field(default_factory=list)
+
+
+class ActionFeedbackResponse(StrictModel):
+    status: Literal["accepted"]
+    stored: int
 
 
 class HealthResponse(StrictModel):
