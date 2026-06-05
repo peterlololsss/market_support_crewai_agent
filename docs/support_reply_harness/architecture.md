@@ -1,102 +1,54 @@
 # Support Reply Harness Architecture
 
+Last updated: 2026-06-03.
+
 ## Problem restatement
 
-The service is an external reasoning brain for a market support workflow. It
-receives structured chat context and returns structured text/actions for a
-WeWork adapter to execute. The challenge is to support open-ended Chinese sales
-and support requests without enumerating every user phrasing, while still
-enforcing strict boundaries around materials, reports, internal information,
-claims, escalation, and side effects.
+The service is an external reasoning brain for a market support workflow. It receives structured WeCom chat context and returns one `ReplyResponse` for a WeCom adapter to execute.
 
-Core tension:
+The challenge is open-ended Chinese sales/support requests under strict boundaries around materials, reports, internal information, factual claims, escalation, and side effects.
 
-```text
-The system needs enough model autonomy to understand ambiguous domain language,
-but not enough autonomy to invent facts, bypass permissions, leak internal data,
-or trigger unsupported actions.
-```
-
-## Current public contracts
+## Current public contract
 
 `ReplyRequest` includes:
 
-- `conversation_key`
-- `group_id`
-- `sender_id`
-- `message`
-- `is_group`
-- `context_id` optional
-- `group_name`
-- `dist_channel_name`
-- `sender_nickname`
-- `available_materials`
-- `available_strategies`
-- `channel_type`
+```text
+conversation_key
+group_id
+sender_id
+message
+is_group
+context_id optional
+group_name
+dist_channel_name
+sender_nickname
+available_materials
+available_strategies
+channel_type
+```
 
-`ReplyResponse` includes:
-
-- `text`
-- `actions`
-
-Supported action types:
-
-- `send_text`
-- `send_material`
-- `mention_sales`
-- `ask_clarification`
-- `no_reply`
-
-These are the current implemented contracts. The adapter can be deliberately
-changed, and the proposed production contract below supersedes the mixed
-`text + action text` model.
-
-## Proposed production response contract
-
-`ReplyResponse` should separate reply semantics, primary user-visible text,
-customer-visible mentions, and side-effect actions.
+`ReplyResponse` separates reply semantics, primary user-visible text, customer-visible mentions, and side-effect action proposals.
 
 ```text
-ReplyResponse:
+ReplyResponse
 - contract_version
 - response_id
 - reply: PrimaryReply
 - actions: list[SideEffectAction]
 
-PrimaryReply:
+PrimaryReply
 - kind: answer | clarification | human_handoff | unable_to_answer | no_reply
 - text
 - text_format: plain_text
 - mentions: list[ReplyMention]
 
-SideEffectAction:
+SideEffectAction
 - send_material_pack
 - send_weekly_report
 - send_monthly_report
 ```
 
-Rules:
-
-- `reply.text` is the only primary user-visible free-form reply text.
-- `send_text` is removed.
-- `ask_clarification` becomes `reply.kind=clarification`.
-- `no_reply` becomes `reply.kind=no_reply`.
-- `fallback` is not a reply kind; it is internal audit provenance.
-- Customer-visible sales mentions belong to `reply.mentions`.
-- Actions must not contain user-visible free-form fields such as `message`,
-  `text`, `caption`, or `body`.
-- Public `ReplyResponse` does not expose sending-side idempotency keys. The
-  adapter owns execution reliability and derives operation keys from
-  `inbound_message_id`, reply operation, and `action_id`.
-
-Current scope rejected as over-engineering:
-
-- `tenant` in the public contract;
-- `business_unit` in the public contract;
-- adapter-provided `environment`.
-
-This is an internal group robot, not a multi-tenant SaaS platform. Deployment
-environment, if needed, should come from runtime configuration.
+User-visible free-form reply text lives in `reply.text`. Sales mentions visible to the customer live in `reply.mentions`. The adapter owns execution reliability and final side-effect execution.
 
 ## Target runtime shape
 
@@ -112,14 +64,14 @@ POST /reply
   -> Evidence executor
       -> Tool input guardrail
       -> Adapter resolve/preflight wrapper
-      -> Material/MCP wrapper if needed
+      -> Material/MCP wrapper when enabled
       -> Tool output guardrail
-  -> Lightweight EvidenceFact derivation
-  -> Deterministic business checks
+  -> EvidenceFact derivation
+  -> BusinessFacts derivation
   -> Reply composer LLM
   -> Reply/action validator
-  -> Repair once if safe
-  -> Deterministic fallback if still unsafe
+  -> Repair once when safe
+  -> Deterministic fallback when still unsafe
   -> Save conversation + audit trace
   -> Return ReplyResponse
   -> Adapter guardrail before real execution
@@ -130,18 +82,15 @@ POST /reply
 Use this hierarchy when sources conflict:
 
 1. Request contract and adapter-provided conversation/message identity.
-2. Adapter resolve/preflight result for channel sendability, report/card
-   existence, and sales mention target resolution.
-3. Adapter-confirmed action ledger / execution result for what was actually
-   sent.
+2. Adapter resolve/preflight result for channel sendability, report/card existence, and sales mention target resolution.
+3. Adapter-confirmed action ledger/execution result for what was actually sent.
 4. Weekly/monthly report metadata returned by adapter resolve.
 5. Permission-scoped internal MCP data.
-6. Fetched markdown/report body if used.
+6. Fetched markdown/report body when used.
 7. Recent conversation turns.
 8. LLM interpretation.
 
-Planner conclusions are not facts. The planner proposes evidence needs and
-candidate actions; deterministic evidence and business checks establish facts.
+Planner conclusions are proposals. Evidence and deterministic business checks establish facts.
 
 ## Internal runtime concepts
 
@@ -149,261 +98,154 @@ candidate actions; deterministic evidence and business checks establish facts.
 
 Request-scoped policy generated before planning.
 
-Contains:
-
-- allowed reply kinds;
-- allowed side-effect actions;
-- required adapter resolves;
-- allowed read capabilities if any;
-- allowed deterministic business checks;
-- forbidden claims/actions;
-- required escalation rules;
-- evidence/resolve limits;
-- repair/fallback policy.
+Contains allowed reply kinds, allowed side-effect actions, required adapter resolves, allowed read capabilities, allowed deterministic business checks, forbidden claim categories, required escalation rules, evidence/resolve limits, and repair/fallback policy.
 
 ### ReplyPlan
 
-LLM-generated but validated. It describes intent and evidence needs.
+LLM-generated and validated. It describes user need, detected entity candidates, evidence requests, requested business checks, candidate terminal actions, ambiguity flags, confidence, and unsupported-request notes.
 
-Contains:
-
-- user need;
-- detected entities;
-- evidence requests;
-- requested business checks;
-- candidate terminal actions;
-- ambiguity flags;
-- confidence;
-- unsupported request notes.
-
-It must not contain final business facts as authority.
+`ReplyPlan` is not allowed to be a source of final business facts.
 
 ### AdapterResolveResult
 
-Adapter-owned preflight result used before final reply/action composition. It
-answers whether a WeWork card or sales mention can be generated for the current
-channel.
+Adapter-owned preflight result used before final reply/action composition. It answers whether a WeCom card or sales mention can be generated for the current channel.
 
 Common fields:
 
-- `resolve_type`: `material_pack`, `weekly_report`, `monthly_report`, or
-  `sales_mention`;
-- `status`: `resolved`, `missing`, `ambiguous`, `forbidden`, or
-  `temporarily_unavailable`;
-- `display_name` if available;
-- `candidates` when ambiguous;
-- `reason_code` when useful;
-- `card_ref` if the adapter needs an opaque reference for card execution.
+```text
+resolve_type: material_pack | weekly_report | monthly_report | sales_mention
+status: resolved | missing | ambiguous | forbidden | temporarily_unavailable
+display_name
+candidates
+reason_code
+card_ref
+```
 
-For weekly/monthly reports, adapter resolve may also return:
+Report-specific fields when relevant:
 
-- `period`;
-- `report_date`;
-- `strategy`;
-- `contains_strategy`;
-- `generated_strategies`;
-- `scope_status`: `included`, `excluded`, or `unknown`.
+```text
+period
+report_date
+strategy
+contains_strategy
+generated_strategies
+scope_status: included | excluded | unknown
+```
 
-The resolve result should be business-safe structured data that the harness and
-LLM may read directly. It should not include internal raw details such as
-filesystem paths, tokens, phone numbers, or internal notes.
+Adapter resolve results are business-safe structured data. They omit raw send targets, filesystem paths, tokens, phone numbers, internal notes, and adapter execution records.
 
 ### EvidenceFact
 
-Lightweight harness-generated fact list derived from adapter resolve and other
-deterministic evidence. It is internal and not model-generated.
+Lightweight internal fact records derived from adapter resolve and deterministic evidence. Initial fact types:
 
-Initial fact types:
+```text
+report_contains_strategy
+report_scope_status
+material_pack_resolvable
+weekly_report_resolvable
+monthly_report_resolvable
+sales_mention_resolvable
+```
 
-- `report_contains_strategy`;
-- `report_scope_status`;
-- `material_pack_resolvable`;
-- `weekly_report_resolvable`;
-- `monthly_report_resolvable`;
-- `sales_mention_resolvable`.
-
-The harness does not build full per-sentence claim mapping initially. It uses
-EvidenceFacts to validate high-risk claims and actions.
+The initial harness uses these facts to validate high-risk claims and actions, without building full per-sentence claim mapping.
 
 ### BusinessFacts
 
-Deterministic fact layer, derived from request, ledger, metadata, and evidence.
+Deterministic fact layer derived from request, ledger, metadata, and evidence.
 
 Examples:
 
-- strategy resolved or ambiguous;
-- material pack available, ambiguous, or unavailable;
-- weekly/monthly report resolvable or unavailable;
-- report contains strategy or does not;
-- report generation scope includes, excludes, or is unknown;
-- user permission allowed or denied;
-- sales mention target resolved or not resolved.
+```text
+strategy resolved / ambiguous / unknown
+material pack available / ambiguous / unavailable
+weekly or monthly report resolvable / unavailable
+report contains strategy / does not contain strategy / unknown
+report generation scope included / excluded / unknown
+user permission allowed / denied
+sales mention target resolved / not resolved
+```
 
 ### ValidationResult
 
-Machine-readable validation result.
-
-Contains:
-
-- valid/invalid;
-- severity;
-- error codes;
-- repairable flag;
-- fallback recommendation.
+Machine-readable validation result with validity, severity, error codes, repairability, and fallback recommendation.
 
 ### AuditTrace
 
-Replayable trace for incident review and eval debugging.
-
-Contains:
-
-- request id/context id;
-- policy manifest hash/id;
-- canonical entities;
-- planner output;
-- validation decisions;
-- evidence calls and source ids;
-- business facts;
-- reply output;
-- repair attempts;
-- fallback reason;
-- final actions;
-- adapter execution status when available.
-
-Decision source, reason codes, model/prompt/policy/validator versions, and
-adapter resolve/execution references belong here, not in the public response.
+Replayable trace for incident review and eval debugging. It records request/context id, policy manifest id/hash, canonical entities, planner output, validation decisions, evidence calls/source ids, business facts, reply output, repair attempts, fallback reason, final actions, adapter execution status, and model/prompt/policy/validator versions.
 
 ## Capability taxonomy
 
-Keep these separate.
+Keep capability types separate.
 
-### Read / evidence capabilities
+Read/evidence capabilities:
 
-- `resolve_material_pack`
-- `resolve_weekly_report`
-- `resolve_monthly_report`
-- `resolve_sales_mention`
-- `fetch_latest_weekly_md` if body inspection is needed
-- `fetch_sent_weekly_md` if ledger-grounded body inspection is needed
-- `query_internal_company_info`
+```text
+resolve_material_pack
+resolve_weekly_report
+resolve_monthly_report
+resolve_sales_mention
+fetch_latest_weekly_md
+fetch_sent_weekly_md
+query_internal_company_info
+```
 
-These are executed by deterministic wrappers only after validation.
+Deterministic business checks:
 
-### Deterministic business checks
+```text
+resolve_strategy_alias
+resolve_company_alias
+check_material_pack_resolvable
+check_weekly_report_resolvable
+check_monthly_report_resolvable
+check_report_contains_strategy
+check_report_generation_scope
+check_user_permission
+check_channel_permission
+```
 
-- `resolve_strategy_alias`
-- `resolve_company_alias`
-- `check_material_pack_resolvable`
-- `check_weekly_report_resolvable`
-- `check_monthly_report_resolvable`
-- `check_report_contains_strategy`
-- `check_report_generation_scope`
-- `check_user_permission`
-- `check_channel_permission`
+Terminal action candidates:
 
-Prefer deterministic implementations over LLM judgment.
+```text
+send_material_pack
+send_weekly_report
+send_monthly_report
+```
 
-### Terminal action candidates
-
-- `send_material_pack`
-- `send_weekly_report`
-- `send_monthly_report`
-
-Reply kinds such as `clarification`, `human_handoff`, and `no_reply` are not
-actions. Customer-visible sales mentions are represented in `reply.mentions`,
-with adapter-resolved targets.
-
-### Reply policies
-
-- `answer_only_from_evidence`
-- `no_investment_advice`
-- `no_unsupported_explanation`
-- `no_raw_internal_data`
-- `escalate_missing_scope_to_sales`
-- `do_not_claim_action_without_action`
-
-These are prompt constraints plus validators, not callable tools.
+Reply policies are prompt constraints plus validators, not callable tools.
 
 ## Weekly report absence semantics
 
-Important distinction:
+If deterministic report evidence has `contains_strategy=false`, the reply may state that the report does not include the strategy.
 
-```text
-If markdown body lacks strategy XX:
-  Allowed fact: "This report does not include XX."
+If adapter-provided generated-strategy/scope metadata explicitly has `scope_status=excluded`, the reply may state that the strategy is outside the report generation scope.
 
-If adapter-provided generated-strategy/scope metadata explicitly excludes XX:
-  Allowed fact: "XX is not in this report generation scope."
+If scope metadata is unavailable, the reply should use conservative wording and escalate or clarify according to policy.
 
-If scope metadata is unavailable:
-  Not allowed: "XX is not in generation scope."
-  Allowed: "This report does not include XX; I will mention sales to confirm."
-```
-
-Therefore adapter resolve for weekly/monthly reports should return
-`generated_strategies` or equivalent scope metadata when the harness is allowed
-to make generation-scope claims. Without that metadata, the harness must use
-conservative wording.
+The current xiaoyan adapter returns positive report-scope evidence when generated markdown explicitly matches the requested strategy. It does not emit negative exclusion evidence yet, so absent matches remain `unknown`.
 
 ## Material pack and report sending semantics
 
-Do not overload one `send_material` action.
+`send_material_pack`, `send_weekly_report`, and `send_monthly_report` are distinct action proposals.
 
-- `send_material_pack`: sends an open-day/customer-facing material pack.
-- `send_weekly_report`: sends a weekly report card.
-- `send_monthly_report`: sends a monthly report card.
+A channel may have multiple strategies. A material pack may cover multiple strategies. Non-bank channels may have one default pack; bank channels may split strategies across multiple packs. If a bank-channel material-pack request does not specify enough strategy or pack information to resolve one pack, the harness asks for clarification.
 
-A channel has multiple strategies. A material pack may cover multiple
-strategies. Non-bank channels may have one default pack; bank channels may split
-strategies across multiple packs. If a bank-channel material-pack request does
-not specify enough strategy or pack information to resolve one pack, the
-harness must ask for clarification instead of guessing.
-
-The adapter is the source of truth for channel-scoped sendability and fetching.
-The harness must wait for adapter resolve/preflight feedback before composing
-the final reply/action.
+The adapter is the source of truth for channel-scoped sendability and fetching. The harness waits for adapter resolve/preflight feedback before composing a final reply/action.
 
 ## Adapter identity and execution reliability
 
-The adapter-to-harness request should expose harness-oriented identity fields:
+The adapter-to-harness request exposes harness-oriented identity fields:
 
-- `conversation_key`: derived from raw WeWork `conversation_id`; used for
-  history and ledger lookup scope.
-- `inbound_message_id`: derived from raw WeWork `server_id`; used for duplicate
-  detection, adapter operation-key derivation, and audit correlation.
-- `sender_id`: derived from raw sender.
-- `receiver_id` / `bot_id`: derived from raw receiver if needed.
-- `send_time`: preserved as event timestamp.
+```text
+conversation_key
+inbound_message_id
+sender_id
+receiver_id / bot_id when needed
+send_time
+context_id optional trace id
+```
 
-Do not use `context_id` as a vague multipurpose field in the final contract.
-If it remains during migration, document it as legacy and map it at the adapter
-boundary.
-
-The adapter owns execution reliability:
-
-- validate the full `ReplyResponse` before executing anything;
-- create persistent outbox/execution records;
-- execute primary reply with `reply.mentions`;
-- execute actions in order;
-- derive operation keys from `inbound_message_id + ":reply"` and
-  `inbound_message_id + ":" + action_id`;
-- do not re-execute operations already marked succeeded;
-- write adapter execution results for ledger/audit.
+The adapter validates the full `ReplyResponse`, creates persistent outbox/execution records, executes the primary reply and actions, derives operation keys from inbound message identity plus reply/action identity, and writes adapter execution results for ledger/audit.
 
 ## Multi-agent decision
 
-Initial recommendation:
-
-```text
-Do not build a true autonomous multi-agent Crew initially.
-Build one orchestrated harness with two LLM stages.
-```
-
-Stages:
-
-- Planner LLM: no tools, outputs validated `ReplyPlan`.
-- Reply Composer LLM: no direct tools, sees sanitized evidence/business facts,
-  outputs `ReplyResponse`.
-
-Only add more agents later if tool/permission surfaces diverge sharply, prompts
-become overloaded, or a separate compliance judge adds measurable safety.
+Use one orchestrated harness. Add more agents only when tool/permission surfaces diverge sharply, prompts become overloaded, or a separate compliance judge proves measurable safety value.

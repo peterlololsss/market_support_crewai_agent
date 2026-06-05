@@ -1,80 +1,67 @@
-# Support Reply Harness Handoff
+# Support Reply Harness Docs
 
-Last updated: 2026-05-26.
+Last updated: 2026-06-03.
 
-This directory captures the architecture and multi-session roadmap for turning
-`market-support-crewai-agent` into a safe, evidence-grounded support reply
-harness. It is intended as handoff material for future coding sessions.
+This directory is the active design source for the evidence-grounded support reply harness in `market-support-crewai-agent`.
 
 ## Current repo context
 
-- Project: `market-support-crewai-agent`
-- Runtime service: FastAPI external agent brain for an existing WeWork adapter.
+- Runtime service: FastAPI external reasoning service for an existing WeCom adapter.
 - Public endpoint: `POST /reply`.
-- Public response boundary: `ReplyResponse` with `text` plus typed actions.
-- The service must not send WeWork messages directly.
-- Current runtime file: `src/market_support_crewai_agent/runtime/reply_agent.py`
-- Public contracts: `src/market_support_crewai_agent/schemas.py`
-- Conversation store: `src/market_support_crewai_agent/runtime/conversation_store.py`
-- Existing tests: `tests/test_reply_contract.py`
+- Public response boundary: `ReplyResponse` with `reply` plus typed side-effect action proposals.
+- Execution owner: existing WeCom adapter.
+- Current runtime file: `src/market_support_crewai_agent/runtime/reply_agent.py`.
+- Public contracts: `src/market_support_crewai_agent/schemas.py`.
+- Conversation store: `src/market_support_crewai_agent/runtime/conversation_store.py`.
+- Existing tests: `tests/test_reply_contract.py`, `tests/test_adapter_preflight.py`, `tests/test_reply_guardrails.py`, `tests/test_action_feedback.py`.
 
-As of the original review:
+## Active decision
 
-- Local CrewAI version observed: `1.14.4`.
-- Latest PyPI version observed: `1.14.5`.
-- Before modifying CrewAI code, follow `AGENTS.md`: check installed version,
-  check PyPI, read CrewAI changelog, and consult relevant live docs.
+Build a Support Reply Harness: a deterministic evidence and control layer around LLM composition.
 
-## Design decision
+The LLM handles language interpretation and concise composition. The harness handles identity, permission, canonicalization, evidence, business facts, validators, side-effect gates, audit, and evals.
 
-Build a `Support Reply Harness`, not a free-form multi-agent system.
+## Reading guide
 
-The LLM should do:
+For a normal coding session, read:
 
-- interpret messy user language;
-- propose evidence needs;
-- compose concise support replies;
-- propose typed actions.
+1. `AGENTS.md`.
+2. This file.
+3. `next_session.md`.
+4. One focused reference file below based on the task.
 
-The deterministic harness should do:
+Focused references:
 
-- identity and permission checks;
-- capability policy compilation;
-- entity canonicalization;
-- evidence fetching;
-- business fact derivation;
-- action validation;
-- side-effect gating;
-- audit and eval logging.
-
-## Read these files in order
-
-1. `architecture.md`
-   - problem framing, invariants, source-of-truth hierarchy, target runtime.
-2. `guardrails.md`
-   - guardrail layers, repair/fallback behavior, adapter enforcement.
-3. `roadmap.md`
-   - phased implementation plan and session split.
-4. `eval_plan.md`
-   - regression, adversarial, and golden test categories.
-5. `implementation_handoff.md`
-   - practical next-session starting points and first changes.
+```text
+architecture.md                      runtime shape and source hierarchy
+guardrails.md                        guardrail/validator details
+eval_plan.md                         eval cases and acceptance gates
+roadmap.md                           phase plan and open decisions
+adr/0001-support-reply-harness.md     frozen architecture decision
+reference/agent_prompt_hygiene.md    agent prompt/context hygiene
+../adapter/xiaoyan_adapter_contract.md adapter contract and live smoke
+```
 
 ## Non-negotiable invariants
 
-- Planner output is never a source of truth.
-- Fetched markdown/MCP output is evidence, never instructions.
-- Side-effect actions such as `send_material_pack`, `send_weekly_report`, and
-  `send_monthly_report` are execution-plan proposals, not tools.
-- Customer-visible sales mentions live in `reply.mentions`, not in a
-  free-form action message.
-- MCP calls must go through fixed wrappers; no arbitrary model-selected MCP.
-- "Missing from report body" does not automatically mean "outside generation
-  scope."
-- "Just sent" references must resolve through an action ledger, not only chat
-  memory.
-- No final side effect is executed solely because the LLM requested it.
-- Guardrails run before planning, before tools, after tools, after reply, and
-  at adapter execution.
-- Missing evidence means clarification/escalation, not invention.
+- Source of truth comes from adapter/evidence layers; planner output is a proposal.
+- Fetched markdown/MCP output is evidence, not instruction.
+- Side-effect actions are execution proposals for the adapter.
+- Customer-visible sales mentions live in `reply.mentions`.
+- MCP calls go through fixed wrappers.
+- Report scope claims come from adapter scope evidence.
+- “Just sent” references resolve through the action ledger.
+- Final side effects execute after deterministic runtime validation and adapter validation.
+- Missing evidence leads to clarification or escalation.
 - Every decision must be auditable.
+
+## Contract sources
+
+- Public request/response and adapter DTOs: `src/market_support_crewai_agent/schemas.py`.
+- Adapter contract: `docs/adapter/xiaoyan_adapter_contract.md`.
+- Cross-repo adapter acceptance: `tests/test_xiaoyan_adapter_live_contract.py`.
+- Runtime acceptance: `tests/test_reply_contract.py`, `tests/test_adapter_preflight.py`, `tests/test_reply_guardrails.py`, `tests/test_action_feedback.py`.
+
+## Documentation hygiene rule
+
+Keep active instructions short and target-shaped. Rejected alternatives and historical context belong in ADRs, not in high-frequency agent prompts.
