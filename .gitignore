@@ -10,6 +10,7 @@ __pycache__/
 !.env.example
 
 # Editor/project-local state
+.DS_Store
 .idea/
 .vscode/
 
