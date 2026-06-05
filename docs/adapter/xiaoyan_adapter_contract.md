@@ -27,9 +27,7 @@ POST /actions/feedback
 {
   "resolve_type": "material_pack",
   "dist_name": "银河证券",
-  "strategy": "指增",
-  "conversation_key": "wecom:group:sender",
-  "context_id": "trace-id"
+  "strategy": "指增"
 }
 ```
 
@@ -73,6 +71,15 @@ report_date
 Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `card_ref` and `material_id` are opaque adapter identifiers.
 
 Raw send targets, URLs, filesystem paths, receiver identifiers, credentials, and internal execution records stay in adapter storage.
+
+Current action compatibility: the existing WeCom action consumer accepts only `type`, `action_id`, and `strategy` on
+agent-returned action objects. The harness therefore keeps report selector and `card_ref` details in validation/audit
+state for now, and does not emit public `selector` or `card_ref` fields until the adapter action contract is explicitly
+bumped.
+
+The adapter owns standard post-send follow-up wording for material packs, weekly reports, and monthly reports. The
+harness returns semantic side-effect proposals and should not send duplicate "already sent / please check" text before
+adapter execution.
 
 ## Runtime preflight requirement
 

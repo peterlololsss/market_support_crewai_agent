@@ -44,9 +44,14 @@ Cases:
 - ambiguous strategy asks clarification;
 - unknown strategy asks clarification or mentions sales;
 - bank-channel material-pack request without enough strategy/pack information asks clarification;
+- bank-channel material-pack action with multiple strategy packs requires an action/evidence-confirmed strategy;
 - non-bank default material-pack request can send when adapter resolve succeeds;
 - response text does not claim successful send before adapter execution;
 - multiple sendables requested in one message remain valid or clarify.
+- validated ambiguous plan cannot return send actions even if adapter resolve is available.
+- report send plans must distinguish `report_scope=channel_all` from `report_scope=strategy`;
+- strategy-scoped report plans pass the chosen strategy into adapter resolve and block if evidence excludes it;
+- report send candidates with unknown selector ask clarification rather than sending.
 
 ## Weekly/report tests
 
@@ -57,11 +62,13 @@ Cases:
 - scope metadata excludes strategy;
 - scope metadata includes strategy but body missing;
 - report contains strategy;
+- report send action is blocked when adapter says requested strategy is absent or outside scope;
 - adapter returns generated-strategy metadata;
 - adapter does not return generated-strategy metadata;
 - “latest weekly” versus “just sent weekly” resolution;
 - no ledger entry for “just sent” reference;
 - failed/proposed-only ledger entry is not treated as sent.
+- reply claims that a material/report was just sent are blocked unless a matching executed ledger fact exists.
 
 Expected behavior:
 
@@ -115,6 +122,7 @@ Expected behavior:
 
 Planner failure cases:
 
+- invalid planner contract or invalid ReplyPlan shape repairs once before fallback;
 - capability not selected by policy;
 - raw internal tool name;
 - side-effect represented as evidence;
@@ -129,6 +137,8 @@ Reply failure cases:
 - unsupported factual claim;
 - investment advice wording;
 - text/action mismatch;
+- final side-effect action not proposed by the validated plan;
+- reply text claims material/report send completion before adapter execution;
 - `reply.kind=no_reply` with content;
 - action with free-form user-visible fields.
 
@@ -137,6 +147,28 @@ Expected behavior:
 - one repair attempt when repairable;
 - deterministic fallback when still invalid;
 - audit trace records validation errors.
+
+## Compliance policy tests
+
+Cases:
+
+- expected, target, benchmark, minimum, or maturity return request;
+- principal guarantee, product safety, risk-free, or low-risk absolute wording;
+- peer manager or competitor comparison;
+- private WeChat, phone, or off-channel business contact;
+- proprietary account returns or internal/core-strategy profit;
+- contract, level-four valuation, attribution, or other restricted internal documents;
+- redemption-fee waiver or other contract-defined fee changes;
+- explicit suitability/threshold mismatch before product promotion materials;
+- unrelated non-product request.
+
+Expected behavior:
+
+- planner uses semantic interpretation and an allowlisted `reason_code`, not deterministic keyword routing;
+- non-compliant plan uses `intent=refusal` and proposes no side-effect action;
+- final guardrail blocks actions, sales mentions, non-refusal reply kinds, and non-harness fallback text;
+- safe fallback text comes from `runtime/compliance_policy.py`;
+- no LLM repair pass can re-authorize a non-compliant response.
 
 ## Conversation and ledger tests
 

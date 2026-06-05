@@ -35,6 +35,10 @@ Purpose:
 
 Strict Pydantic models and contract tests carry the first implementation.
 
+Current runtime guardrail: `AGENT_INPUT_MAX_MESSAGE_CHARS` is optional. When configured, `/reply` rejects oversized
+messages before CrewAI planner/composer execution, and direct runtime calls apply the same check before LLM
+configuration validation.
+
 ## Policy compiler guardrail
 
 The policy compiler determines what the model is allowed to plan for this request.
@@ -50,6 +54,9 @@ feature flags
 ledger summary
 internal MCP availability
 ```
+
+The ledger summary is adapter-safe policy metadata only: executed count, material types, strategies, and versions. Raw
+material refs, URLs, adapter results, and failed/skipped actions do not enter the policy prompt.
 
 Outputs:
 
@@ -84,6 +91,32 @@ allowed_action_candidates:
 
 The validator enforces evidence-backed wording, adapter-backed actions, and scope-specific claims.
 
+## Compliance policy guardrail
+
+Purpose:
+
+- keep compliance boundaries as a compact harness-owned reason taxonomy, not as a giant workflow prompt;
+- let the planner perform semantic interpretation and choose a reason code;
+- make refusal wording harness-owned and regression-testable.
+
+Current harness-owned reason-code source:
+
+```text
+src/market_support_crewai_agent/runtime/compliance_policy.py
+```
+
+Non-compliant plans are not treated as deterministic keyword classifications. The planner must set
+`compliance.is_compliant=false`, `intent=refusal`, and choose one allowlisted reason code. The final reply/action
+guardrail then enforces:
+
+```text
+no side-effect actions
+no sales mentions
+reply.kind=unable_to_answer
+safe fallback text for the selected reason_code
+no LLM repair pass for non-compliant response violations
+```
+
 ## Plan guardrail
 
 Purpose:
@@ -109,6 +142,15 @@ Purpose:
 
 Adapter resolve/preflight runs before final reply/action composition for material packs, weekly reports, monthly reports, and sales mentions. Resolve/preflight does not send messages.
 
+Document MCP calls follow the same wrapper rule. A CrewAI agent does not receive the MCP base URL and does not call MCP
+directly. The planner can only propose an allowed evidence capability. The harness then builds a bounded query from
+canonical entities, request identity, and policy, calls the fixed wrapper, and rejects the call if the plan lacks a
+permitted capability or resolved entity context.
+
+Use Document MCP only for document-backed factual answers. Do not call it for plain send actions; material/report
+sendability comes from adapter resolve/preflight. Report-body inspection is a future extension and is not enabled by
+the current document MCP wrapper.
+
 ## Tool output / evidence guardrail
 
 Purpose:
@@ -124,7 +166,7 @@ Adapter resolve packaging rule:
 
 ```text
 resolve_type: material_pack | weekly_report | monthly_report | sales_mention
-status: resolved | missing | ambiguous | forbidden | temporarily_unavailable
+status: resolved | missing | ambiguous | temporarily_unavailable
 display_name
 candidates
 reason_code
@@ -145,6 +187,30 @@ sanitized_content
 
 Evidence that cannot be safely sanitized is dropped and logged as a guardrail event.
 
+Current runtime guardrail: if the validated plan intent is `knowledge_qa`, final `reply.kind=answer` requires a
+`document_context` EvidenceFact from `source_type=document_mcp`. Without it, the runtime falls back instead of answering
+from model memory.
+
+Current document MCP wrapper sanitizes retrieved content before creating `document_context` EvidenceFacts:
+
+```text
+internal file/MCP/adapter locators -> [REDACTED_INTERNAL_LOCATOR]
+credential-like fields -> [REDACTED_SECRET]
+obvious document instruction/prompt-injection lines -> [REMOVED_DOCUMENT_INSTRUCTION]
+metadata.content_is_data_only=true
+metadata.sanitized / redaction flags / char_count
+```
+
+If Document MCP is enabled and requested but no safe document context is returned, the wrapper emits a
+`document_context_unavailable` EvidenceFact with `value=false`, `source_type=document_mcp`, and a `reason_code` such as
+`document_mcp_error` or `document_context_not_found`. This fact is auditable but does not satisfy the `knowledge_qa`
+grounding validator.
+
+Document MCP access is also channel-permission scoped. `MARKET_AGENT_DOC_MCP_ALLOWED_CHANNEL_TYPES` controls which
+`ReplyRequest.channel_type` values may receive `query_internal_company_info` in the compiled PolicyManifest. The wrapper
+has a second defensive check and emits `document_mcp_channel_forbidden` without calling MCP if the channel is not
+allowed.
+
 ## Business facts guardrail
 
 Purpose:
@@ -162,6 +228,7 @@ weekly_contains_strategy=false supports a report-non-inclusion claim
 weekly_scope_status=excluded supports a generation-scope exclusion claim
 weekly_scope_status=unknown supports conservative escalation/clarification
 sales_mention_resolvable=true supports reply.mentions
+non-expired recent_executed_action facts ground “just sent” references
 ```
 
 Use lightweight `EvidenceFact` records for high-risk facts.
@@ -176,12 +243,23 @@ Deterministic checks:
 reply kind is policy-allowed
 action type is policy-allowed
 side-effect actions match public schema
+ambiguous validated plans produce clarification/handoff and no side-effect actions
+final side-effect actions were proposed by the validated ReplyPlan
+report send candidates declare internal report_scope selector: channel_all or strategy
+strategy-scoped report candidates include a confirmed strategy
+audit trace records action preconditions without exposing raw adapter refs
 material/report action has successful adapter resolve
+bank material-pack action has a confirmed strategy when multiple strategy packs exist
+report action is blocked when adapter evidence says the requested strategy is excluded or absent
 strategy is available/canonical
 reply.mentions has successful sales mention resolve
 no_reply response is empty apart from metadata
 material/report availability claims are EvidenceFact-backed
+material/report send text does not claim completion before adapter execution
+material/report side-effect responses do not duplicate adapter-owned standard post-send wording
+prior-send claims require matching non-expired `recent_executed_action` ledger evidence
 internal fields are absent from user-visible text
+non-compliant plan responses have no actions, no sales mentions, and use the harness-owned safe fallback
 action list matches public schema
 ```
 
@@ -204,6 +282,7 @@ Policy disallows capability -> limitation, clarification, or human_handoff
 Evidence fetch fails -> unable-to-confirm, with sales mention when policy requires and resolve succeeds
 MCP permission denied -> safe unauthorized/handoff response
 Evidence has prompt injection -> sanitize/drop/log
+MCP evidence remains oversized after sanitization -> truncate to evidence budget and mark metadata; composer receives bounded body
 Reply invalid -> repair once -> deterministic fallback
 Adapter rejects action -> record failed action; ledger does not treat it as sent
 ```

@@ -13,7 +13,7 @@ This directory is the active design source for the evidence-grounded support rep
 - Current runtime file: `src/market_support_crewai_agent/runtime/reply_agent.py`.
 - Public contracts: `src/market_support_crewai_agent/schemas.py`.
 - Conversation store: `src/market_support_crewai_agent/runtime/conversation_store.py`.
-- Existing tests: `tests/test_reply_contract.py`, `tests/test_adapter_preflight.py`, `tests/test_reply_guardrails.py`, `tests/test_action_feedback.py`.
+- Existing tests: `tests/test_reply_contract.py`, `tests/test_adapter_preflight.py`, `tests/test_structured_guardrails.py`, `tests/test_action_feedback.py`.
 
 ## Active decision
 
@@ -60,7 +60,7 @@ reference/agent_prompt_hygiene.md    agent prompt/context hygiene
 - Public request/response and adapter DTOs: `src/market_support_crewai_agent/schemas.py`.
 - Adapter contract: `docs/adapter/xiaoyan_adapter_contract.md`.
 - Cross-repo adapter acceptance: `tests/test_xiaoyan_adapter_live_contract.py`.
-- Runtime acceptance: `tests/test_reply_contract.py`, `tests/test_adapter_preflight.py`, `tests/test_reply_guardrails.py`, `tests/test_action_feedback.py`.
+- Runtime acceptance: `tests/test_reply_contract.py`, `tests/test_adapter_preflight.py`, `tests/test_structured_guardrails.py`, `tests/test_action_feedback.py`.
 
 ## Documentation hygiene rule
 

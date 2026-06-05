@@ -14,26 +14,42 @@ Follow `AGENTS.md` freshness requirements:
 4. Consult the relevant live CrewAI docs page.
 5. Update local docs when verified live behavior conflicts with local guidance.
 
-## Objective
+## Current implementation state
 
-Implement Phase 1 without real MCP.
-
-Build:
+The harness now has the first production-shaped runtime path:
 
 ```text
-internal runtime models
-ReplyResponse models for current public adapter contract scope
-PolicyManifest skeleton
-AdapterResolveResult models
-EvidenceFact models
-plan validator
-reply/action validator
-deterministic fallback
-audit trace skeleton
-tests for validators
+Planner LLM -> validated ReplyPlan -> EvidenceExecutor -> EvidenceFacts
+-> BusinessFacts -> Composer LLM -> reply/action guardrails -> repair/fallback
 ```
 
-MCP tools, real material fetch, internal company lookup, and autonomous multi-agent flow come later.
+Implemented:
+
+```text
+ReplyResponse public boundary
+PolicyManifest
+ReplyPlan and plan validation
+adapter resolve/preflight wrapper
+document MCP evidence wrapper, feature-gated by settings
+EvidenceFact and BusinessFacts
+reply/action validator
+knowledge_qa document-grounding validator
+deterministic fallback
+conversation history
+adapter execution feedback ledger
+audit trace with compact CrewAI stage usage metadata
+configurable input message length guardrail
+CrewAI planner/composer timeout budget
+configurable CrewAI retry budget
+action-only material/report send replies with adapter-owned standard follow-up copy
+document MCP prompt-injection, secret/locator, and oversized-output guardrails
+MVP runtime smoke script at `scripts/smoke_reply_mvp.py`
+```
+
+Document MCP is not attached directly to CrewAI agents. It is enabled only when
+`MARKET_AGENT_DOC_MCP_ENABLED=true` and `MARKET_AGENT_DOC_MCP_BASE_URL` is configured. The planner sees only the
+policy-allowed capability name `query_internal_company_info`; the fixed wrapper calls `/mcp` with `list_products` and
+`get_documents`, then passes bounded `document_context` EvidenceFacts to the composer.
 
 ## Module ownership
 
@@ -49,6 +65,8 @@ Add runtime-only modules as needed:
 src/market_support_crewai_agent/runtime/policy.py
 src/market_support_crewai_agent/runtime/planning.py
 src/market_support_crewai_agent/runtime/evidence.py
+src/market_support_crewai_agent/runtime/evidence_executor.py
+src/market_support_crewai_agent/runtime/document_mcp.py
 src/market_support_crewai_agent/runtime/business_facts.py
 src/market_support_crewai_agent/runtime/guardrails.py
 src/market_support_crewai_agent/runtime/action_ledger.py
@@ -60,8 +78,9 @@ Likely tests:
 ```text
 tests/test_policy.py
 tests/test_planning_guardrails.py
-tests/test_reply_guardrails.py
+tests/test_structured_guardrails.py
 tests/test_evidence_executor.py
+tests/test_document_mcp.py
 tests/test_action_ledger.py
 tests/test_weekly_scope.py
 tests/test_prompt_injection.py
@@ -132,22 +151,28 @@ actions=[]
 
 Add planner after validators are in place.
 
-Planner outputs `ReplyPlan`, not `ReplyResponse`. It proposes user need, evidence requests, candidate terminal actions, required adapter resolves, ambiguity flags, and confidence. It does not call tools, invent capabilities, bypass policy, produce final reply text, or claim final business facts.
+Planner outputs `ReplyPlan`, not `ReplyResponse`. It proposes user need, evidence requests, candidate terminal actions, report selectors, required adapter resolves, ambiguity flags, and confidence. It does not call tools, invent capabilities, bypass policy, produce final reply text, or claim final business facts.
 
 ## Evidence executor timing
 
-Add evidence executor after planner validation. Start with fake `AdapterResolveResult` fixtures. Then add adapter resolve wrappers for material packs, weekly reports, monthly reports, and sales mentions. Internal MCP wrappers come later.
+Evidence executor now runs after planner validation. It resolves only the adapter preflight types required by the plan,
+plus `sales_mention` for safe handoff/fallback. Document MCP runs only for compliant `knowledge_qa` plans that request
+`query_internal_company_info` and only when the feature flag is enabled.
 
 ## Ledger timing
 
-Add ledger before relying on “just sent” semantics. Distinguish proposed, executed, and failed actions. Only executed adapter-confirmed actions ground “just sent.”
+Ledger facts now feed evidence/business state before composition. The runtime converts only adapter-confirmed
+`status=executed` ledger records into `recent_executed_action` EvidenceFacts and
+`BusinessFacts.recent_executed_actions`; proposed, failed, skipped, and expired actions do not ground “just sent.”
 
-## Done for first coding session
+## Current acceptance baseline
 
 - Existing tests pass.
 - New validator tests pass.
+- Invalid planner output gets one bounded planner repair attempt before safe fallback.
 - Invalid LLM `ReplyResponse` cannot produce unavailable material-pack/report sends.
 - Text/action mismatch is caught.
 - Unsupported report-scope claims are caught.
 - Deterministic fallback exists.
 - Audit trace or structured validation result is available for debugging.
+- `knowledge_qa` answer text requires document MCP evidence when that plan intent is used.

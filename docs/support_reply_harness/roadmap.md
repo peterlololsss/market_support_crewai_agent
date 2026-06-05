@@ -87,12 +87,15 @@ fallback policy
 Goal: ground “just sent” references.
 
 Ledger entries include conversation identity, inbound message identity, group/sender identity, action id/type, sendable type, strategy, adapter metadata, status, timestamps, and adapter result.
+The current runtime projects executed-only ledger records into `recent_executed_action` EvidenceFacts and
+`BusinessFacts.recent_executed_actions` for composer grounding.
 
 Acceptance criteria:
 
 - “Just sent weekly report” resolves to ledger item;
 - no entry means the runtime does not pretend to know;
 - failed/proposed-only actions are not treated as sent;
+- expired records are removed before ledger facts are built;
 - audit links evidence/resolve to adapter metadata.
 
 ## Phase 4: entity canonicalization
@@ -135,7 +138,7 @@ Business checks include material/report resolvability, sales mention resolvabili
 
 ## Phase 7: planner integration
 
-Planner input includes request metadata, recent turns, ledger summary, canonical entities, policy manifest, and available materials/strategies.
+Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, canonical entities, policy manifest, and available materials/strategies.
 
 Planner output includes user need, detected entities, evidence requests, requested business checks, action candidates, ambiguities, and confidence.
 
@@ -154,6 +157,14 @@ Acceptance criteria:
 
 ## Phase 9: internal MCP integration
 
+Current status: a minimal document MCP wrapper is implemented for `query_internal_company_info`. It is feature-gated by
+settings, calls only `list_products` and `get_documents`, and returns bounded `document_context` EvidenceFacts. Broader
+internal MCP capabilities below remain future work.
+
+Current output guardrail status: document MCP evidence is sanitized for prompt-injection lines, internal locators, and
+secret-like values. Oversized sanitized chunks are truncated to the evidence budget and marked in metadata instead of
+blocking otherwise useful document context.
+
 Fixed wrappers:
 
 ```text
@@ -164,15 +175,35 @@ query_customer_ownership when needed
 
 Wrapper requirements: explicit schema, requester identity, group/channel context, permission check, field allowlist, redaction, size limit, audit log, timeout, and failure fallback.
 
+Document MCP integration is not a free-form CrewAI tool attachment. The planner may request a document evidence
+capability; the harness validates the request, calls the fixed wrapper, sanitizes the result, and passes only evidence
+summaries/chunks to the composer.
+
+Acceptance criteria:
+
+- MCP base URL is configured through settings, not prompts;
+- planner prompt exposes allowed evidence capability names, not raw MCP endpoints;
+- composer prompt receives sanitized evidence only;
+- material/report send actions still rely on adapter resolve, not MCP text;
+- MCP timeout, sensitive-field, oversized-payload, and prompt-injection cases fall back safely.
+
 ## Phase 10: adapter execution loop
 
 Adapter validates action type, executable material/report reference or selector, channel validity, group sendability, mention target, and schema. It writes executed/failed status and adapter-native metadata back to the runtime ledger/audit path.
+
+Current status: material/report send proposals are action-only at the harness boundary. The reply guardrail strips
+non-empty `reply.text` from otherwise valid material/report side-effect responses, so the WeCom adapter can own the
+standard post-send follow-up copy without duplicate agent text.
 
 ## Phase 11: observability and audit
 
 Audit records request/context id, inbound message id, conversation key, policy id/hash, canonical entities, planner output, validations, evidence ids, adapter resolves, EvidenceFacts, BusinessFacts, reply output, repair/fallback path, final actions, adapter execution status, latency, token usage, and model/version.
 
 Avoid logging secrets, unnecessary PII, and sensitive full evidence bodies.
+
+Current status: audit traces record compact per-CrewAI-stage metadata from `LiteAgentOutput`, including latency,
+usage metrics, agent role, response format, structured-output type, raw-output length, and planning/todo counts while
+excluding raw prompts, CrewAI message history, and raw plan text.
 
 ## Phase 12: evaluation suite
 
@@ -183,6 +214,12 @@ Production acceptance includes zero critical action violations, zero internal da
 ## Phase 13: production hardening
 
 Work items: persistent conversation/ledger storage, adapter outbox records, timeout budgets, LLM retry policy, circuit breaker for MCP failures, feature flags, channel rollout, safe fallback messages, model/version pinning, eval gate, audit dashboard/log queries, and privacy/compliance review.
+
+Current timeout status: `YANFU_LLM_TIMEOUT_SECONDS` is passed to CrewAI `LLM(timeout=...)` and also enforced as a
+hard `asyncio.wait_for` budget around each planner/composer/repair `kickoff_async` stage.
+
+Current retry status: `CREWAI_MAX_RETRY_LIMIT` is passed to planner and composer CrewAI agents as `max_retry_limit`,
+defaulting to CrewAI's default of 2.
 
 ## Minimum safe useful version
 
