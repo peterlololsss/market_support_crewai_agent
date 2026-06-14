@@ -1,12 +1,12 @@
 # Support Reply Harness Architecture
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-14.
 
 ## Problem restatement
 
 The service is an external reasoning brain for a market support workflow. It receives structured WeCom chat context and returns one `ReplyResponse` for a WeCom adapter to execute.
 
-The challenge is open-ended Chinese sales/support requests under strict boundaries around materials, reports, internal information, factual claims, escalation, and side effects.
+The challenge is open-ended Chinese sales/support requests under strict boundaries around materials, reports, internal information, factual claims, escalation, and outbound actions.
 
 ## Current public contract
 
@@ -27,28 +27,32 @@ available_strategies
 channel_type
 ```
 
-`ReplyResponse` separates reply semantics, primary user-visible text, customer-visible mentions, and side-effect action proposals.
+`available_materials` is an adapter-provided channel hint. It can limit material-pack planning because packs are
+registry-backed, but it is not the source of truth for weekly or monthly report availability. Report sendability is
+established by adapter resolve/preflight facts such as `weekly_report_resolvable` and `monthly_report_resolvable`,
+because existing WeCom report send paths may resolve generated report artifacts outside the distributor CSV.
+
+`ReplyResponse` separates reply semantics, primary user-visible text, customer-visible mentions, and outbound action proposals.
 
 ```text
 ReplyResponse
 - contract_version
 - response_id
 - reply: PrimaryReply
-- actions: list[SideEffectAction]
+- actions: list[OutboundAction]
 
 PrimaryReply
 - kind: answer | clarification | human_handoff | unable_to_answer | no_reply
 - text
-- text_format: plain_text
 - mentions: list[ReplyMention]
 
-SideEffectAction
+OutboundAction
 - send_material_pack
 - send_weekly_report
 - send_monthly_report
 ```
 
-User-visible free-form reply text lives in `reply.text`. Sales mentions visible to the customer live in `reply.mentions`. The adapter owns execution reliability and final side-effect execution.
+User-visible free-form reply text lives in `reply.text`. Sales mentions visible to the customer live in `reply.mentions`. The adapter owns execution reliability and final outbound action execution.
 
 Legacy workflow prompts and historical send handlers are reference material only. They can contribute compliance
 reason codes, adapter contract examples, standard send-copy ownership, and regression cases, but they are not copied as
@@ -59,26 +63,26 @@ runtime architecture and are not a source of deterministic intent routing.
 ```text
 POST /reply
   -> Request validation
-  -> Input guardrail
+  -> Input validation
   -> Action ledger lookup
   -> Entity/canonicalization layer
   -> Policy compiler
   -> LLM planner
-  -> Plan guardrail
+  -> Plan validation
   -> Evidence executor
-      -> Tool input guardrail
+      -> Tool input validation
       -> Adapter resolve/preflight wrapper
       -> Material/MCP wrapper when enabled
-      -> Tool output guardrail
+      -> Tool output validation
   -> EvidenceFact derivation
   -> BusinessFacts derivation
-  -> Reply composer LLM
-  -> Reply/action validator
-  -> Repair once when safe
-  -> Deterministic fallback when still unsafe
+  -> ResponseDirective decision engine
+  -> Deterministic renderer for action/refusal/clarification/handoff/unable/no_reply
+  -> Reply composer LLM only for document-backed knowledge_answer
+  -> Reply/action postcondition validator
   -> Save conversation + audit trace
   -> Return ReplyResponse
-  -> Adapter guardrail before real execution
+  -> Adapter validation before real execution
 ```
 
 ## Source-of-truth hierarchy
@@ -86,7 +90,7 @@ POST /reply
 Use this hierarchy when sources conflict:
 
 1. Request contract and adapter-provided conversation/message identity.
-2. Adapter resolve/preflight result for channel sendability, report/card existence, and sales mention target resolution.
+2. Adapter resolve/preflight result for channel sendability, artifact existence, and sales mention target resolution.
 3. Adapter-confirmed action ledger/execution result for what was actually sent.
 4. Weekly/monthly report metadata returned by adapter resolve.
 5. Permission-scoped internal MCP data.
@@ -94,7 +98,7 @@ Use this hierarchy when sources conflict:
 7. Recent conversation turns.
 8. LLM interpretation.
 
-Planner conclusions are proposals. Evidence and deterministic business checks establish facts.
+Planner conclusions are proposals. Evidence and deterministic business facts establish facts.
 
 For material/report sends, standard post-send wording belongs to the WeCom adapter execution layer. The harness returns
 typed semantic actions and should not duplicate legacy post-send text in `reply.text` before adapter execution.
@@ -105,27 +109,33 @@ typed semantic actions and should not duplicate legacy post-send text in `reply.
 
 Request-scoped policy generated before planning.
 
-Contains allowed reply kinds, allowed side-effect actions, required adapter resolves, allowed read capabilities, allowed deterministic business checks, forbidden claim categories, adapter-safe ledger summary, required escalation rules, evidence/resolve limits, and repair/fallback policy.
+Contains allowed reply modes, allowed capabilities, allowed outbound actions, allowed adapter resolves, allowed read capabilities, adapter-safe ledger summary, evidence call limits, and error-on-invalid policy.
 
-### ReplyPlan
+### ExecutionPlan
 
-LLM-generated and validated. It describes user need, detected entity candidates, evidence requests, requested business checks, candidate terminal actions, ambiguity flags, confidence, and unsupported-request notes.
+Compiled deterministically from `IntentFrame`, policy, canonical context, and the capability registry. It describes user need, artifact kind, response mode, compliance, capabilities, adapter resolve specs, action intents, ambiguity slots, selected strategy, and confidence.
 
-`ReplyPlan` is not allowed to be a source of final business facts.
+`ExecutionPlan` is not allowed to be a source of final business facts.
+
+### ResponseDirective
+
+Deterministic decision output derived from `ExecutionPlan`, `BusinessFacts`, evidence facts, request context, and policy.
+
+`ResponseDirective` decides the reply mode, reply kind, text, mentions, action intents, and whether the knowledge composer is required. It is not public API; it is rendered to `ReplyResponse` or used to gate the knowledge composer.
 
 ### AdapterResolveResult
 
-Adapter-owned preflight result used before final reply/action composition. It answers whether a WeCom card or sales mention can be generated for the current channel.
+Adapter-owned preflight result used before final reply/action composition. It answers whether an adapter-safe artifact reference or sales mention can be generated for the current channel.
 
 Common fields:
 
 ```text
 resolve_type: material_pack | weekly_report | monthly_report | sales_mention
-status: resolved | missing | ambiguous | temporarily_unavailable
+status: resolved | missing | ambiguous | forbidden | temporarily_unavailable
 display_name
 candidates
 reason_code
-card_ref
+resolve_ref
 ```
 
 Report-specific fields when relevant:
@@ -176,14 +186,14 @@ recent adapter-confirmed executed actions for “just sent” references
 
 ### ValidationResult
 
-Machine-readable validation result with validity, severity, error codes, repairability, and fallback recommendation.
+Machine-readable validation result with validity, severity, error codes, and metadata.
 
 ### AuditTrace
 
 Replayable trace for incident review and eval debugging. It records request/context id, policy manifest id/hash,
 canonical entities, planner output, validation decisions, evidence calls/source ids, business facts, reply output,
-repair attempts, fallback reason, final actions, adapter execution status, per-CrewAI-stage latency/usage summaries,
-and model/prompt/policy/validator versions.
+invalid-output records, renderer decision reason, final actions, adapter execution status, per-CrewAI-stage latency/usage summaries,
+and model ids, prompt profile ids, policy ids, and validator ids.
 
 CrewAI output metadata is compacted before audit storage. The trace keeps stage name, agent role, response format,
 latency, usage metrics, structured-output type, raw-output length, and planning/todo counts. It does not store CrewAI
@@ -200,23 +210,19 @@ resolve_material_pack
 resolve_weekly_report
 resolve_monthly_report
 resolve_sales_mention
-fetch_latest_weekly_md
-fetch_sent_weekly_md
 query_internal_company_info
 ```
 
-Deterministic business checks:
+Deterministic business fact fields:
 
 ```text
-resolve_strategy_alias
-resolve_company_alias
-check_material_pack_resolvable
-check_weekly_report_resolvable
-check_monthly_report_resolvable
-check_report_contains_strategy
-check_report_generation_scope
-check_user_permission
-check_channel_permission
+material_pack
+weekly_report
+monthly_report
+sales_mention
+recent_executed_actions
+requested_strategy_status
+user_permission
 ```
 
 Terminal action candidates:
@@ -272,7 +278,7 @@ Planner LLM proposes query_internal_company_info evidence need
  -> evidence executor calls a fixed Document MCP wrapper only for channel-permitted requests
  -> wrapper selects list_products/get_documents inputs, redacts, caps, and marks content as data-only
  -> document_context EvidenceFacts feed the composer prompt
- -> reply/action validator blocks knowledge_qa answers without document_context evidence
+ -> reply/action validator blocks knowledge_answer replies without document_context evidence
 ```
 
 The MCP URL and raw tool names do not belong in customer-visible text or broad system prompts. The composer sees only
@@ -303,16 +309,12 @@ The current xiaoyan adapter returns positive report-scope evidence when generate
 
 `send_material_pack`, `send_weekly_report`, and `send_monthly_report` are distinct action proposals.
 
-Report actions keep the public action type stable while the internal ReplyPlan carries a selector:
+Report actions carry the execution selector in the public action payload:
 `report_scope=channel_all` means send the adapter-resolved channel report package, and
 `report_scope=strategy` means the user asked for a specific strategy/product that must be confirmed as covered by the
-report. Unknown or multi-strategy report ranges must clarify or hand off instead of sending.
-
-Current adapter compatibility note: the existing WeCom action parser accepts only `type`, `action_id`, and `strategy` on
-public action objects. Until the adapter contract is bumped, the harness does not emit public `selector` or `card_ref`
-fields. It records action preconditions in the audit trace instead: action type/id, required resolve type/status,
-internal report selector, plan/action/adapter strategy, whether an opaque adapter ref was available, and report scope
-metadata.
+report. Send actions always include adapter-safe `resolve_ref`; report actions also include optional `period` and
+`report_date` when the adapter supplied them. Unknown or multi-strategy report ranges must clarify or hand off instead
+of sending.
 
 A channel may have multiple strategies. A material pack may cover multiple strategies. Non-bank channels may have one default pack; bank channels may split strategies across multiple packs. If a bank-channel material-pack request does not specify enough strategy or pack information to resolve one pack, the harness asks for clarification.
 

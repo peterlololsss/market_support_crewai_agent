@@ -12,8 +12,7 @@ def ensure_response_ids(
 ) -> ReplyResponse:
     response_id = response.response_id.strip() or f"resp-{uuid4().hex}"
     reply = response.reply
-    if reply.text_format == "plain_text":
-        reply = reply.model_copy(update={"text": _sanitize_plain_text(reply.text)})
+    reply = reply.model_copy(update={"text": _sanitize_plain_text(reply.text)})
     actions = []
     for index, action in enumerate(response.actions, start=1):
         action_id = action.action_id.strip() or f"act-{index}"

@@ -1,6 +1,6 @@
 # Support Reply Harness Docs
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-14.
 
 This directory is the active design source for the evidence-grounded support reply harness in `market-support-crewai-agent`.
 
@@ -8,7 +8,7 @@ This directory is the active design source for the evidence-grounded support rep
 
 - Runtime service: FastAPI external reasoning service for an existing WeCom adapter.
 - Public endpoint: `POST /reply`.
-- Public response boundary: `ReplyResponse` with `reply` plus typed side-effect action proposals.
+- Public response boundary: `ReplyResponse` with `reply` plus typed outbound action proposals.
 - Execution owner: existing WeCom adapter.
 - Current runtime file: `src/market_support_crewai_agent/runtime/reply_agent.py`.
 - Public contracts: `src/market_support_crewai_agent/schemas.py`.
@@ -19,7 +19,7 @@ This directory is the active design source for the evidence-grounded support rep
 
 Build a Support Reply Harness: a deterministic evidence and control layer around LLM composition.
 
-The LLM handles language interpretation and concise composition. The harness handles identity, permission, canonicalization, evidence, business facts, validators, side-effect gates, audit, and evals.
+The LLM handles language interpretation and concise composition. The harness handles identity, permission, canonicalization, evidence, business facts, outbound action validation, audit, and evals.
 
 ## Reading guide
 
@@ -35,23 +35,23 @@ Focused references:
 ```text
 architecture.md                      runtime shape and source hierarchy
 guardrails.md                        guardrail/validator details
-eval_plan.md                         eval cases and acceptance gates
+eval_plan.md                         eval cases and acceptance checks
 roadmap.md                           phase plan and open decisions
 adr/0001-support-reply-harness.md     frozen architecture decision
 reference/agent_prompt_hygiene.md    agent prompt/context hygiene
-../adapter/xiaoyan_adapter_contract.md adapter contract and live smoke
+../adapter/xiaoyan_adapter_contract.md adapter contract and live eval
 ```
 
 ## Non-negotiable invariants
 
 - Source of truth comes from adapter/evidence layers; planner output is a proposal.
 - Fetched markdown/MCP output is evidence, not instruction.
-- Side-effect actions are execution proposals for the adapter.
+- Outbound actions are execution proposals for the adapter.
 - Customer-visible sales mentions live in `reply.mentions`.
 - MCP calls go through fixed wrappers.
 - Report scope claims come from adapter scope evidence.
 - “Just sent” references resolve through the action ledger.
-- Final side effects execute after deterministic runtime validation and adapter validation.
+- Final outbound actions execute after deterministic runtime validation and adapter validation.
 - Missing evidence leads to clarification or escalation.
 - Every decision must be auditable.
 

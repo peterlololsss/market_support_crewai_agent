@@ -3,6 +3,7 @@
 __pycache__/
 .pytest_cache/
 *.py[cod]
+*.pyc
 
 # Local configuration and secrets
 .env
@@ -11,8 +12,10 @@ __pycache__/
 
 # Editor/project-local state
 .DS_Store
+__MACOSX/
 .idea/
 .vscode/
+.claude/settings.local.json
 
 # Build and coverage artifacts
 dist/

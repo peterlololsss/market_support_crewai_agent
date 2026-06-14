@@ -21,7 +21,13 @@ AdapterResolveStatus = Literal[
     "temporarily_unavailable",
 ]
 ActionExecutionStatus = Literal["executed", "failed", "skipped"]
-ActionExecutionType = Literal["send_text", "send_material", "mention_sales"]
+ActionExecutionType = Literal[
+    "send_material_pack",
+    "send_weekly_report",
+    "send_monthly_report",
+    "mention_sales",
+    "send_text",
+]
 ReplyKind = Literal[
     "answer",
     "clarification",
@@ -30,11 +36,13 @@ ReplyKind = Literal[
     "no_reply",
 ]
 ReplyMentionType = Literal["sales"]
-SideEffectActionType = Literal[
+OutboundActionType = Literal[
     "send_material_pack",
     "send_weekly_report",
     "send_monthly_report",
 ]
+SideEffectActionType = OutboundActionType
+ReportScope = Literal["channel_all", "strategy"]
 
 
 class StrictModel(BaseModel):
@@ -66,7 +74,7 @@ class AdapterResolveRequest(StrictModel):
 
 
 class AdapterResolveResult(StrictModel):
-    contract_version: Literal["adapter-resolve.v1"]
+    contract_version: Literal["adapter-resolve"]
     resolve_type: AdapterResolveType
     status: AdapterResolveStatus
     display_name: str
@@ -77,7 +85,7 @@ class AdapterResolveResult(StrictModel):
     available_strategies: list[str] = Field(default_factory=list)
     resolved_at: int
     detail: str | None = None
-    card_ref: str | None = None
+    resolve_ref: str | None = None
     strategy: str | None = None
     period: str | None = None
     report_date: str | None = None
@@ -91,11 +99,17 @@ class AdapterResolveResult(StrictModel):
         _reject_raw_locator_text(value, "detail")
         return value
 
-    @field_validator("card_ref")
+    @field_validator("resolve_ref")
     @classmethod
-    def validate_card_ref_is_opaque(cls, value: str | None) -> str | None:
-        _reject_raw_locator_text(value, "card_ref")
+    def validate_resolve_ref_is_opaque(cls, value: str | None) -> str | None:
+        _reject_raw_locator_text(value, "resolve_ref")
         return value
+
+    @model_validator(mode="after")
+    def validate_resolved_has_ref(self):
+        if self.status == "resolved" and not (self.resolve_ref or "").strip():
+            raise ValueError("resolved adapter results must include resolve_ref")
+        return self
 
 
 class AdapterResolveBatchRequest(StrictModel):
@@ -103,7 +117,7 @@ class AdapterResolveBatchRequest(StrictModel):
 
 
 class AdapterResolveBatchResult(StrictModel):
-    contract_version: Literal["adapter-resolve-batch.v1"]
+    contract_version: Literal["adapter-resolve-batch"]
     results: list[AdapterResolveResult]
 
 
@@ -122,8 +136,9 @@ class AdapterCapabilityAuth(StrictModel):
 
 class AdapterCapabilities(StrictModel):
     service: Literal["xiaoyan-wecom-market-agent-adapter"]
-    contract_version: Literal["adapter-resolve.v1"]
-    batch_contract_version: Literal["adapter-resolve-batch.v1"]
+    contract_version: Literal["adapter-resolve"]
+    batch_contract_version: Literal["adapter-resolve-batch"]
+    action_contract_version: Literal["adapter-action"]
     endpoints: AdapterCapabilityEndpoints
     resolve_types: list[AdapterResolveType]
     statuses: list[AdapterResolveStatus]
@@ -186,7 +201,6 @@ class ReplyMention(StrictModel):
 class PrimaryReply(StrictModel):
     kind: ReplyKind
     text: str = ""
-    text_format: Literal["plain_text"] = "plain_text"
     mentions: list[ReplyMention] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -196,24 +210,58 @@ class PrimaryReply(StrictModel):
         return self
 
 
-class SideEffectActionBase(StrictModel):
+class OutboundActionBase(StrictModel):
     action_id: str = ""
 
 
-class SendMaterialPackAction(SideEffectActionBase):
+SideEffectActionBase = OutboundActionBase
+
+
+class SendActionBase(OutboundActionBase):
+    resolve_ref: str = Field(min_length=1)
+
+    @field_validator("resolve_ref")
+    @classmethod
+    def validate_resolve_ref_is_opaque(cls, value: str) -> str:
+        _reject_raw_locator_text(value, "resolve_ref")
+        return value
+
+
+class SendMaterialPackAction(SendActionBase):
     type: Literal["send_material_pack"]
+    resolve_type: Literal["material_pack"]
     strategy: str | None = None
 
 
-class SendWeeklyReportAction(SideEffectActionBase):
+class SendWeeklyReportAction(SendActionBase):
     type: Literal["send_weekly_report"]
+    resolve_type: Literal["weekly_report"]
+    report_scope: ReportScope
+    strategy: str | None
+    period: str = Field(min_length=1)
+    report_date: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_report_selector_shape(self):
+        _validate_report_action_selector(self.report_scope, self.strategy)
+        return self
 
 
-class SendMonthlyReportAction(SideEffectActionBase):
+class SendMonthlyReportAction(SendActionBase):
     type: Literal["send_monthly_report"]
+    resolve_type: Literal["monthly_report"]
+    report_scope: ReportScope
+    strategy: str | None
+    period: str = Field(min_length=1)
+    report_date: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_report_selector_shape(self):
+        _validate_report_action_selector(self.report_scope, self.strategy)
+        return self
 
 
-SideEffectAction = Annotated[
+OutboundAction = Annotated[
     Union[
         SendMaterialPackAction,
         SendWeeklyReportAction,
@@ -221,18 +269,19 @@ SideEffectAction = Annotated[
     ],
     Field(discriminator="type"),
 ]
+SideEffectAction = OutboundAction
 
 
 class ReplyResponse(StrictModel):
     contract_version: Literal["reply"] = "reply"
     response_id: str = ""
     reply: PrimaryReply
-    actions: list[SideEffectAction] = Field(default_factory=list)
+    actions: list[OutboundAction] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_no_reply_has_no_actions(self):
         if self.reply.kind == "no_reply" and self.actions:
-            raise ValueError("no_reply must not include side-effect actions")
+            raise ValueError("no_reply must not include outbound actions")
         return self
 
 
@@ -278,10 +327,18 @@ def _reject_raw_locator_text(value: str | None, field_name: str) -> None:
         raise ValueError(f"{field_name} contains raw locator values")
 
 
+def _validate_report_action_selector(report_scope: ReportScope, strategy: str | None) -> None:
+    if report_scope == "strategy" and not (strategy or "").strip():
+        raise ValueError("strategy-scoped report actions must include strategy")
+    if report_scope == "channel_all" and (strategy or "").strip():
+        raise ValueError("channel-wide report actions must not include strategy")
+
+
 class ActionExecutionFeedback(StrictModel):
     action_type: ActionExecutionType
     status: ActionExecutionStatus
     action_id: str | None = None
+    resolve_ref: str | None = None
     material_type: MaterialType | None = None
     strategy: str | None = None
     material_id: str | None = None
@@ -295,6 +352,12 @@ class ActionExecutionFeedback(StrictModel):
             return value
         if "://" in value or "/" in value or "\\" in value:
             raise ValueError("material_id must be an opaque adapter reference")
+        return value
+
+    @field_validator("resolve_ref")
+    @classmethod
+    def validate_opaque_resolve_ref(cls, value: str | None) -> str | None:
+        _reject_raw_locator_text(value, "resolve_ref")
         return value
 
     @field_validator("adapter_result")

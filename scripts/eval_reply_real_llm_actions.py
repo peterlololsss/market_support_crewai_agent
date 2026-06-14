@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
 
@@ -50,7 +51,7 @@ class FakePreflightService:
                     resolve_type=resolve_type,
                     result=AdapterResolveResult.model_validate(
                         {
-                            "contract_version": "adapter-resolve.v1",
+                            "contract_version": "adapter-resolve",
                             "resolve_type": resolve_type,
                             "status": "resolved",
                             "display_name": request.dist_channel_name,
@@ -60,6 +61,7 @@ class FakePreflightService:
                             "available_materials": request.available_materials,
                             "available_strategies": request.available_strategies,
                             "resolved_at": 1,
+                            "resolve_ref": f"{resolve_type}:eval-ref",
                             "strategy": strategy,
                             "period": (
                                 "20260529"
@@ -78,13 +80,13 @@ def _request(message: str, **overrides):
     from market_support_crewai_agent.schemas import ReplyRequest
 
     payload = {
-        "context_id": "real-action-smoke-1",
-        "conversation_key": "wecom:real-action-smoke-group:real-action-smoke-sender",
-        "group_id": "real-action-smoke-group",
-        "sender_id": "real-action-smoke-sender",
+        "context_id": "real-action-eval-1",
+        "conversation_key": "wecom:real-action-eval-group:real-action-eval-sender",
+        "group_id": "real-action-eval-group",
+        "sender_id": "real-action-eval-sender",
         "message": message,
         "is_group": True,
-        "group_name": "real action smoke group",
+        "group_name": "real action eval group",
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
         "available_materials": ["material", "weekly", "monthly"],
@@ -135,6 +137,61 @@ async def main() -> None:
     ]
     results = [await _run_scenario(name, request) for name, request in scenarios]
     print(json.dumps(results, ensure_ascii=False, indent=2))
+    failures = _validate_results(results)
+    if failures:
+        print(json.dumps({"failures": failures}, ensure_ascii=False, indent=2), file=sys.stderr)
+        raise SystemExit(1)
+
+
+def _validate_results(results: list[dict]) -> list[dict]:
+    failures = []
+    by_name = {result["scenario"]: result for result in results}
+
+    weekly = by_name.get("weekly_report_action", {})
+    weekly_response = weekly.get("response", {})
+    if _action_types(weekly_response) != ["send_weekly_report"] or weekly_response.get("reply", {}).get("text") != "":
+        failures.append(
+            {
+                "scenario": "weekly_report_action",
+                "reason": "expected empty reply text and one send_weekly_report action",
+                "response": weekly_response,
+            }
+        )
+
+    ambiguous = by_name.get("bank_material_requires_strategy_confirmation", {})
+    ambiguous_response = ambiguous.get("response", {})
+    if (
+        ambiguous_response.get("reply", {}).get("kind") != "clarification"
+        or ambiguous_response.get("actions") != []
+    ):
+        failures.append(
+            {
+                "scenario": "bank_material_requires_strategy_confirmation",
+                "reason": "expected clarification with no actions",
+                "response": ambiguous_response,
+            }
+        )
+
+    material = by_name.get("bank_material_strategy_action", {})
+    material_response = material.get("response", {})
+    material_actions = material_response.get("actions") or []
+    if (
+        _action_types(material_response) != ["send_material_pack"]
+        or material_actions[0].get("strategy") != "中证1000"
+        or material_response.get("reply", {}).get("text") != ""
+    ):
+        failures.append(
+            {
+                "scenario": "bank_material_strategy_action",
+                "reason": "expected empty reply text and one send_material_pack action for 中证1000",
+                "response": material_response,
+            }
+        )
+    return failures
+
+
+def _action_types(response: dict) -> list[str]:
+    return [action.get("type", "") for action in response.get("actions") or []]
 
 
 if __name__ == "__main__":

@@ -11,6 +11,9 @@ from market_support_crewai_agent.runtime.business_facts import (
     BusinessFacts,
     derive_business_facts,
 )
+from market_support_crewai_agent.runtime.capabilities import (
+    ordered_resolve_types,
+)
 from market_support_crewai_agent.runtime.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.document_mcp import (
     DocumentMcpEvidenceService,
@@ -21,21 +24,9 @@ from market_support_crewai_agent.runtime.evidence import (
     evidence_facts_from_action_history,
     evidence_facts_from_preflight,
 )
-from market_support_crewai_agent.runtime.planning import ReplyPlan
+from market_support_crewai_agent.runtime.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.policy import PolicyManifest
 from market_support_crewai_agent.schemas import AdapterResolveType, ReplyRequest
-
-_RESOLVE_BY_READ_CAPABILITY = {
-    "resolve_material_pack": "material_pack",
-    "resolve_weekly_report": "weekly_report",
-    "resolve_monthly_report": "monthly_report",
-    "resolve_sales_mention": "sales_mention",
-}
-_RESOLVE_BY_ACTION = {
-    "send_material_pack": "material_pack",
-    "send_weekly_report": "weekly_report",
-    "send_monthly_report": "monthly_report",
-}
 
 
 @dataclass(frozen=True)
@@ -48,7 +39,7 @@ class EvidenceExecutionResult:
 class EvidenceExecutor:
     """Runs deterministic evidence wrappers after plan validation.
 
-    This boundary owns adapter resolve/preflight and feature-gated document MCP
+    This boundary owns adapter resolve/preflight and feature-flag-controlled document MCP
     evidence. Wrappers run after policy and canonical entity validation, not as
     free-form CrewAI tools.
     """
@@ -69,7 +60,7 @@ class EvidenceExecutor:
         self,
         request: ReplyRequest,
         canonical_context: CanonicalContext,
-        plan: ReplyPlan,
+        plan: ExecutionPlan,
         policy: PolicyManifest,
         action_history: list[ActionLedgerRecord] | None = None,
     ) -> EvidenceExecutionResult:
@@ -99,61 +90,23 @@ class EvidenceExecutor:
 
 
 def _resolve_types_for_plan(
-    plan: ReplyPlan,
+    plan: ExecutionPlan,
     policy: PolicyManifest,
 ) -> list[AdapterResolveType]:
     requested: list[AdapterResolveType] = []
 
-    for resolve_type in plan.required_adapter_resolves:
-        if resolve_type in policy.required_adapter_resolves:
-            requested.append(resolve_type)
-
-    for evidence_request in plan.evidence_requests:
-        resolve_type = _RESOLVE_BY_READ_CAPABILITY.get(evidence_request.capability)
-        if resolve_type and resolve_type in policy.required_adapter_resolves:
-            requested.append(resolve_type)
-
-    for action in plan.candidate_actions:
-        resolve_type = _RESOLVE_BY_ACTION.get(action.type)
-        if (
-            resolve_type
-            and action.type in policy.allowed_side_effect_actions
-            and resolve_type in policy.required_adapter_resolves
-        ):
-            requested.append(resolve_type)
-
-    requested.append("sales_mention")
-    return _ordered_unique_resolve_types(requested)
+    for resolve_spec in plan.adapter_resolves:
+        if resolve_spec.resolve_type in policy.allowed_adapter_resolves:
+            requested.append(resolve_spec.resolve_type)
+    return ordered_resolve_types(requested)
 
 
-def _resolve_strategies_for_plan(plan: ReplyPlan) -> dict[AdapterResolveType, str]:
+def _resolve_strategies_for_plan(plan: ExecutionPlan) -> dict[AdapterResolveType, str]:
     strategies: dict[AdapterResolveType, str] = {}
 
-    for evidence_request in plan.evidence_requests:
-        if not evidence_request.strategy:
+    for resolve_spec in plan.adapter_resolves:
+        if not resolve_spec.strategy:
             continue
-        resolve_type = _RESOLVE_BY_READ_CAPABILITY.get(evidence_request.capability)
-        if resolve_type is not None:
-            strategies.setdefault(resolve_type, evidence_request.strategy)
-
-    for action in plan.candidate_actions:
-        if not action.strategy:
-            continue
-        resolve_type = _RESOLVE_BY_ACTION.get(action.type)
-        if resolve_type is not None:
-            strategies.setdefault(resolve_type, action.strategy)
+        strategies.setdefault(resolve_spec.resolve_type, resolve_spec.strategy)
 
     return strategies
-
-
-def _ordered_unique_resolve_types(
-    resolve_types: list[AdapterResolveType],
-) -> list[AdapterResolveType]:
-    order: tuple[AdapterResolveType, ...] = (
-        "material_pack",
-        "weekly_report",
-        "monthly_report",
-        "sales_mention",
-    )
-    requested = set(resolve_types)
-    return [resolve_type for resolve_type in order if resolve_type in requested]

@@ -25,7 +25,7 @@ class ComplianceReasonSpec:
     reason_code: ComplianceReasonCode
     label: str
     planner_guidance: str
-    safe_fallback_text: str = ""
+    refusal_text: str = ""
 
 
 COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
@@ -37,7 +37,13 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "customer_service_request",
         "合规客户服务请求",
-        "Human support, complaints, or requests to contact a named internal service person are compliant service needs.",
+        (
+            "Human support, complaints, or requests to contact/transfer/connect "
+            "a named Yanfu internal service person are compliant service needs. "
+            "This takes priority over private_contact_request unless the user "
+            "explicitly asks for a private phone, personal WeChat, or moving "
+            "business discussion off the monitored group."
+        ),
     ),
     ComplianceReasonSpec(
         "expected_or_target_return",
@@ -60,7 +66,12 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "private_contact_request",
         "私人联系方式",
-        "Private WeChat, phone, or off-channel business communication requests must be refused; normal human-support requests remain customer_service_request.",
+        (
+            "Refuse only explicit private WeChat, personal phone number, adding "
+            "private contacts, or moving business communication off the monitored "
+            "group. Do not use this for normal human support, complaints, or "
+            "routing to a named Yanfu service person."
+        ),
         "老师请问具体是什么产品需求？业务问题请在当前群内沟通，便于留痕和统一回复。",
     ),
     ComplianceReasonSpec(
@@ -102,7 +113,7 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "unknown",
         "无法判断",
-        "Use only when the message cannot be safely interpreted from current context; do not propose side-effect actions.",
+        "Use only when the message cannot be safely interpreted from current context; do not propose outbound actions.",
         "这个问题我无法按当前合规要求展开。",
     ),
 )
@@ -113,16 +124,16 @@ _REASON_SPEC_BY_CODE: dict[ComplianceReasonCode, ComplianceReasonSpec] = {
 NON_COMPLIANT_REASON_CODES: tuple[ComplianceReasonCode, ...] = tuple(
     spec.reason_code
     for spec in COMPLIANCE_REASON_SPECS
-    if spec.safe_fallback_text
+    if spec.refusal_text
     and spec.reason_code not in {"compliant_product_request", "customer_service_request"}
 )
 
 
-def safe_fallback_text(reason_code: str) -> str:
+def refusal_text_for_reason(reason_code: str) -> str:
     spec = _REASON_SPEC_BY_CODE.get(reason_code)  # type: ignore[arg-type]
-    if spec is None or not spec.safe_fallback_text:
-        return _REASON_SPEC_BY_CODE["unknown"].safe_fallback_text
-    return spec.safe_fallback_text
+    if spec is None or not spec.refusal_text:
+        return _REASON_SPEC_BY_CODE["unknown"].refusal_text
+    return spec.refusal_text
 
 
 def compliance_policy_prompt_lines() -> list[str]:

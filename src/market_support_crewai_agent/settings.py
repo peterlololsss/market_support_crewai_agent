@@ -17,7 +17,7 @@ class Settings(BaseModel):
     llm_api_key: str | None = None
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     llm_temperature: float = Field(default=0.1, ge=0)
-    llm_max_tokens: int = Field(default=3000, gt=0)
+    llm_max_tokens: int = Field(default=6000, gt=0)
     crewai_verbose: bool = False
     crewai_max_iter: int = Field(default=5, gt=0)
     crewai_max_execution_time: int = Field(default=60, gt=0)
@@ -30,7 +30,6 @@ class Settings(BaseModel):
     adapter_base_url: str = "http://127.0.0.1:8011"
     adapter_api_key: str | None = None
     adapter_timeout_seconds: float = Field(default=5.0, gt=0)
-    adapter_preflight_enabled: bool = True
     doc_mcp_base_url: str | None = None
     doc_mcp_timeout_seconds: float = Field(default=5.0, gt=0)
     doc_mcp_enabled: bool = False
@@ -46,7 +45,7 @@ def get_settings() -> Settings:
         llm_api_key=os.getenv("YANFU_LLM_API_KEY") or None,
         llm_timeout_seconds=_float_env("YANFU_LLM_TIMEOUT_SECONDS", 30.0),
         llm_temperature=_float_env("YANFU_LLM_TEMPERATURE", 0.1),
-        llm_max_tokens=_int_env("YANFU_LLM_MAX_TOKENS", 3000),
+        llm_max_tokens=_int_env("YANFU_LLM_MAX_TOKENS", 6000),
         crewai_verbose=_bool_env("CREWAI_VERBOSE", False),
         crewai_max_iter=_int_env("CREWAI_MAX_ITER", 5),
         crewai_max_execution_time=_int_env("CREWAI_MAX_EXECUTION_TIME", 60),
@@ -71,9 +70,6 @@ def get_settings() -> Settings:
         ),
         adapter_api_key=os.getenv("MARKET_AGENT_ADAPTER_API_KEY") or None,
         adapter_timeout_seconds=_float_env("MARKET_AGENT_ADAPTER_TIMEOUT_SECONDS", 5.0),
-        adapter_preflight_enabled=_bool_env(
-            "MARKET_AGENT_ADAPTER_PREFLIGHT_ENABLED", True
-        ),
         doc_mcp_base_url=os.getenv("MARKET_AGENT_DOC_MCP_BASE_URL") or None,
         doc_mcp_timeout_seconds=_float_env("MARKET_AGENT_DOC_MCP_TIMEOUT_SECONDS", 5.0),
         doc_mcp_enabled=_bool_env("MARKET_AGENT_DOC_MCP_ENABLED", False),

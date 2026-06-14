@@ -7,14 +7,15 @@ from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from market_support_crewai_agent.runtime.capabilities import read_capabilities_for_artifact
 from market_support_crewai_agent.runtime.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.runtime.planning import ReplyPlan
+from market_support_crewai_agent.runtime.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.policy import PolicyManifest
 from market_support_crewai_agent.schemas import ReplyRequest
 from market_support_crewai_agent.settings import Settings, get_settings
 
-_DOC_CAPABILITY = "query_internal_company_info"
+_DOC_CAPABILITY = next(iter(read_capabilities_for_artifact("knowledge_answer")), "")
 _MCP_ACCEPT_HEADER = "application/json, text/event-stream"
 _MAX_CHARS_PER_DOCUMENT = 6000
 _KNOWLEDGE_TERMS = (
@@ -223,17 +224,14 @@ class DocumentMcpEvidenceService:
         self,
         request: ReplyRequest,
         canonical_context: CanonicalContext,
-        plan: ReplyPlan,
+        plan: ExecutionPlan,
         policy: PolicyManifest,
     ) -> list[EvidenceFact]:
         if not self.settings.doc_mcp_enabled or not self.settings.doc_mcp_base_url:
             return []
         if plan.compliance.is_compliant is not True:
             return []
-        if not any(
-            evidence_request.capability == _DOC_CAPABILITY
-            for evidence_request in plan.evidence_requests
-        ):
+        if "document_context" not in plan.capabilities:
             return []
         if request.channel_type not in self.settings.doc_mcp_allowed_channel_types:
             return [
@@ -297,7 +295,7 @@ class NoopDocumentMcpEvidenceService:
         self,
         request: ReplyRequest,
         canonical_context: CanonicalContext,
-        plan: ReplyPlan,
+        plan: ExecutionPlan,
         policy: PolicyManifest,
     ) -> list[EvidenceFact]:
         del request, canonical_context, plan, policy

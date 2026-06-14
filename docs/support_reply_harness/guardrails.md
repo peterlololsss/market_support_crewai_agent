@@ -1,6 +1,6 @@
 # Guardrail Design
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-14.
 
 Guardrails are part of the runtime skeleton. They are not a final safety prompt.
 
@@ -55,38 +55,52 @@ ledger summary
 internal MCP availability
 ```
 
+Policy may use registry-backed hints to limit material-pack action candidates. Weekly and monthly report candidates are
+allowed to reach adapter preflight, then blocked or approved by deterministic report resolve facts.
+
 The ledger summary is adapter-safe policy metadata only: executed count, material types, strategies, and versions. Raw
 material refs, URLs, adapter results, and failed/skipped actions do not enter the policy prompt.
 
 Outputs:
 
 ```text
-allowed reply kinds
+allowed reply modes
+allowed capabilities
+allowed side-effect actions
 allowed read capabilities
-allowed business checks
-allowed side-effect action candidates
-required adapter resolves
-forbidden claim categories
-mandatory escalation rules
+allowed adapter resolves
 evidence size/call limits
-repair/fallback policy
+error-on-invalid policy
 ```
 
 Weekly-question policy example:
 
 ```text
+allowed_reply_modes:
+- action
+- clarification
+- handoff
+- refusal
+- unable
+
+allowed_capabilities:
+- weekly_report
+- monthly_report
+- sales_mention
+
+allowed_side_effect_actions:
+- send_weekly_report
+- send_monthly_report
+
 allowed_read_capabilities:
 - resolve_weekly_report
-- fetch_sent_weekly_md when body inspection is needed
-- fetch_latest_weekly_md when body inspection is needed
+- resolve_monthly_report
+- resolve_sales_mention
 
-allowed_business_checks:
-- resolve_strategy_alias
-- check_report_contains_strategy
-- check_report_generation_scope
-
-allowed_action_candidates:
-- send_weekly_report
+allowed_adapter_resolves:
+- weekly_report
+- monthly_report
+- sales_mention
 ```
 
 The validator enforces evidence-backed wording, adapter-backed actions, and scope-specific claims.
@@ -110,11 +124,11 @@ Non-compliant plans are not treated as deterministic keyword classifications. Th
 guardrail then enforces:
 
 ```text
-no side-effect actions
+no outbound actions
 no sales mentions
 reply.kind=unable_to_answer
-safe fallback text for the selected reason_code
-no LLM repair pass for non-compliant response violations
+safe refusal text for the selected reason_code
+no LLM invalid-output pass for non-compliant response violations
 ```
 
 ## Plan guardrail
@@ -122,19 +136,19 @@ no LLM repair pass for non-compliant response violations
 Purpose:
 
 - allow evidence capabilities selected by policy;
-- allow business checks selected by policy;
-- map every evidence request to a fixed wrapper;
+- allow target capabilities selected by policy;
+- map every requested capability and adapter resolve spec to a fixed wrapper;
 - require canonical entities for sensitive/internal queries;
-- cap evidence requests;
+- cap deterministic evidence calls;
 - force clarification when ambiguity exceeds policy tolerance.
 
-Planner output is repaired once when safe. Otherwise, use deterministic fallback.
+Invalid planner output or invalid compiled plans raise runtime errors instead of entering alternate response paths.
 
 ## Tool input guardrail
 
 Purpose:
 
-- map validated evidence requests to fixed wrappers;
+- map validated execution-plan resolve specs and capabilities to fixed wrappers;
 - enforce parameter schemas;
 - canonicalize strategy/company names;
 - check group/channel/sender permissions;
@@ -170,7 +184,7 @@ status: resolved | missing | ambiguous | temporarily_unavailable
 display_name
 candidates
 reason_code
-card_ref
+resolve_ref
 report metadata when it affects the answer
 ```
 
@@ -187,9 +201,9 @@ sanitized_content
 
 Evidence that cannot be safely sanitized is dropped and logged as a guardrail event.
 
-Current runtime guardrail: if the validated plan intent is `knowledge_qa`, final `reply.kind=answer` requires a
-`document_context` EvidenceFact from `source_type=document_mcp`. Without it, the runtime falls back instead of answering
-from model memory.
+Current runtime guardrail: if the validated response mode is `knowledge_answer`, final `reply.kind=answer` requires a
+`document_context` EvidenceFact from `source_type=document_mcp`. Without it, the rendered response must be
+`unable_to_answer`; invalid LLM output raises instead of being rewritten.
 
 Current document MCP wrapper sanitizes retrieved content before creating `document_context` EvidenceFacts:
 
@@ -203,7 +217,7 @@ metadata.sanitized / redaction flags / char_count
 
 If Document MCP is enabled and requested but no safe document context is returned, the wrapper emits a
 `document_context_unavailable` EvidenceFact with `value=false`, `source_type=document_mcp`, and a `reason_code` such as
-`document_mcp_error` or `document_context_not_found`. This fact is auditable but does not satisfy the `knowledge_qa`
+`document_mcp_error` or `document_context_not_found`. This fact is auditable but does not satisfy the `knowledge_answer`
 grounding validator.
 
 Document MCP access is also channel-permission scoped. `MARKET_AGENT_DOC_MCP_ALLOWED_CHANNEL_TYPES` controls which
@@ -242,9 +256,9 @@ Deterministic checks:
 ```text
 reply kind is policy-allowed
 action type is policy-allowed
-side-effect actions match public schema
-ambiguous validated plans produce clarification/handoff and no side-effect actions
-final side-effect actions were proposed by the validated ReplyPlan
+outbound actions match public schema
+ambiguous validated plans produce clarification/handoff and no outbound actions
+final outbound actions were proposed by the validated ExecutionPlan
 report send candidates declare internal report_scope selector: channel_all or strategy
 strategy-scoped report candidates include a confirmed strategy
 audit trace records action preconditions without exposing raw adapter refs
@@ -256,33 +270,34 @@ reply.mentions has successful sales mention resolve
 no_reply response is empty apart from metadata
 material/report availability claims are EvidenceFact-backed
 material/report send text does not claim completion before adapter execution
-material/report side-effect responses do not duplicate adapter-owned standard post-send wording
+material/report outbound responses do not duplicate adapter-owned standard post-send wording
 prior-send claims require matching non-expired `recent_executed_action` ledger evidence
 internal fields are absent from user-visible text
-non-compliant plan responses have no actions, no sales mentions, and use the harness-owned safe fallback
+non-compliant plan responses have no actions, no sales mentions, and use the harness-owned safe refusal
 action list matches public schema
 ```
 
 LLM judges may assist on tone, investment-advice wording, evidence overreach, and group-chat concision. They do not decide action legality.
 
-Repairable errors get one bounded repair attempt. Fatal errors go directly to deterministic fallback.
+Invalid output is not corrected. The runtime records audit and raises `AgentRuntimeError` for invalid planner or plan
+contracts, and `ReplyContractError` for invalid rendered or composed replies.
 
-## Adapter guardrail
+## Adapter execution authority
 
-The adapter remains the final side-effect gate.
+The adapter has final execution authority for outbound actions.
 
 It verifies action type, executable material/report reference or selector, current-channel validity, group/channel sendability, mention target validity, and schema validity. It owns outbox/execution records, duplicate prevention, retries for retryable failures, and execution feedback.
 
-## Fallback matrix
+## Error routing matrix
 
 ```text
 Invalid request -> HTTP validation error or safe service error
-Planner invalid -> repair once -> fallback clarification/no_reply
+Planner invalid -> raise AgentRuntimeError
 Policy disallows capability -> limitation, clarification, or human_handoff
 Evidence fetch fails -> unable-to-confirm, with sales mention when policy requires and resolve succeeds
 MCP permission denied -> safe unauthorized/handoff response
 Evidence has prompt injection -> sanitize/drop/log
 MCP evidence remains oversized after sanitization -> truncate to evidence budget and mark metadata; composer receives bounded body
-Reply invalid -> repair once -> deterministic fallback
+Reply invalid -> raise ReplyContractError
 Adapter rejects action -> record failed action; ledger does not treat it as sent
 ```

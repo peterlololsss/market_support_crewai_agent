@@ -5,7 +5,6 @@ import asyncio
 from market_support_crewai_agent.runtime.adapter_client import AdapterClientError
 from market_support_crewai_agent.runtime.adapter_preflight import (
     AdapterPreflightService,
-    NoopAdapterPreflightService,
 )
 from market_support_crewai_agent.schemas import AdapterResolveResult
 
@@ -62,7 +61,7 @@ class FakeAdapterClient:
     def _resolve(self, request):
         return AdapterResolveResult.model_validate(
             {
-                "contract_version": "adapter-resolve.v1",
+                "contract_version": "adapter-resolve",
                 "resolve_type": request.resolve_type,
                 "status": "resolved",
                 "display_name": request.dist_name,
@@ -72,6 +71,7 @@ class FakeAdapterClient:
                 "available_materials": ["material", "weekly", "monthly"],
                 "available_strategies": ["指增"],
                 "resolved_at": 1,
+                "resolve_ref": f"{request.resolve_type}:ref",
                 "strategy": request.strategy,
                 "period": "20260529" if request.resolve_type == "weekly_report" else None,
                 "scope_status": "unknown",
@@ -79,7 +79,7 @@ class FakeAdapterClient:
         )
 
 
-def test_preflight_collects_all_adapter_resolve_types_with_single_strategy():
+def test_preflight_collects_all_registry_adapter_resolve_types_without_implicit_strategy():
     from market_support_crewai_agent.schemas import ReplyRequest
 
     request = ReplyRequest.model_validate(
@@ -100,9 +100,7 @@ def test_preflight_collects_all_adapter_resolve_types_with_single_strategy():
         "monthly_report",
         "sales_mention",
     ]
-    assert fake_client.requests[0].strategy == "指增"
-    assert fake_client.requests[1].strategy == "指增"
-    assert fake_client.requests[2].strategy == "指增"
+    assert all(resolve_request.strategy is None for resolve_request in fake_client.requests)
     assert all(resolve_request.dist_name == "测试渠道" for resolve_request in fake_client.requests)
 
 
@@ -121,7 +119,7 @@ def test_preflight_omits_strategy_when_multiple_candidates_exist():
     assert all(resolve_request.strategy is None for resolve_request in fake_client.requests)
 
 
-def test_preflight_uses_canonical_strategy_from_user_message():
+def test_preflight_ignores_canonical_strategy_without_plan_strategy_selector():
     from market_support_crewai_agent.schemas import ReplyRequest
 
     request = ReplyRequest.model_validate(
@@ -136,9 +134,9 @@ def test_preflight_uses_canonical_strategy_from_user_message():
     asyncio.run(service.collect(request))
 
     assert fake_client.requests[0].resolve_type == "material_pack"
-    assert fake_client.requests[0].strategy == "中证1000"
-    assert fake_client.requests[1].strategy == "中证1000"
-    assert fake_client.requests[2].strategy == "中证1000"
+    assert fake_client.requests[0].strategy is None
+    assert fake_client.requests[1].strategy is None
+    assert fake_client.requests[2].strategy is None
     assert fake_client.requests[3].strategy is None
 
 
@@ -161,7 +159,6 @@ def test_preflight_request_projection_keeps_conversation_identity_out_of_adapter
     assert payload == {
         "resolve_type": "material_pack",
         "dist_name": "test channel",
-        "strategy": "指增",
     }
 
 
@@ -192,7 +189,7 @@ def test_preflight_can_limit_adapter_resolve_types():
         "weekly_report",
         "sales_mention",
     ]
-    assert fake_client.requests[0].strategy == "中证1000"
+    assert fake_client.requests[0].strategy is None
     assert fake_client.requests[1].strategy is None
 
 
@@ -277,11 +274,17 @@ def test_preflight_records_missing_batch_result_without_dropping_item():
     assert weekly.error == "adapter batch result missing"
 
 
-def test_noop_preflight_returns_empty_snapshot():
+def test_preflight_rejects_resolve_type_not_in_registry():
     from market_support_crewai_agent.schemas import ReplyRequest
 
     request = ReplyRequest.model_validate(make_payload())
-    snapshot = asyncio.run(NoopAdapterPreflightService().collect(request))
+    service = AdapterPreflightService(adapter_client=FakeAdapterClient())
 
-    assert snapshot.items == []
-    assert snapshot.available is True
+    try:
+        asyncio.run(service.collect(request, resolve_types=["unknown"]))  # type: ignore[list-item]
+    except ValueError as exc:
+        error = exc
+    else:
+        raise AssertionError("unknown resolve type should fail")
+
+    assert "Unknown adapter resolve type" in str(error)

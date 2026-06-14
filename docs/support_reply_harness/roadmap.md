@@ -1,6 +1,6 @@
 # Multi-Session Roadmap
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-14.
 
 This roadmap is split into phases so future coding sessions can continue safely.
 
@@ -17,7 +17,7 @@ Deliverables:
 
 Acceptance criteria:
 
-- Public response separates `reply`, `reply.mentions`, and side-effect `actions`.
+- Public response separates `reply`, `reply.mentions`, and outbound `actions`.
 - MCP access goes through fixed wrappers.
 - Missing evidence means clarification/escalation.
 - Missing-from-report and outside-generation-scope are separate facts.
@@ -28,7 +28,7 @@ Build:
 
 ```text
 PolicyManifest
-ReplyPlan
+ExecutionPlan
 AdapterResolveResult
 EvidenceFact
 BusinessFacts
@@ -37,7 +37,7 @@ AuditTrace
 request-scoped policy compiler
 plan validator
 reply/action validator
-deterministic fallback builder
+deterministic renderer builder
 initial audit trace object
 ```
 
@@ -47,7 +47,7 @@ Acceptance criteria:
 - new tests cover valid/invalid plans;
 - new tests cover invalid final `ReplyResponse`;
 - service can safely reply when planner/reply fails;
-- audit trace records plan, resolve summaries, facts, validation errors, and repair/fallback path.
+- audit trace records plan, resolve summaries, facts, validation errors, and error-on-invalid path.
 
 ## Phase 2: policy compiler
 
@@ -71,15 +71,15 @@ Outputs:
 
 ```text
 allowed read capabilities
-allowed business checks
+allowed capabilities and adapter resolves
 allowed action candidates
 allowed reply kinds
 required adapter resolves
 forbidden claim categories
 required escalations
 evidence limits
-repair policy
-fallback policy
+error policy
+renderer policy
 ```
 
 ## Phase 3: action ledger
@@ -134,19 +134,23 @@ Acceptance criteria:
 
 Goal: keep factual decisions deterministic where possible.
 
-Business checks include material/report resolvability, sales mention resolvability, report inclusion/scope, user permission, channel permission, and action preconditions.
+BusinessFacts include material/report resolvability, sales mention resolvability, report inclusion/scope, user permission, channel permission, recent executed actions, and action preconditions.
 
 ## Phase 7: planner integration
 
 Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, canonical entities, policy manifest, and available materials/strategies.
 
-Planner output includes user need, detected entities, evidence requests, requested business checks, action candidates, ambiguities, and confidence.
+Planner output is `IntentFrame`: user need, artifact kind, action intent, compliance, strategy mentions, selected strategy, report scope, ambiguity slots, requested capabilities, and confidence.
+
+The deterministic compiler turns `IntentFrame` into `ExecutionPlan`; the model does not output execution details, final reply text, or response mode.
 
 Planner output is validated and cannot be treated as factual authority.
 
 ## Phase 8: reply composer hardening
 
-Composer input includes original message, bounded history, validated plan summary, adapter resolve results, EvidenceFacts, BusinessFacts, allowed action candidates, claim restrictions, and tone rules.
+Current runtime shape: `DecisionEngine` produces `ResponseDirective` after evidence and business fact derivation. The deterministic renderer handles action, refusal, clarification, handoff, unable, and no_reply modes. The knowledge composer is called only when `ResponseDirective.requires_knowledge_composer=true`, which requires document_context evidence.
+
+Composer input includes original message, bounded history, validated execution plan summary, adapter resolve results, EvidenceFacts, BusinessFacts, claim restrictions, and tone rules.
 
 Acceptance criteria:
 
@@ -157,7 +161,7 @@ Acceptance criteria:
 
 ## Phase 9: internal MCP integration
 
-Current status: a minimal document MCP wrapper is implemented for `query_internal_company_info`. It is feature-gated by
+Current status: a minimal document MCP wrapper is implemented for `query_internal_company_info`. It is controlled by
 settings, calls only `list_products` and `get_documents`, and returns bounded `document_context` EvidenceFacts. Broader
 internal MCP capabilities below remain future work.
 
@@ -173,7 +177,7 @@ query_strategy_scope
 query_customer_ownership when needed
 ```
 
-Wrapper requirements: explicit schema, requester identity, group/channel context, permission check, field allowlist, redaction, size limit, audit log, timeout, and failure fallback.
+Wrapper requirements: explicit schema, requester identity, group/channel context, permission check, field allowlist, redaction, size limit, audit log, timeout, and failure handling.
 
 Document MCP integration is not a free-form CrewAI tool attachment. The planner may request a document evidence
 capability; the harness validates the request, calls the fixed wrapper, sanitizes the result, and passes only evidence
@@ -191,13 +195,13 @@ Acceptance criteria:
 
 Adapter validates action type, executable material/report reference or selector, channel validity, group sendability, mention target, and schema. It writes executed/failed status and adapter-native metadata back to the runtime ledger/audit path.
 
-Current status: material/report send proposals are action-only at the harness boundary. The reply guardrail strips
-non-empty `reply.text` from otherwise valid material/report side-effect responses, so the WeCom adapter can own the
-standard post-send follow-up copy without duplicate agent text.
+Current status: material/report send proposals are action-only at the harness boundary. The postcondition validator
+rejects non-empty `reply.text` or mentions on side-effect action responses, so the WeCom adapter can own the standard
+post-send follow-up copy without duplicate agent text.
 
 ## Phase 11: observability and audit
 
-Audit records request/context id, inbound message id, conversation key, policy id/hash, canonical entities, planner output, validations, evidence ids, adapter resolves, EvidenceFacts, BusinessFacts, reply output, repair/fallback path, final actions, adapter execution status, latency, token usage, and model/version.
+Audit records request/context id, inbound message id, conversation key, policy id/hash, canonical entities, compiled plan, response directive, validations, evidence ids, adapter resolves, EvidenceFacts, BusinessFacts, reply output, error-on-invalid path, final actions, adapter execution status, latency, token usage, and model/profile/version metadata.
 
 Avoid logging secrets, unnecessary PII, and sensitive full evidence bodies.
 
@@ -213,10 +217,10 @@ Production acceptance includes zero critical action violations, zero internal da
 
 ## Phase 13: production hardening
 
-Work items: persistent conversation/ledger storage, adapter outbox records, timeout budgets, LLM retry policy, circuit breaker for MCP failures, feature flags, channel rollout, safe fallback messages, model/version pinning, eval gate, audit dashboard/log queries, and privacy/compliance review.
+Work items: persistent conversation/ledger storage, adapter outbox records, timeout budgets, LLM retry policy, circuit breaker for MCP failures, feature flags, channel rollout, safe refusal messages, model/version pinning, eval acceptance checks, audit dashboard/log queries, and privacy/compliance review.
 
 Current timeout status: `YANFU_LLM_TIMEOUT_SECONDS` is passed to CrewAI `LLM(timeout=...)` and also enforced as a
-hard `asyncio.wait_for` budget around each planner/composer/repair `kickoff_async` stage.
+hard `asyncio.wait_for` budget around each planner/composer/invalid-output `kickoff_async` stage.
 
 Current retry status: `CREWAI_MAX_RETRY_LIMIT` is passed to planner and composer CrewAI agents as `max_retry_limit`,
 defaulting to CrewAI's default of 2.
@@ -228,8 +232,8 @@ When scope must be cut, build in this order:
 ```text
 PolicyManifest
 reply/action validator
-deterministic fallback
-planner with typed ReplyPlan
+deterministic renderer
+planner with typed ExecutionPlan
 EvidenceFact with fake adapter resolve
 adapter resolve for material packs/reports/sales mention
 action ledger

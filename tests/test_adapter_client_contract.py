@@ -59,7 +59,7 @@ class ResolveHandler(BaseHTTPRequestHandler):
         )
         if self.path.endswith("/batch"):
             response = {
-                "contract_version": "adapter-resolve-batch.v1",
+                "contract_version": "adapter-resolve-batch",
                 "results": [_resolve_response(item) for item in payload["requests"]],
             }
         else:
@@ -77,7 +77,7 @@ class ResolveHandler(BaseHTTPRequestHandler):
 
 def _resolve_response(payload):
     return {
-        "contract_version": "adapter-resolve.v1",
+        "contract_version": "adapter-resolve",
         "resolve_type": payload["resolve_type"],
         "status": "resolved",
         "display_name": payload["dist_name"],
@@ -87,7 +87,7 @@ def _resolve_response(payload):
         "available_materials": ["material", "weekly"],
         "available_strategies": ["指增"],
         "resolved_at": 1,
-        "card_ref": "wecom-adapter:test",
+        "resolve_ref": "wecom-adapter:test",
         "period": "20260529",
         "scope_status": "unknown",
     }
@@ -96,8 +96,9 @@ def _resolve_response(payload):
 def _capabilities_response():
     return {
         "service": "xiaoyan-wecom-market-agent-adapter",
-        "contract_version": "adapter-resolve.v1",
-        "batch_contract_version": "adapter-resolve-batch.v1",
+        "contract_version": "adapter-resolve",
+        "batch_contract_version": "adapter-resolve-batch",
+        "action_contract_version": "adapter-action",
         "endpoints": {
             "health": "/health",
             "capabilities": "/adapter/capabilities",
@@ -115,6 +116,7 @@ def _capabilities_response():
             "resolved",
             "missing",
             "ambiguous",
+            "forbidden",
             "temporarily_unavailable",
         ],
         "max_batch_requests": 16,
@@ -188,6 +190,7 @@ def test_adapter_capabilities_schema_accepts_adapter_contract():
         "sales_mention",
     ]
     assert capabilities.max_batch_requests == 16
+    assert capabilities.action_contract_version == "adapter-action"
     assert capabilities.cache_ttl_seconds == 30
     assert capabilities.cache_max_entries == 512
     assert capabilities.auth is not None
@@ -211,7 +214,7 @@ def test_adapter_metrics_schema_accepts_adapter_contract():
 def test_adapter_resolve_schema_accepts_adapter_contract():
     result = AdapterResolveResult.model_validate(
         {
-            "contract_version": "adapter-resolve.v1",
+            "contract_version": "adapter-resolve",
             "resolve_type": "weekly_report",
             "status": "resolved",
             "display_name": "测试渠道",
@@ -221,7 +224,7 @@ def test_adapter_resolve_schema_accepts_adapter_contract():
             "available_materials": ["weekly"],
             "available_strategies": [],
             "resolved_at": 1,
-            "card_ref": "wecom-adapter:test",
+            "resolve_ref": "wecom-adapter:test",
             "period": "20260529",
             "report_date": "2026-05-29",
             "contains_strategy": False,
@@ -243,7 +246,7 @@ def test_adapter_resolve_schema_rejects_raw_locator_detail():
     with pytest.raises(ValueError, match="detail contains raw locator values"):
         AdapterResolveResult.model_validate(
             {
-                "contract_version": "adapter-resolve.v1",
+                "contract_version": "adapter-resolve",
                 "resolve_type": "weekly_report",
                 "status": "missing",
                 "display_name": "测试渠道",
@@ -258,11 +261,11 @@ def test_adapter_resolve_schema_rejects_raw_locator_detail():
         )
 
 
-def test_adapter_resolve_schema_rejects_raw_locator_card_ref():
-    with pytest.raises(ValueError, match="card_ref contains raw locator values"):
+def test_adapter_resolve_schema_rejects_raw_locator_resolve_ref():
+    with pytest.raises(ValueError, match="resolve_ref contains raw locator values"):
         AdapterResolveResult.model_validate(
             {
-                "contract_version": "adapter-resolve.v1",
+                "contract_version": "adapter-resolve",
                 "resolve_type": "weekly_report",
                 "status": "resolved",
                 "display_name": "测试渠道",
@@ -272,7 +275,46 @@ def test_adapter_resolve_schema_rejects_raw_locator_card_ref():
                 "available_materials": ["weekly"],
                 "available_strategies": [],
                 "resolved_at": 1,
-                "card_ref": "https://drive.weixin.qq.com/s?k=secret",
+                "resolve_ref": "https://drive.weixin.qq.com/s?k=secret",
+            }
+        )
+
+
+def test_adapter_resolve_schema_rejects_resolved_without_resolve_ref():
+    with pytest.raises(ValueError, match="resolved adapter results must include resolve_ref"):
+        AdapterResolveResult.model_validate(
+            {
+                "contract_version": "adapter-resolve",
+                "resolve_type": "weekly_report",
+                "status": "resolved",
+                "display_name": "测试渠道",
+                "reason_code": "ok",
+                "candidates": [],
+                "channel_type": "non_bank",
+                "available_materials": ["weekly"],
+                "available_strategies": [],
+                "resolved_at": 1,
+            }
+        )
+
+
+def test_adapter_resolve_schema_rejects_removed_locator_field():
+    removed_locator_field = "card" + "_ref"
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        AdapterResolveResult.model_validate(
+            {
+                "contract_version": "adapter-resolve",
+                "resolve_type": "weekly_report",
+                "status": "resolved",
+                "display_name": "测试渠道",
+                "reason_code": "ok",
+                "candidates": [],
+                "channel_type": "non_bank",
+                "available_materials": ["weekly"],
+                "available_strategies": [],
+                "resolved_at": 1,
+                "resolve_ref": "wecom-adapter:test",
+                removed_locator_field: "removed-locator",
             }
         )
 
@@ -281,7 +323,7 @@ def test_adapter_resolve_schema_rejects_unowned_metadata_bucket():
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         AdapterResolveResult.model_validate(
             {
-                "contract_version": "adapter-resolve.v1",
+                "contract_version": "adapter-resolve",
                 "resolve_type": "weekly_report",
                 "status": "resolved",
                 "display_name": "测试渠道",
@@ -291,6 +333,7 @@ def test_adapter_resolve_schema_rejects_unowned_metadata_bucket():
                 "available_materials": ["weekly"],
                 "available_strategies": [],
                 "resolved_at": 1,
+                "resolve_ref": "wecom-adapter:test",
                 "metadata": {"report_url": "https://drive.weixin.qq.com/s?k=secret"},
             }
         )
@@ -316,7 +359,7 @@ def test_adapter_client_gets_capabilities_with_bearer_auth():
         server.server_close()
         thread.join(timeout=3)
 
-    assert capabilities.contract_version == "adapter-resolve.v1"
+    assert capabilities.contract_version == "adapter-resolve"
     assert capabilities.endpoints.capabilities == "/adapter/capabilities"
     assert capabilities.max_request_body_bytes == 65536
     assert ResolveHandler.payloads[0]["path"] == "/adapter/capabilities"
@@ -427,7 +470,7 @@ def test_adapter_client_posts_bearer_auth_and_validates_result():
         thread.join(timeout=3)
 
     assert result.status == "resolved"
-    assert result.card_ref == "wecom-adapter:test"
+    assert result.resolve_ref == "wecom-adapter:test"
     assert ResolveHandler.payloads[0]["authorization"] == "Bearer secret"
     assert ResolveHandler.payloads[0]["payload"]["resolve_type"] == "weekly_report"
     assert ResolveHandler.payloads[0]["payload"]["strategy"] == "指增"

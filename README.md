@@ -10,11 +10,11 @@ External CrewAI runtime service for the existing WeCom bot.
 - CrewAI runtime boundary.
 - Typed request/response schema.
 - In-memory conversation history keyed by `conversation_key`.
-- Adapter preflight/resolve before side-effect action proposals.
+- Adapter preflight/resolve before outbound action proposals.
 - Adapter-confirmed action feedback ledger with a 24h in-memory TTL for “just sent” semantics.
 
-The runtime returns one `ReplyResponse`: primary reply semantics plus typed side-effect action proposals. The WeCom
-adapter owns message execution and final side-effect gating.
+The runtime returns one `ReplyResponse`: primary reply semantics plus typed outbound action proposals. The WeCom
+adapter owns message execution, final action validation, and execution authorization.
 
 ## Run locally
 
@@ -26,36 +26,73 @@ set +a
 uv run uvicorn market_support_crewai_agent.server.main:app --reload
 ```
 
-## MVP smoke flow
+## Reply checks and evals
+
+Run the Python test suite:
+
+```bash
+uv run --extra dev python -m pytest -q
+```
+
+Run the core acceptance check suite:
+
+```bash
+uv run python scripts/check_reply_acceptance.py
+```
+
+This default suite uses fake external dependencies. Add `--include-real-llm` when provider credentials and network
+access are available. Add `--include-live-adapter` only after starting the xiaoyan adapter fixture.
 
 Run the harness pipeline without external LLM or adapter credentials:
 
 ```bash
-uv run python scripts/smoke_reply_mvp.py
+uv run python scripts/check_reply_runtime_fake_deps.py
 ```
 
 This uses fake CrewAI planner/composer outputs and fake adapter preflight, while exercising the real runtime
-orchestration, evidence, business facts, and reply/action guardrails.
+orchestration, evidence, business facts, and reply/action postcondition validators.
 
-Run a real LLM-backed `/reply` knowledge-QA smoke using `.env` and the configured Document MCP:
-
-```bash
-uv run python scripts/smoke_reply_real_llm.py
-```
-
-Run real LLM-backed action-routing smokes with fake adapter preflight:
+Run a real LLM-backed `/reply` knowledge-QA eval using `.env` and the configured Document MCP:
 
 ```bash
-uv run python scripts/smoke_reply_real_llm_actions.py
+uv run python scripts/eval_reply_real_llm_knowledge.py
 ```
 
-Run a real LLM-backed action smoke with live adapter preflight. Start the xiaoyan adapter first, or use the fixture
+Run a real LLM-backed action-routing eval with fake adapter preflight:
+
+```bash
+uv run python scripts/eval_reply_real_llm_actions.py
+```
+
+Run a real LLM-backed handoff boundary eval. This verifies customer-service requests and unavailable material sends
+produce harness-shaped handoff replies instead of ungrounded sends.
+
+```bash
+uv run python scripts/eval_reply_handoff.py
+```
+
+Run a real LLM-backed compliance eval. This isolates compliance planning and harness-owned refusal text, so adapter
+preflight is disabled by default in the script.
+
+```bash
+uv run python scripts/eval_reply_compliance.py
+```
+
+Run a real adapter-feedback ledger check. It first verifies that a “just sent” follow-up without executed feedback
+does not invent a version, then posts an executed weekly-report feedback event and verifies the follow-up is grounded
+by that ledger entry rather than another send action.
+
+```bash
+uv run python scripts/check_reply_action_feedback.py
+```
+
+Run a real LLM-backed action eval with live adapter preflight. Start the xiaoyan adapter first, or use the fixture
 command in `docs/adapter/xiaoyan_adapter_contract.md`.
 
 ```bash
 MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:18112 \
 MARKET_AGENT_LIVE_ADAPTER_API_KEY=scope-secret \
-uv run python scripts/smoke_reply_live_adapter.py --message "请发一下周报"
+uv run python scripts/eval_reply_live_adapter.py --message "请发一下周报"
 ```
 
 ## LLM configuration
@@ -65,8 +102,8 @@ YANFU_LLM_BASE_URL=https://llm.yanfuinvest.com/v1
 YANFU_LLM_PROVIDER=openai
 YANFU_LLM_MODEL=deepseek-v4-pro
 YANFU_LLM_API_KEY=your-key
-YANFU_LLM_TIMEOUT_SECONDS=60
-YANFU_LLM_MAX_TOKENS=3000
+YANFU_LLM_TIMEOUT_SECONDS=90
+YANFU_LLM_MAX_TOKENS=6000
 CREWAI_MAX_RETRY_LIMIT=2
 ```
 
@@ -88,7 +125,6 @@ AGENT_CONVERSATION_CLEANUP_INTERVAL_SECONDS=300
 MARKET_AGENT_ADAPTER_BASE_URL=http://127.0.0.1:8011
 MARKET_AGENT_ADAPTER_API_KEY=
 MARKET_AGENT_ADAPTER_TIMEOUT_SECONDS=5
-MARKET_AGENT_ADAPTER_PREFLIGHT_ENABLED=true
 ```
 
 ## Document MCP configuration
@@ -133,7 +169,7 @@ is_group
 For group-chat requests, the gateway sends `conversation_key` as `wecom:{group_id}:{sender_id}`. `context_id` is
 optional and only used for tracing.
 
-The public runtime response is `ReplyResponse { reply, actions }`. The adapter executes `reply` and typed side-effect
+The public runtime response is `ReplyResponse { reply, actions }`. The adapter executes `reply` and typed outbound
 action proposals after its own validation.
 
 ## Documentation map
@@ -147,7 +183,7 @@ action proposals after its own validation.
 - `docs/support_reply_harness/roadmap.md`: phased implementation plan.
 - `docs/support_reply_harness/next_session.md`: immediate coding-session handoff.
 - `docs/support_reply_harness/reference/agent_prompt_hygiene.md`: prompt/context hygiene for Codex-style coding agents.
-- `docs/adapter/xiaoyan_adapter_contract.md`: xiaoyan WeCom adapter contract and live smoke commands.
+- `docs/adapter/xiaoyan_adapter_contract.md`: xiaoyan WeCom adapter contract and live eval commands.
 
 ## Current module ownership
 
@@ -157,15 +193,24 @@ src/market_support_crewai_agent/schemas.py              HTTP and action contract
 src/market_support_crewai_agent/runtime/reply_agent.py  CrewAI runtime orchestration
 src/market_support_crewai_agent/runtime/conversation_store.py
 src/market_support_crewai_agent/runtime/canonicalization.py
+src/market_support_crewai_agent/runtime/capabilities.py
 src/market_support_crewai_agent/runtime/adapter_preflight.py
 src/market_support_crewai_agent/runtime/policy.py
 src/market_support_crewai_agent/runtime/planning.py
 src/market_support_crewai_agent/runtime/evidence.py
 src/market_support_crewai_agent/runtime/evidence_executor.py
 src/market_support_crewai_agent/runtime/business_facts.py
+src/market_support_crewai_agent/runtime/decision.py
+src/market_support_crewai_agent/runtime/response_renderer.py
 src/market_support_crewai_agent/runtime/guardrails.py
 src/market_support_crewai_agent/runtime/action_ledger.py
 src/market_support_crewai_agent/runtime/audit.py
+src/market_support_crewai_agent/runtime/prompt_profiles.py
+src/market_support_crewai_agent/runtime/prompt_fragments.py
+src/market_support_crewai_agent/runtime/prompt_router.py
+src/market_support_crewai_agent/runtime/prompt_assembler.py
+src/market_support_crewai_agent/runtime/prompt_context.py
+src/market_support_crewai_agent/runtime/prompt_templates.py
 src/market_support_crewai_agent/runtime/response_ids.py
 ```
 

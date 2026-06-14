@@ -1,6 +1,6 @@
 # Repository Agent Instructions
 
-Last updated: 2026-06-04.
+Last updated: 2026-06-14.
 
 This repository contains `market-support-crewai-agent`, an external FastAPI/CrewAI reasoning service for an existing WeCom adapter. Coding agents should treat this file as the short operational contract. Use linked docs for detail only when the task touches that area.
 
@@ -12,18 +12,17 @@ For every coding session:
 2. Read `README.md` for run commands and current service surface.
 3. For harness work, read `docs/support_reply_harness/README.md` and `docs/support_reply_harness/next_session.md`.
 4. For adapter contract work, read `docs/adapter/xiaoyan_adapter_contract.md`.
-5. For CrewAI runtime changes, check the installed CrewAI version, PyPI latest version, CrewAI changelog, and the relevant live CrewAI docs page before changing code. Also consult `docs/reference/crewai_agents_reference.md` for local CrewAI patterns. When live docs conflict with local guidance, update local docs with the verified behavior.
 
 ## Active architecture decision
 
 Build a Support Reply Harness: a deterministic evidence and control layer around LLM planning and reply composition.
 
-The LLM interprets messy Chinese sales/support language, proposes evidence needs, and composes concise typed replies. The harness owns identity, permissions, policy compilation, canonicalization, evidence execution, business fact derivation, action validation, side-effect gating, audit, and eval logging.
+The LLM interprets messy Chinese sales/support language, proposes evidence needs, and composes concise typed replies. The harness owns identity, permissions, policy compilation, canonicalization, evidence execution, business fact derivation, outbound action validation, audit, and eval logging.
 
 Use one orchestrated runtime with two bounded LLM stages when planner/composer separation is needed:
 
 ```text
-Planner LLM -> validated ReplyPlan
+Planner LLM -> IntentFrame -> validated ExecutionPlan
 Reply Composer LLM -> validated ReplyResponse
 ```
 
@@ -35,9 +34,9 @@ Public endpoint: `POST /reply`.
 
 Public response boundary: one `ReplyResponse` with `reply` and typed `actions`.
 
-User-visible free-form reply text lives in `reply.text`. Customer-visible sales mentions live in `reply.mentions`. Side effects are typed action proposals for the adapter to execute.
+User-visible free-form reply text lives in `reply.text`. Customer-visible sales mentions live in `reply.mentions`. Outbound work is represented as typed action proposals for the adapter to validate, authorize, and execute.
 
-Canonical side-effect action types for the support harness:
+Canonical outbound action types for the support harness:
 
 ```text
 send_material_pack
@@ -45,14 +44,14 @@ send_weekly_report
 send_monthly_report
 ```
 
-The WeCom adapter is the final execution gate. It validates the response, owns outbox/execution reliability, executes the primary reply and actions, and writes execution feedback for ledger/audit.
+The WeCom adapter has final execution authority. It validates the response, owns outbox/execution reliability, executes the primary reply and actions, and writes execution feedback for ledger/audit.
 
 ## Source-of-truth order
 
 When sources conflict, use this order:
 
 1. Request contract and adapter-provided conversation/message identity.
-2. Adapter resolve/preflight results for sendability, report/card existence, and sales mention target resolution.
+2. Adapter resolve/preflight results for sendability, artifact existence, and sales mention target resolution.
 3. Adapter-confirmed action ledger/execution result for what was actually sent.
 4. Weekly/monthly report metadata returned by adapter resolve.
 5. Permission-scoped internal MCP data.
@@ -60,15 +59,15 @@ When sources conflict, use this order:
 7. Recent conversation turns.
 8. LLM interpretation.
 
-Planner output is a proposal. Deterministic evidence and business checks establish facts.
+Planner output is a proposal. Deterministic evidence and business facts establish facts.
 
 ## Implementation policy
 
 Prefer one canonical implementation path. When replacing internal behavior, update callers and tests in the same change.
 
-A compatibility bridge requires a published external boundary, a test proving an active caller dependency, or an explicit ADR. Otherwise, remove superseded code in the same patch.
+A transition bridge requires a published external boundary, a test proving an active caller dependency, or an explicit ADR. Otherwise, remove superseded code in the same patch.
 
-Validators come before autonomy. Build deterministic models, policy, evidence facts, reply/action validators, fallback, and audit traces before MCP tools, broad RAG, or multi-agent expansion.
+Validators come before autonomy. Build deterministic models, policy, evidence facts, reply/action validators, refusal, and audit traces before MCP tools, broad RAG, or multi-agent expansion.
 
 ## Prompt and documentation hygiene
 
@@ -90,17 +89,17 @@ Do not turn every past mistake into an active prompt token. For recurring failur
 2. Public `ReplyResponse` models for `reply.kind`, `reply.mentions`, and canonical typed actions.
 3. `AdapterResolveResult` and lightweight `EvidenceFact`.
 4. `compile_policy(request, ledger_summary=None)`.
-5. `validate_reply(response, policy, evidence_facts, request)`.
-6. Deterministic fallback builder.
-7. Wire reply validation after current agent output in `reply_agent.py`.
-8. Tests that monkeypatch unsafe agent outputs and verify repair/fallback.
+5. `validate_reply(response, directive, plan, business_facts, evidence_facts, policy)`.
+6. Deterministic decision engine and response renderer.
+7. Wire directive rendering/composer gating and reply validation in `reply_agent.py`.
+8. Tests that monkeypatch unsafe planner/composer/renderer outputs and verify error-on-invalid plus audit.
 
 ## Test expectations
 
 Run the narrowest relevant tests plus existing contract tests. For harness changes, include:
 
 ```bash
-uv run pytest tests/test_reply_contract.py tests/test_adapter_preflight.py tests/test_structured_guardrails.py tests/test_action_feedback.py
+uv run --extra dev python -m pytest -q tests/test_reply_contract.py tests/test_adapter_preflight.py tests/test_structured_guardrails.py tests/test_action_feedback.py
 ```
 
 Add focused tests for every new validator, policy branch, evidence wrapper, ledger behavior, and adapter contract branch.
@@ -114,12 +113,15 @@ src/market_support_crewai_agent/schemas.py            public HTTP/action DTOs
 src/market_support_crewai_agent/server/main.py        FastAPI routes only
 src/market_support_crewai_agent/runtime/reply_agent.py orchestration boundary
 src/market_support_crewai_agent/runtime/canonicalization.py deterministic entity resolution
+src/market_support_crewai_agent/runtime/capabilities.py capability registry
 src/market_support_crewai_agent/runtime/policy.py      policy compiler
-src/market_support_crewai_agent/runtime/planning.py    ReplyPlan models/validation
+src/market_support_crewai_agent/runtime/planning.py    ExecutionPlan models/validation
 src/market_support_crewai_agent/runtime/evidence.py    evidence wrappers/facts
 src/market_support_crewai_agent/runtime/evidence_executor.py evidence wrapper orchestration
 src/market_support_crewai_agent/runtime/business_facts.py deterministic facts
-src/market_support_crewai_agent/runtime/guardrails.py  validators/fallback
+src/market_support_crewai_agent/runtime/decision.py    ResponseDirective decision engine
+src/market_support_crewai_agent/runtime/response_renderer.py deterministic renderer
+src/market_support_crewai_agent/runtime/guardrails.py  postcondition validators
 src/market_support_crewai_agent/runtime/action_ledger.py executed-action ledger
 src/market_support_crewai_agent/runtime/audit.py       audit trace
 ```

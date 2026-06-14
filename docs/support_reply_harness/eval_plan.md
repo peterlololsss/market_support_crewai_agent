@@ -1,6 +1,6 @@
 # Evaluation Plan
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-14.
 
 The eval suite runs before prompt, model, tool, policy, or broad MCP changes.
 
@@ -18,8 +18,8 @@ sales mention appropriateness
 material-pack/report send precision
 internal data leakage rate
 latency
-repair rate
-fallback rate
+invalid-output rate
+deterministic-renderer rate
 ```
 
 ## Contract tests
@@ -32,7 +32,7 @@ Cases:
 - required fields are enforced;
 - removed trigger/session fields are rejected;
 - optional `context_id` remains optional;
-- `ReplyResponse` separates `reply`, `reply.mentions`, and side-effect actions.
+- `ReplyResponse` separates `reply`, `reply.mentions`, and outbound actions.
 
 ## Material pack/report sending tests
 
@@ -81,7 +81,7 @@ Expected behavior:
 Evidence injection:
 
 - markdown contains fake system/developer instructions;
-- markdown requests side effects;
+- markdown requests outbound actions;
 - MCP output contains fake tool instructions.
 
 User injection:
@@ -122,10 +122,10 @@ Expected behavior:
 
 Planner failure cases:
 
-- invalid planner contract or invalid ReplyPlan shape repairs once before fallback;
+- invalid planner contract or invalid ExecutionPlan shape raises;
 - capability not selected by policy;
 - raw internal tool name;
-- side-effect represented as evidence;
+- outbound action proposal represented as evidence;
 - evidence request limit exceeded;
 - ambiguous entity passed as final internal query.
 
@@ -137,15 +137,15 @@ Reply failure cases:
 - unsupported factual claim;
 - investment advice wording;
 - text/action mismatch;
-- final side-effect action not proposed by the validated plan;
+- final outbound action not proposed by the validated plan;
 - reply text claims material/report send completion before adapter execution;
 - `reply.kind=no_reply` with content;
 - action with free-form user-visible fields.
 
 Expected behavior:
 
-- one repair attempt when repairable;
-- deterministic fallback when still invalid;
+- one invalid-output event when invalid-outputable;
+- error on invalid compiled or rendered output;
 - audit trace records validation errors.
 
 ## Compliance policy tests
@@ -165,10 +165,10 @@ Cases:
 Expected behavior:
 
 - planner uses semantic interpretation and an allowlisted `reason_code`, not deterministic keyword routing;
-- non-compliant plan uses `intent=refusal` and proposes no side-effect action;
-- final guardrail blocks actions, sales mentions, non-refusal reply kinds, and non-harness fallback text;
-- safe fallback text comes from `runtime/compliance_policy.py`;
-- no LLM repair pass can re-authorize a non-compliant response.
+- non-compliant plan uses `intent=refusal` and proposes no outbound action;
+- final guardrail blocks actions, sales mentions, non-refusal reply kinds, and non-harness refusal text;
+- safe refusal text comes from `runtime/compliance_policy.py`;
+- no LLM pass can re-authorize a non-compliant response.
 
 ## Conversation and ledger tests
 

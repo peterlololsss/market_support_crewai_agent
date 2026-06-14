@@ -9,7 +9,11 @@ from market_support_crewai_agent.runtime.adapter_preflight import (
 )
 from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.evidence_executor import EvidenceExecutor
-from market_support_crewai_agent.runtime.planning import ReplyPlan
+from market_support_crewai_agent.runtime.planning import (
+    ExecutionPlan,
+    IntentFrame,
+    compile_intent_frame,
+)
 from market_support_crewai_agent.runtime.policy import compile_policy
 from market_support_crewai_agent.schemas import (
     ActionFeedbackRequest,
@@ -37,33 +41,27 @@ def make_request(**overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def make_plan(**overrides) -> ReplyPlan:
+def make_plan(**overrides) -> ExecutionPlan:
     payload = {
         "user_need": "send weekly report",
-        "intent": "send_weekly_report",
+        "artifact_kind": "weekly_report",
+        "action_intent": "send",
+        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
             "reason": "normal report request",
         },
-        "evidence_requests": [
-            {
-                "capability": "resolve_weekly_report",
-                "reason": "confirm weekly report can be sent",
-            }
-        ],
-        "business_checks": [
-            {
-                "check": "check_weekly_report_resolvable",
-                "reason": "weekly report send requires adapter resolve",
-            }
-        ],
-        "required_adapter_resolves": ["weekly_report"],
-        "candidate_actions": [{"type": "send_weekly_report", "report_scope": "channel_all"}],
         "confidence": 0.8,
     }
     payload.update(overrides)
-    return ReplyPlan.model_validate(payload)
+    request = make_request()
+    return compile_intent_frame(
+        IntentFrame.model_validate(payload),
+        request,
+        canonicalize_request(request),
+        compile_policy(request),
+    )
 
 
 class FakePreflightService:
@@ -91,7 +89,7 @@ class FakePreflightService:
                     resolve_type="weekly_report",
                     result=AdapterResolveResult.model_validate(
                         {
-                            "contract_version": "adapter-resolve.v1",
+                            "contract_version": "adapter-resolve",
                             "resolve_type": "weekly_report",
                             "status": "resolved",
                             "display_name": request.dist_channel_name,
@@ -101,11 +99,10 @@ class FakePreflightService:
                             "available_materials": ["weekly"],
                             "available_strategies": ["中证500", "中证1000"],
                             "resolved_at": 1,
-                            "strategy": (resolve_strategies or {}).get(
-                                "weekly_report",
-                                canonical_context.selected_strategy,
-                            ),
+                            "resolve_ref": "weekly:ref",
+                            "strategy": (resolve_strategies or {}).get("weekly_report"),
                             "period": "20260529",
+                            "report_date": "2026-05-29",
                             "contains_strategy": True,
                             "scope_status": "included",
                         }
@@ -136,7 +133,7 @@ def test_evidence_executor_runs_preflight_and_derives_business_facts():
     assert result.preflight.items[0].status == "resolved"
     assert result.evidence_facts[0].fact_type == "weekly_report_resolvable"
     assert result.business_facts.weekly_report.status == "available"
-    assert result.business_facts.weekly_report.strategy == "中证1000"
+    assert result.business_facts.weekly_report.strategy is None
     assert result.business_facts.requested_strategy_status == "available"
 
 
@@ -146,20 +143,8 @@ def test_evidence_executor_passes_plan_strategy_selector_to_preflight():
     fake_preflight = FakePreflightService()
     executor = EvidenceExecutor(fake_preflight)
     plan = make_plan(
-        evidence_requests=[
-            {
-                "capability": "resolve_weekly_report",
-                "reason": "confirm weekly report can be sent",
-                "strategy": "中证1000",
-            }
-        ],
-        candidate_actions=[
-            {
-                "type": "send_weekly_report",
-                "report_scope": "strategy",
-                "strategy": "中证1000",
-            }
-        ],
+        report_scope="strategy",
+        selected_strategy="中证1000",
     )
 
     result = asyncio.run(
@@ -196,9 +181,10 @@ def test_evidence_executor_merges_recent_executed_action_facts():
                 "response_id": "resp-previous",
                 "executions": [
                     {
-                        "action_type": "send_material",
+                        "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-previous-weekly",
+                        "resolve_ref": "weekly:ref",
                         "material_type": "weekly",
                         "strategy": "中证1000",
                         "material_id": "weekly:opaque",

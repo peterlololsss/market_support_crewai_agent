@@ -179,16 +179,18 @@ def test_business_facts_include_only_adapter_executed_action_history():
                 "response_id": "resp-1",
                 "executions": [
                     {
-                        "action_type": "send_material",
+                        "action_type": "send_weekly_report",
                         "status": "failed",
                         "action_id": "act-failed",
+                        "resolve_ref": "weekly:failed-ref",
                         "material_type": "weekly",
                         "material_id": "weekly:failed",
                     },
                     {
-                        "action_type": "send_material",
+                        "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-weekly",
+                        "resolve_ref": "weekly:resolve-ref",
                         "material_type": "weekly",
                         "strategy": "中证1000",
                         "material_id": "weekly:opaque",
@@ -213,5 +215,8 @@ def test_business_facts_include_only_adapter_executed_action_history():
     assert executed.material_type == "weekly"
     assert executed.strategy == "中证1000"
     assert executed.version == "20260529"
+    assert executed.resolve_ref == "weekly:resolve-ref"
+    assert executed.resolve_ref_available is True
     assert executed.material_ref_available is True
+    assert "weekly:resolve-ref" not in str(business_facts.to_prompt_dict())
     assert "act-failed" not in str(business_facts.to_prompt_dict())

@@ -52,7 +52,7 @@ def test_llm_max_tokens_defaults_to_real_structured_output_budget(monkeypatch):
 
     settings = get_settings()
 
-    assert settings.llm_max_tokens == 3000
+    assert settings.llm_max_tokens == 6000
 
 
 def test_llm_max_tokens_reads_environment(monkeypatch):

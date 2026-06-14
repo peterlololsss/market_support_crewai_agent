@@ -3,6 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from market_support_crewai_agent.runtime.capabilities import (
+    CAPABILITY_REGISTRY,
+    CapabilitySpec,
+    capability_by_business_state_field,
+    capability_by_resolve_type,
+    resolvable_fact_type_for_resolve,
+    resolvable_business_state_fields,
+)
 from market_support_crewai_agent.runtime.evidence import EvidenceFact, find_fact
 from market_support_crewai_agent.schemas import AdapterResolveType, ReplyRequest
 
@@ -17,6 +25,7 @@ class ResolvableState:
     candidates: tuple[str, ...] = ()
     reason_code: str = ""
     source_id: str = ""
+    resolve_ref: str | None = None
     strategy: str | None = None
 
     @property
@@ -30,11 +39,14 @@ class ReportState(ResolvableState):
     scope_status: ReportScopeStatus = "unknown"
     strategy: str | None = None
     period: str | None = None
+    report_date: str | None = None
 
 
 @dataclass(frozen=True)
 class ExecutedActionState:
     action_type: str = ""
+    resolve_ref: str | None = None
+    resolve_ref_available: bool = False
     material_type: str | None = None
     strategy: str | None = None
     version: str | None = None
@@ -61,27 +73,26 @@ class BusinessFacts:
         return cls()
 
     def resolve_state(self, resolve_type: AdapterResolveType) -> ResolvableState:
-        if resolve_type == "material_pack":
-            return self.material_pack
-        if resolve_type == "weekly_report":
-            return self.weekly_report
-        if resolve_type == "monthly_report":
-            return self.monthly_report
-        return self.sales_mention
+        capability = capability_by_resolve_type(resolve_type)
+        if capability is None or capability.business_state_field is None:
+            return ResolvableState()
+        state = getattr(self, capability.business_state_field, None)
+        return state if isinstance(state, ResolvableState) else ResolvableState()
 
     def report_state(self, resolve_type: AdapterResolveType) -> ReportState | None:
-        if resolve_type == "weekly_report":
-            return self.weekly_report
-        if resolve_type == "monthly_report":
-            return self.monthly_report
-        return None
+        capability = capability_by_resolve_type(resolve_type)
+        if capability is None or not capability.is_report:
+            return None
+        state = getattr(self, capability.business_state_field or "", None)
+        return state if isinstance(state, ReportState) else None
 
     def to_prompt_dict(self) -> dict:
-        return {
-            "material_pack": _state_dict(self.material_pack),
-            "weekly_report": _state_dict(self.weekly_report),
-            "monthly_report": _state_dict(self.monthly_report),
-            "sales_mention": _state_dict(self.sales_mention),
+        payload = {
+            field_name: _state_dict(getattr(self, field_name))
+            for field_name in resolvable_business_state_fields()
+        }
+        payload.update(
+            {
             "recent_executed_actions": [
                 _executed_action_dict(action)
                 for action in self.recent_executed_actions
@@ -89,41 +100,49 @@ class BusinessFacts:
             "requested_strategy_status": self.requested_strategy_status,
             "user_permission": self.user_permission,
             "evidence_fact_count": self.evidence_fact_count,
-        }
-
-
-_RESOLVABLE_FACT_BY_RESOLVE: dict[AdapterResolveType, str] = {
-    "material_pack": "material_pack_resolvable",
-    "weekly_report": "weekly_report_resolvable",
-    "monthly_report": "monthly_report_resolvable",
-    "sales_mention": "sales_mention_resolvable",
-}
+            }
+        )
+        return payload
 
 
 def derive_business_facts(
         evidence_facts: list[EvidenceFact],
         request: ReplyRequest | None = None,
 ) -> BusinessFacts:
-    material_pack = _derive_resolvable_state(evidence_facts, "material_pack")
-    weekly_report = _derive_report_state(evidence_facts, "weekly_report")
-    monthly_report = _derive_report_state(evidence_facts, "monthly_report")
-    sales_mention = _derive_resolvable_state(evidence_facts, "sales_mention")
+    states = _derive_registry_states(evidence_facts)
 
     return BusinessFacts(
-        material_pack=material_pack,
-        weekly_report=weekly_report,
-        monthly_report=monthly_report,
-        sales_mention=sales_mention,
+        material_pack=_state_for_field(states, "material_pack", ResolvableState),
+        weekly_report=_state_for_field(states, "weekly_report", ReportState),
+        monthly_report=_state_for_field(states, "monthly_report", ReportState),
+        sales_mention=_state_for_field(states, "sales_mention", ResolvableState),
         recent_executed_actions=_derive_recent_executed_actions(evidence_facts),
         requested_strategy_status=_derive_requested_strategy_status(
             request,
-            material_pack,
-            weekly_report,
-            monthly_report,
+            states,
         ),
         user_permission="unknown",
         evidence_fact_count=len(evidence_facts),
     )
+
+
+def _derive_registry_states(evidence_facts: list[EvidenceFact]) -> dict[str, ResolvableState]:
+    states: dict[str, ResolvableState] = {}
+    for field_name in resolvable_business_state_fields():
+        capability = capability_by_business_state_field(field_name)
+        if capability is None or capability.resolve_type is None:
+            continue
+        if capability.is_report:
+            states[field_name] = _derive_report_state(
+                evidence_facts,
+                capability.resolve_type,
+            )
+        else:
+            states[field_name] = _derive_resolvable_state(
+                evidence_facts,
+                capability.resolve_type,
+            )
+    return states
 
 
 def _derive_recent_executed_actions(
@@ -137,6 +156,8 @@ def _derive_recent_executed_actions(
         actions.append(
             ExecutedActionState(
                 action_type=str(metadata.get("action_type") or ""),
+                resolve_ref=_optional_str(metadata.get("resolve_ref")),
+                resolve_ref_available=bool(metadata.get("resolve_ref_available")),
                 material_type=_optional_str(metadata.get("material_type")),
                 strategy=_optional_str(metadata.get("strategy")),
                 version=_optional_str(metadata.get("version")),
@@ -155,6 +176,12 @@ def _derive_report_state(
         resolve_type: AdapterResolveType,
 ) -> ReportState:
     base_state = _derive_resolvable_state(evidence_facts, resolve_type)
+    base_fact_type = resolvable_fact_type_for_resolve(resolve_type)
+    base_fact = (
+        find_fact(evidence_facts, base_fact_type, resolve_type)  # type: ignore[arg-type]
+        if base_fact_type is not None
+        else None
+    )
     contains_fact = find_fact(
         evidence_facts,
         "report_contains_strategy",
@@ -166,6 +193,8 @@ def _derive_report_state(
         resolve_type,
     )
     metadata = {}
+    if base_fact is not None:
+        metadata.update(base_fact.metadata)
     if contains_fact is not None:
         metadata.update(contains_fact.metadata)
     if scope_fact is not None:
@@ -176,6 +205,7 @@ def _derive_report_state(
         candidates=base_state.candidates,
         reason_code=base_state.reason_code,
         source_id=base_state.source_id,
+        resolve_ref=base_state.resolve_ref,
         contains_strategy=(
             contains_fact.value if isinstance(contains_fact.value, bool) else None
         )
@@ -184,6 +214,7 @@ def _derive_report_state(
         scope_status=_normalize_scope_status(scope_fact.value if scope_fact else None),
         strategy=_optional_str(metadata.get("strategy")) or base_state.strategy,
         period=_optional_str(metadata.get("period")),
+        report_date=_optional_str(metadata.get("report_date")),
     )
 
 
@@ -191,9 +222,12 @@ def _derive_resolvable_state(
         evidence_facts: list[EvidenceFact],
         resolve_type: AdapterResolveType,
 ) -> ResolvableState:
+    fact_type = resolvable_fact_type_for_resolve(resolve_type)
+    if fact_type is None:
+        return ResolvableState()
     fact = find_fact(
         evidence_facts,
-        _RESOLVABLE_FACT_BY_RESOLVE[resolve_type],
+        fact_type,  # type: ignore[arg-type]
         resolve_type,
     )
     if fact is None:
@@ -205,26 +239,55 @@ def _derive_resolvable_state(
         candidates=tuple(str(candidate) for candidate in fact.metadata.get("candidates", [])),
         reason_code=str(fact.metadata.get("reason_code") or ""),
         source_id=fact.source_id,
+        resolve_ref=_optional_str(fact.metadata.get("resolve_ref")),
         strategy=_optional_str(fact.metadata.get("strategy")),
     )
 
 
 def _derive_requested_strategy_status(
         request: ReplyRequest | None,
-        material_pack: ResolvableState,
-        weekly_report: ReportState,
-        monthly_report: ReportState,
+        states: dict[str, ResolvableState],
 ) -> AvailabilityStatus:
     if request is None:
         return "unknown"
-    if material_pack.status in {"available", "ambiguous", "unavailable"}:
-        return material_pack.status
-    for report in (weekly_report, monthly_report):
+    for capability in _strategy_status_capabilities(is_report=False):
+        if capability.business_state_field is None:
+            continue
+        state = states.get(capability.business_state_field)
+        if state is not None and state.status in {"available", "ambiguous", "unavailable"}:
+            return state.status
+    for capability in _strategy_status_capabilities(is_report=True):
+        if capability.business_state_field is None:
+            continue
+        report = states.get(capability.business_state_field)
+        if not isinstance(report, ReportState):
+            continue
         if report.contains_strategy is True or report.scope_status == "included":
             return "available"
         if report.contains_strategy is False or report.scope_status == "excluded":
             return "unavailable"
     return "unknown"
+
+
+def _strategy_status_capabilities(*, is_report: bool) -> tuple[CapabilitySpec, ...]:
+    return tuple(
+        capability
+        for capability in CAPABILITY_REGISTRY
+        if capability.business_state_field is not None
+        and capability.resolve_type is not None
+        and capability.is_report is is_report
+    )
+
+
+def _state_for_field(
+        states: dict[str, ResolvableState],
+        field_name: str,
+        state_type: type[ResolvableState],
+):
+    state = states.get(field_name)
+    if isinstance(state, state_type):
+        return state
+    return state_type()
 
 
 def _availability_from_fact(value: object, status: str) -> AvailabilityStatus:
@@ -256,6 +319,7 @@ def _state_dict(state: ResolvableState) -> dict:
         "candidates": list(state.candidates),
         "reason_code": state.reason_code,
         "source_id": state.source_id,
+        "resolve_ref_available": bool(state.resolve_ref),
         "strategy": state.strategy,
     }
     if isinstance(state, ReportState):
@@ -265,6 +329,7 @@ def _state_dict(state: ResolvableState) -> dict:
                 "scope_status": state.scope_status,
                 "strategy": state.strategy,
                 "period": state.period,
+                "report_date": state.report_date,
             }
         )
     return payload
@@ -273,6 +338,7 @@ def _state_dict(state: ResolvableState) -> dict:
 def _executed_action_dict(action: ExecutedActionState) -> dict:
     return {
         "action_type": action.action_type,
+        "resolve_ref_available": action.resolve_ref_available,
         "material_type": action.material_type,
         "strategy": action.strategy,
         "version": action.version,

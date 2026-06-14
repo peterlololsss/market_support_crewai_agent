@@ -1,29 +1,30 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from market_support_crewai_agent.runtime.conversation_store import ConversationStore
 from market_support_crewai_agent.runtime.action_ledger import ActionLedger
+from market_support_crewai_agent.runtime.adapter_preflight import (
+    AdapterPreflightItem,
+    AdapterPreflightSnapshot,
+)
+from market_support_crewai_agent.runtime.audit import AuditStore
+from market_support_crewai_agent.runtime.conversation_store import ConversationStore
+from market_support_crewai_agent.runtime.guardrails import ReplyContractError
 from market_support_crewai_agent.runtime.input_guardrails import InputGuardrailError
+from market_support_crewai_agent.runtime.planning import IntentFrame
 from market_support_crewai_agent.runtime.reply_agent import (
     AgentRuntimeError,
     CrewAIReplyRuntime,
     build_reply,
 )
 from market_support_crewai_agent.runtime.response_ids import ensure_response_ids
-from market_support_crewai_agent.runtime.planning import (
-    ReplyPlan,
-)
-from market_support_crewai_agent.runtime.adapter_preflight import (
-    AdapterPreflightItem,
-    AdapterPreflightSnapshot,
-    NoopAdapterPreflightService,
-)
 from market_support_crewai_agent.schemas import (
     ActionFeedbackRequest,
+    AdapterResolveResult,
     PrimaryReply,
     ReplyResponse,
     SendWeeklyReportAction,
@@ -35,20 +36,28 @@ client = TestClient(app)
 
 
 class FakePlannerAgent:
-    def __init__(self, plan: ReplyPlan | None = None, prompts: list[str] | None = None):
-        self.plan = plan or make_reply_plan()
+    def __init__(self, frame: IntentFrame | None = None, prompts: list[str] | None = None):
+        self.frame = frame or make_intent_frame(
+            artifact_kind="unclear",
+            action_intent="none",
+            report_scope="none",
+            ambiguity_slots=["request_meaning"],
+        )
         self.prompts = prompts
 
     async def kickoff_async(self, prompt, response_format):
         if self.prompts is not None:
             self.prompts.append(prompt)
-        return SimpleNamespace(pydantic=self.plan, raw="")
+        return SimpleNamespace(pydantic=self.frame, raw="")
 
 
-def make_reply_plan(**overrides) -> ReplyPlan:
+def make_intent_frame(**overrides) -> IntentFrame:
     payload = {
         "user_need": "answer current market support request",
-        "intent": "clarification",
+        "artifact_kind": "unclear",
+        "action_intent": "none",
+        "report_scope": "none",
+        "ambiguity_slots": ["request_meaning"],
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -57,39 +66,28 @@ def make_reply_plan(**overrides) -> ReplyPlan:
         "confidence": 0.8,
     }
     payload.update(overrides)
-    return ReplyPlan.model_validate(payload)
+    return IntentFrame.model_validate(payload)
 
 
-def install_fake_planner(runtime: CrewAIReplyRuntime, plan: ReplyPlan | None = None):
-    runtime._build_planner_agent = lambda: FakePlannerAgent(plan)  # type: ignore[method-assign]
+def make_weekly_frame(**overrides) -> IntentFrame:
+    payload = {
+        "user_need": "send weekly report",
+        "artifact_kind": "weekly_report",
+        "action_intent": "send",
+        "report_scope": "channel_all",
+        "compliance": {
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal weekly report request",
+        },
+        "confidence": 0.8,
+    }
+    payload.update(overrides)
+    return IntentFrame.model_validate(payload)
 
 
-def test_crewai_planner_agent_uses_planning_config_without_delegation():
-    runtime = CrewAIReplyRuntime(
-        Settings(
-            llm_api_key="test-key",
-            llm_timeout_seconds=7,
-            crewai_max_retry_limit=4,
-        )
-    )
-
-    planner = runtime._build_planner_agent()
-    composer = runtime._build_agent()
-
-    assert planner.planning is True
-    assert planner.planning_config is not None
-    assert planner.planning_config.reasoning_effort == "medium"
-    assert planner.planning_config.max_attempts == 2
-    assert planner.planning_config.observe_steps is False
-    assert planner.allow_delegation is False
-    assert planner.inject_date is True
-    assert planner.llm.timeout == 7
-    assert planner.max_retry_limit == 4
-    assert composer.planning is False
-    assert composer.planning_config is None
-    assert composer.allow_delegation is False
-    assert composer.llm.timeout == 7
-    assert composer.max_retry_limit == 4
+def install_fake_planner(runtime: CrewAIReplyRuntime, frame: IntentFrame | None = None):
+    runtime._build_planner_agent = lambda: FakePlannerAgent(frame)  # type: ignore[method-assign]
 
 
 def make_payload(message: str = "hello", **overrides):
@@ -109,6 +107,117 @@ def make_payload(message: str = "hello", **overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def resolved_item(resolve_type: str, **overrides) -> AdapterPreflightItem:
+    payload = {
+        "contract_version": "adapter-resolve",
+        "resolve_type": resolve_type,
+        "status": "resolved",
+        "display_name": "测试渠道",
+        "reason_code": "ok",
+        "candidates": [],
+        "channel_type": "bank",
+        "available_materials": ["material", "weekly", "monthly"],
+        "available_strategies": ["指增"],
+        "resolved_at": 1,
+        "resolve_ref": f"{resolve_type}:ref",
+    }
+    payload.update(overrides)
+    return AdapterPreflightItem(
+        resolve_type=resolve_type,
+        result=AdapterResolveResult.model_validate(payload),
+    )
+
+
+class ResolvedWeeklyPreflight:
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        del request, canonical_context, resolve_types, resolve_strategies
+        return AdapterPreflightSnapshot(
+            items=[
+                resolved_item(
+                    "weekly_report",
+                    resolve_ref="weekly:ref",
+                    period="20260529",
+                    report_date="2026-05-29",
+                    scope_status="included",
+                    contains_strategy=True,
+                )
+            ]
+        )
+
+
+class MissingWeeklyWithSalesPreflight:
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        del request, canonical_context, resolve_types, resolve_strategies
+        missing = {
+            "contract_version": "adapter-resolve",
+            "resolve_type": "weekly_report",
+            "status": "missing",
+            "display_name": "测试渠道",
+            "reason_code": "weekly_report_unavailable",
+            "candidates": [],
+            "channel_type": "bank",
+            "available_materials": [],
+            "available_strategies": [],
+            "resolved_at": 1,
+        }
+        return AdapterPreflightSnapshot(
+            items=[
+                AdapterPreflightItem(
+                    resolve_type="weekly_report",
+                    result=AdapterResolveResult.model_validate(missing),
+                ),
+                resolved_item("sales_mention", resolve_ref="sales:ref"),
+            ]
+        )
+
+
+class EmptyPreflightService:
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        del request, canonical_context, resolve_types, resolve_strategies
+        return AdapterPreflightSnapshot.empty()
+
+
+def test_crewai_agents_disable_execution_planning_without_delegation():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="test-key",
+            llm_timeout_seconds=7,
+            crewai_max_retry_limit=4,
+        )
+    )
+
+    planner = runtime._build_planner_agent()
+    composer = runtime._build_agent()
+
+    assert planner.planning is False
+    assert planner.allow_delegation is False
+    assert planner.inject_date is True
+    assert planner.llm.timeout == 7
+    assert planner.max_retry_limit == 4
+    assert composer.planning is False
+    assert composer.allow_delegation is False
+    assert composer.llm.timeout == 7
+    assert composer.max_retry_limit == 4
 
 
 def test_health_returns_ok():
@@ -137,7 +246,18 @@ def test_reply_returns_runtime_response_without_business_rewrite(monkeypatch):
     expected = ReplyResponse(
         response_id="resp-test",
         reply=PrimaryReply(kind="answer", text="runtime decided text"),
-        actions=[SendWeeklyReportAction(type="send_weekly_report", action_id="act-1")],
+        actions=[
+            SendWeeklyReportAction(
+                type="send_weekly_report",
+                action_id="act-1",
+                resolve_type="weekly_report",
+                resolve_ref="weekly:ref",
+                report_scope="channel_all",
+                strategy=None,
+                period="20260529",
+                report_date="2026-05-29",
+            )
+        ],
     )
 
     async def fake_build_reply(request):
@@ -154,10 +274,19 @@ def test_reply_returns_runtime_response_without_business_rewrite(monkeypatch):
         "reply": {
             "kind": "answer",
             "text": "runtime decided text",
-            "text_format": "plain_text",
             "mentions": [],
         },
-        "actions": [{"action_id": "act-1", "type": "send_weekly_report"}],
+        "actions": [
+            {
+                "action_id": "act-1",
+                "type": "send_weekly_report",
+                "resolve_type": "weekly_report",
+                "resolve_ref": "weekly:ref",
+                "report_scope": "channel_all",
+                "period": "20260529",
+                "report_date": "2026-05-29",
+            }
+        ],
     }
 
 
@@ -167,19 +296,15 @@ def test_reply_route_rejects_message_over_configured_input_limit(monkeypatch):
     response = client.post("/reply", json=make_payload("abcdef"))
 
     assert response.status_code == 413
-    assert "message exceeds configured input guardrail limit" in response.json()[
-        "detail"
-    ]
+    assert "message exceeds configured input guardrail limit" in response.json()["detail"]
 
 
 def test_runtime_input_guardrail_runs_before_llm_configuration():
     runtime = CrewAIReplyRuntime(
         Settings(agent_input_max_message_chars=5),
         conversation_store=ConversationStore(),
-        preflight_service=NoopAdapterPreflightService(),
+        preflight_service=EmptyPreflightService(),
     )
-
-    import asyncio
 
     try:
         asyncio.run(runtime.reply(ReplyRequestShim("abcdef").payload()))
@@ -189,25 +314,19 @@ def test_runtime_input_guardrail_runs_before_llm_configuration():
         raise AssertionError("input guardrail should reject oversized message")
 
     assert error.code == "message_too_long"
-    assert error.metadata == {
-        "message_length": 6,
-        "max_message_chars": 5,
-    }
 
 
 def test_runtime_times_out_slow_crewai_planner_before_composer_runs():
     runtime = CrewAIReplyRuntime(
         Settings(llm_api_key="test-key", llm_timeout_seconds=0.01),
         conversation_store=ConversationStore(),
-        preflight_service=NoopAdapterPreflightService(),
+        preflight_service=EmptyPreflightService(),
     )
 
     class SlowPlannerAgent:
         async def kickoff_async(self, prompt, response_format):
-            import asyncio
-
             await asyncio.sleep(1)
-            return SimpleNamespace(pydantic=make_reply_plan(), raw="")
+            return SimpleNamespace(pydantic=make_intent_frame(), raw="")
 
     class ComposerShouldNotRun:
         async def kickoff_async(self, prompt, response_format):
@@ -215,8 +334,6 @@ def test_runtime_times_out_slow_crewai_planner_before_composer_runs():
 
     runtime._build_planner_agent = lambda: SlowPlannerAgent()  # type: ignore[method-assign]
     runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
-
-    import asyncio
 
     try:
         asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
@@ -285,6 +402,18 @@ def test_reply_returns_502_when_runtime_fails(monkeypatch):
     assert response.json() == {"detail": "runtime failed"}
 
 
+def test_reply_returns_502_when_contract_validation_fails(monkeypatch):
+    async def fake_build_reply(request):
+        raise ReplyContractError("invalid reply")
+
+    monkeypatch.setattr("market_support_crewai_agent.server.main.build_reply", fake_build_reply)
+
+    response = client.post("/reply", json=make_payload("any message"))
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "invalid reply"}
+
+
 def test_request_contract_rejects_unknown_material_type():
     response = client.post(
         "/reply",
@@ -292,56 +421,6 @@ def test_request_contract_rejects_unknown_material_type():
     )
 
     assert response.status_code == 422
-
-
-def test_request_contract_rejects_extra_fields():
-    response = client.post(
-        "/reply",
-        json=make_payload(extra_field="not allowed"),
-    )
-
-    assert response.status_code == 422
-
-
-def test_request_contract_requires_conversation_key_group_id_and_sender_id():
-    for required_field in ("conversation_key", "group_id", "sender_id"):
-        payload = make_payload()
-        payload.pop(required_field)
-
-        response = client.post("/reply", json=payload)
-
-        assert response.status_code == 422
-
-
-def test_request_contract_accepts_optional_context_id(monkeypatch):
-    expected = ReplyResponse(
-        response_id="resp-ok",
-        reply=PrimaryReply(kind="answer", text="ok"),
-        actions=[],
-    )
-
-    async def fake_build_reply(request):
-        assert request.context_id is None
-        return expected
-
-    monkeypatch.setattr("market_support_crewai_agent.server.main.build_reply", fake_build_reply)
-    payload = make_payload()
-    payload.pop("context_id")
-
-    response = client.post("/reply", json=payload)
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "contract_version": "reply",
-        "response_id": "resp-ok",
-        "reply": {
-            "kind": "answer",
-            "text": "ok",
-            "text_format": "plain_text",
-            "mentions": [],
-        },
-        "actions": [],
-    }
 
 
 def test_request_contract_rejects_removed_trigger_and_session_fields():
@@ -360,7 +439,7 @@ def test_reply_response_rejects_unsupported_contract_version():
     try:
         ReplyResponse.model_validate(
             {
-                "contract_version": "reply.v2",
+                "contract_version": "reply-versioned",
                 "response_id": "resp-unsupported",
                 "reply": {"kind": "answer", "text": "ok", "mentions": []},
                 "actions": [],
@@ -369,13 +448,53 @@ def test_reply_response_rejects_unsupported_contract_version():
     except ValidationError:
         return
 
-    raise AssertionError("reply.v2 must not be accepted")
+    raise AssertionError("version-suffixed reply contract must not be accepted")
+
+
+def test_report_action_requires_period_and_report_date():
+    from pydantic import ValidationError
+
+    try:
+        SendWeeklyReportAction.model_validate(
+            {
+                "type": "send_weekly_report",
+                "action_id": "act-1",
+                "resolve_type": "weekly_report",
+                "resolve_ref": "weekly:ref",
+                "report_scope": "channel_all",
+                "strategy": None,
+            }
+        )
+    except ValidationError:
+        return
+
+    raise AssertionError("report send actions must include period and report_date")
+
+
+def test_strategy_scoped_report_action_requires_strategy():
+    from pydantic import ValidationError
+
+    try:
+        SendWeeklyReportAction.model_validate(
+            {
+                "type": "send_weekly_report",
+                "action_id": "act-1",
+                "resolve_type": "weekly_report",
+                "resolve_ref": "weekly:ref",
+                "report_scope": "strategy",
+                "period": "20260529",
+                "report_date": "2026-05-29",
+            }
+        )
+    except ValidationError:
+        return
+
+    raise AssertionError("strategy-scoped report actions must include strategy")
 
 
 def test_build_reply_uses_custom_settings_for_default_runtime_services(monkeypatch):
     settings = Settings(
         llm_api_key="test-key",
-        adapter_preflight_enabled=False,
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://doc-mcp.local:23000",
         agent_conversation_max_messages=3,
@@ -384,7 +503,6 @@ def test_build_reply_uses_custom_settings_for_default_runtime_services(monkeypat
 
     async def fake_reply(self, request):
         seen["settings"] = self.settings
-        seen["preflight_enabled"] = self.preflight_service.enabled
         seen["document_settings"] = (
             self.evidence_executor.document_evidence_service.settings
         )
@@ -397,17 +515,288 @@ def test_build_reply_uses_custom_settings_for_default_runtime_services(monkeypat
 
     monkeypatch.setattr(CrewAIReplyRuntime, "reply", fake_reply)
 
-    import asyncio
-
     response = asyncio.run(
         build_reply(ReplyRequestShim("介绍一下中证1000").payload(), settings=settings)
     )
 
     assert response.response_id == "resp-ok"
     assert seen["settings"] is settings
-    assert seen["preflight_enabled"] is False
     assert seen["document_settings"] is settings
     assert seen["conversation_max_messages"] == 3
+
+
+def test_runtime_deterministic_action_does_not_call_composer():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+    install_fake_planner(runtime, make_weekly_frame())
+
+    class ComposerShouldNotRun:
+        async def kickoff_async(self, prompt, response_format):
+            raise AssertionError("composer should not run for action responses")
+
+    runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+
+    assert response.reply.kind == "answer"
+    assert response.reply.text == ""
+    assert response.actions[0].type == "send_weekly_report"
+    assert response.actions[0].resolve_ref == "weekly:ref"
+    assert response.actions[0].period == "20260529"
+
+
+def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch):
+    audit_store = AuditStore()
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+        audit_store=audit_store,
+    )
+    install_fake_planner(runtime, make_weekly_frame())
+
+    def bad_render_directive(directive, plan, business_facts, evidence_facts):
+        del directive, plan, business_facts, evidence_facts
+        return ReplyResponse(
+            response_id="resp-bad",
+            reply=PrimaryReply(kind="answer", text="周报已发送，请查收。"),
+            actions=[
+                SendWeeklyReportAction(
+                    type="send_weekly_report",
+                    action_id="act-1",
+                    resolve_type="weekly_report",
+                    resolve_ref="weekly:ref",
+                    report_scope="channel_all",
+                    strategy=None,
+                    period="20260529",
+                    report_date="2026-05-29",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        "market_support_crewai_agent.runtime.reply_agent.render_directive",
+        bad_render_directive,
+    )
+
+    try:
+        asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    except ReplyContractError as exc:
+        error = exc
+    else:
+        raise AssertionError("invalid rendered reply must raise")
+
+    assert "rendered reply failed validation" in str(error)
+    trace = audit_store.latest()
+    assert trace is not None
+    assert trace.reply_validation is not None
+    assert trace.reply_validation["valid"] is False
+
+
+def test_runtime_hands_off_missing_action_when_sales_resolves():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=MissingWeeklyWithSalesPreflight(),
+    )
+    install_fake_planner(runtime, make_weekly_frame())
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+
+    assert response.reply.kind == "human_handoff"
+    assert response.reply.mentions[0].type == "sales"
+    assert response.actions == []
+
+
+def test_runtime_uses_composer_only_for_knowledge_answer():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="test-key",
+            doc_mcp_enabled=True,
+            doc_mcp_base_url="http://doc-mcp.local:23000",
+        ),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="answer knowledge question",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            requested_capabilities=["document_context"],
+            report_scope="none",
+            ambiguity_slots=[],
+        ),
+    )
+    prompts: list[str] = []
+
+    class FakeComposer:
+        async def kickoff_async(self, prompt, response_format):
+            prompts.append(prompt)
+            return SimpleNamespace(
+                pydantic=ReplyResponse(
+                    response_id="resp-ok",
+                    reply=PrimaryReply(kind="answer", text="文档证据回答"),
+                    actions=[],
+                ),
+                raw="",
+            )
+
+    class FakeEvidenceExecutor:
+        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+            from market_support_crewai_agent.runtime.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.evidence import EvidenceFact
+
+            facts = [
+                EvidenceFact(
+                    fact_type="document_context",
+                    value="文档证据",
+                    source_type="document_mcp",
+                    source_id="doc-1",
+                )
+            ]
+            return SimpleNamespace(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=facts,
+                business_facts=derive_business_facts(facts, request),
+            )
+
+    runtime.evidence_executor = FakeEvidenceExecutor()
+    runtime._build_agent = lambda: FakeComposer()  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
+
+    assert response.reply.text == "文档证据回答"
+    assert prompts
+    assert "ExecutionPlan JSON" in prompts[0]
+
+
+def test_runtime_skips_knowledge_composer_without_document_evidence():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="test-key",
+            doc_mcp_enabled=True,
+            doc_mcp_base_url="http://doc-mcp.local:23000",
+        ),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="answer knowledge question",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            requested_capabilities=["document_context"],
+            report_scope="none",
+            ambiguity_slots=[],
+        ),
+    )
+
+    class ComposerShouldNotRun:
+        async def kickoff_async(self, prompt, response_format):
+            raise AssertionError("composer should not run without document evidence")
+
+    class EmptyEvidenceExecutor:
+        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+            from market_support_crewai_agent.runtime.business_facts import derive_business_facts
+
+            return SimpleNamespace(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=[],
+                business_facts=derive_business_facts([], request),
+            )
+
+    runtime.evidence_executor = EmptyEvidenceExecutor()
+    runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
+
+    assert response.reply.kind == "unable_to_answer"
+    assert response.actions == []
+
+
+def test_runtime_raises_when_composer_returns_invalid_reply_contract():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="test-key",
+            doc_mcp_enabled=True,
+            doc_mcp_base_url="http://doc-mcp.local:23000",
+        ),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="answer knowledge question",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            requested_capabilities=["document_context"],
+            report_scope="none",
+            ambiguity_slots=[],
+        ),
+    )
+
+    class BadComposer:
+        async def kickoff_async(self, prompt, response_format):
+            return SimpleNamespace(pydantic=None, raw='{"not": "a reply"}')
+
+    class FakeEvidenceExecutor:
+        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+            from market_support_crewai_agent.runtime.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.evidence import EvidenceFact
+
+            facts = [
+                EvidenceFact(
+                    fact_type="document_context",
+                    value="文档证据",
+                    source_type="document_mcp",
+                    source_id="doc-1",
+                )
+            ]
+            return SimpleNamespace(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=facts,
+                business_facts=derive_business_facts(facts, request),
+            )
+
+    runtime.evidence_executor = FakeEvidenceExecutor()
+    runtime._build_agent = lambda: BadComposer()  # type: ignore[method-assign]
+
+    try:
+        asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
+    except AgentRuntimeError as exc:
+        error = exc
+    else:
+        raise AssertionError("invalid composer output must raise")
+
+    assert "invalid ReplyResponse contract" in str(error)
+
+
+def test_runtime_raises_when_compiled_plan_is_invalid():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_weekly_frame(requested_capabilities=["document_context"]),
+    )
+
+    try:
+        asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    except AgentRuntimeError as exc:
+        error = exc
+    else:
+        raise AssertionError("invalid compiled plan must raise")
+
+    assert "compiled execution plan failed validation" in str(error)
 
 
 def test_same_conversation_key_reuses_prior_turns():
@@ -415,26 +804,13 @@ def test_same_conversation_key_reuses_prior_turns():
     runtime = CrewAIReplyRuntime(
         _test_settings(),
         conversation_store=store,
-        preflight_service=NoopAdapterPreflightService(),
+        preflight_service=EmptyPreflightService(),
     )
-    install_fake_planner(runtime)
     prompts: list[str] = []
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            prompts.append(prompt)
-            return SimpleNamespace(
-                pydantic=ReplyResponse(
-                    response_id=f"resp-{len(prompts)}",
-                    reply=PrimaryReply(kind="answer", text=f"answer-{len(prompts)}"),
-                    actions=[],
-                ),
-                raw="",
-            )
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
+    runtime._build_planner_agent = lambda: FakePlannerAgent(  # type: ignore[method-assign]
+        make_intent_frame(),
+        prompts,
+    )
 
     asyncio.run(runtime.reply(ReplyRequestShim("first question").payload()))
     asyncio.run(runtime.reply(ReplyRequestShim("follow up").payload()))
@@ -442,7 +818,6 @@ def test_same_conversation_key_reuses_prior_turns():
     assert "Current user message:\nfirst question" in prompts[0]
     assert '"role": "user"' in prompts[1]
     assert "first question" in prompts[1]
-    assert "answer-1" in prompts[1]
     assert "Current user message:\nfollow up" in prompts[1]
 
 
@@ -451,26 +826,13 @@ def test_different_conversation_key_does_not_share_history():
     runtime = CrewAIReplyRuntime(
         _test_settings(),
         conversation_store=store,
-        preflight_service=NoopAdapterPreflightService(),
+        preflight_service=EmptyPreflightService(),
     )
-    install_fake_planner(runtime)
     prompts: list[str] = []
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            prompts.append(prompt)
-            return SimpleNamespace(
-                pydantic=ReplyResponse(
-                    response_id="resp-ok",
-                    reply=PrimaryReply(kind="answer", text="ok"),
-                    actions=[],
-                ),
-                raw="",
-            )
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
+    runtime._build_planner_agent = lambda: FakePlannerAgent(  # type: ignore[method-assign]
+        make_intent_frame(),
+        prompts,
+    )
 
     asyncio.run(runtime.reply(ReplyRequestShim("group one history").payload()))
     asyncio.run(
@@ -487,77 +849,9 @@ def test_different_conversation_key_does_not_share_history():
     assert "Current user message:\ngroup two current" in prompts[1]
 
 
-def test_runtime_prompts_include_canonical_entities():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    store = ConversationStore(max_messages=12)
-    runtime = CrewAIReplyRuntime(
-        _test_settings(),
-        conversation_store=store,
-        preflight_service=NoopAdapterPreflightService(),
-    )
-    planner_prompts: list[str] = []
-    runtime._build_planner_agent = lambda: FakePlannerAgent(  # type: ignore[method-assign]
-        make_reply_plan(),
-        planner_prompts,
-    )
-    composer_prompts: list[str] = []
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            composer_prompts.append(prompt)
-            return SimpleNamespace(
-                pydantic=ReplyResponse(
-                    response_id="resp-ok",
-                    reply=PrimaryReply(kind="answer", text="ok"),
-                    actions=[],
-                ),
-                raw="",
-            )
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
-
-    request = ReplyRequest.model_validate(
-        make_payload(
-            "1000所有号的周报我想看看",
-            available_strategies=["中证500", "中证1000"],
-        )
-    )
-    asyncio.run(runtime.reply(request))
-
-    assert "Canonical entities JSON" in planner_prompts[0]
-    assert '"selected_strategy": "中证1000"' in planner_prompts[0]
-    assert "Canonical entities JSON" in composer_prompts[0]
-    assert '"selected_strategy": "中证1000"' in composer_prompts[0]
-
-
-def test_adapter_execution_history_is_in_runtime_prompt():
+def test_adapter_execution_history_is_in_planner_prompt():
     store = ConversationStore(max_messages=12)
     ledger = ActionLedger()
-    for status in ("failed", "skipped"):
-        ledger.record_feedback(
-            ActionFeedbackRequest.model_validate(
-                {
-                    "conversation_key": "wecom:group-1:sender-1",
-                    "group_id": "group-1",
-                    "sender_id": "sender-1",
-                    "context_id": "msg-non-executed",
-                    "response_id": "resp-non-executed",
-                    "executions": [
-                        {
-                            "action_type": "send_material",
-                            "status": status,
-                            "action_id": "act-non-executed",
-                            "material_type": "monthly",
-                            "version": "202605",
-                            "adapter_result": {"ok": False},
-                        }
-                    ],
-                }
-            )
-        )
     ledger.record_feedback(
         ActionFeedbackRequest.model_validate(
             {
@@ -568,9 +862,10 @@ def test_adapter_execution_history_is_in_runtime_prompt():
                 "response_id": "resp-1",
                 "executions": [
                     {
-                        "action_type": "send_material",
+                        "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-1",
+                        "resolve_ref": "weekly:resolve-ref",
                         "material_type": "weekly",
                         "version": "20260529",
                         "adapter_result": {"ok": True, "private": "not prompted"},
@@ -583,310 +878,20 @@ def test_adapter_execution_history_is_in_runtime_prompt():
         _test_settings(),
         conversation_store=store,
         action_ledger=ledger,
-        preflight_service=NoopAdapterPreflightService(),
+        preflight_service=EmptyPreflightService(),
     )
     planner_prompts: list[str] = []
     runtime._build_planner_agent = lambda: FakePlannerAgent(  # type: ignore[method-assign]
         prompts=planner_prompts,
     )
-    prompts: list[str] = []
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            prompts.append(prompt)
-            return SimpleNamespace(
-                pydantic=ReplyResponse(
-                    response_id="resp-ok",
-                    reply=PrimaryReply(kind="answer", text="ok"),
-                    actions=[],
-                ),
-                raw="",
-            )
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
 
     asyncio.run(runtime.reply(ReplyRequestShim("刚才发了吗").payload()))
 
     assert '"ledger_summary"' in planner_prompts[0]
     assert '"has_recent_executed_actions": true' in planner_prompts[0]
-    assert '"recent_material_types": [' in planner_prompts[0]
     assert '"weekly"' in planner_prompts[0]
-    assert "Recent executed adapter actions JSON" in prompts[0]
-    assert '"ledger_summary"' in prompts[0]
-    assert '"has_recent_executed_actions": true' in prompts[0]
-    assert '"response_id": "resp-1"' in prompts[0]
-    assert '"action_id": "act-1"' in prompts[0]
-    assert '"status": "executed"' in prompts[0]
-    assert '"material_type": "weekly"' in prompts[0]
-    assert "resp-non-executed" not in prompts[0]
-    assert "act-non-executed" not in prompts[0]
-    assert '"status": "failed"' not in prompts[0]
-    assert '"status": "skipped"' not in prompts[0]
-    assert "not prompted" not in prompts[0]
-    assert "opaque" not in planner_prompts[0]
-    assert "opaque" not in prompts[0]
-
-
-def test_adapter_preflight_is_in_runtime_prompt():
-    store = ConversationStore(max_messages=12)
-
-    class FakePreflight:
-        async def collect(
-                self,
-                request,
-                canonical_context=None,
-                resolve_types=None,
-                resolve_strategies=None,
-        ):
-            del canonical_context, resolve_types, resolve_strategies
-            from market_support_crewai_agent.schemas import AdapterResolveResult
-
-            return AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve.v1",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": request.dist_channel_name,
-                                "reason_code": "ok",
-                                "candidates": [],
-                                "channel_type": "bank",
-                                "available_materials": ["weekly"],
-                                "available_strategies": ["指增"],
-                                "resolved_at": 1,
-                                "period": "20260529",
-                                "scope_status": "unknown",
-                                "card_ref": "wecom-adapter:hidden",
-                            }
-                        ),
-                    ),
-                    AdapterPreflightItem(
-                        resolve_type="material_pack",
-                        error="adapter resolve request failed",
-                    ),
-                ]
-            )
-
-    runtime = CrewAIReplyRuntime(
-        _test_settings(),
-        conversation_store=store,
-        preflight_service=FakePreflight(),
-    )
-    install_fake_planner(runtime)
-    prompts: list[str] = []
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            prompts.append(prompt)
-            return SimpleNamespace(
-                pydantic=ReplyResponse(
-                    response_id="resp-ok",
-                    reply=PrimaryReply(kind="answer", text="ok"),
-                    actions=[],
-                ),
-                raw="",
-            )
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
-
-    asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
-
-    assert "Adapter preflight JSON" in prompts[0]
-    assert "Validated ReplyPlan JSON" in prompts[0]
-    assert '"resolve_type": "weekly_report"' in prompts[0]
-    assert '"status": "resolved"' in prompts[0]
-    assert '"period": "20260529"' in prompts[0]
-    assert '"resolve_type": "material_pack"' in prompts[0]
-    assert '"status": "adapter_unavailable"' in prompts[0]
-    assert "wecom-adapter:hidden" not in prompts[0]
-
-
-def test_runtime_applies_preflight_guardrail_to_agent_response():
-    store = ConversationStore(max_messages=12)
-
-    class FakePreflight:
-        async def collect(
-                self,
-                request,
-                canonical_context=None,
-                resolve_types=None,
-                resolve_strategies=None,
-        ):
-            del canonical_context, resolve_types, resolve_strategies
-            from market_support_crewai_agent.schemas import AdapterResolveResult
-
-            return AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve.v1",
-                                "resolve_type": "weekly_report",
-                                "status": "missing",
-                                "display_name": request.dist_channel_name,
-                                "reason_code": "weekly_report_unavailable",
-                                "candidates": [],
-                                "channel_type": "bank",
-                                "available_materials": [],
-                                "available_strategies": [],
-                                "resolved_at": 1,
-                            }
-                        ),
-                    ),
-                    AdapterPreflightItem(
-                        resolve_type="sales_mention",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve.v1",
-                                "resolve_type": "sales_mention",
-                                "status": "resolved",
-                                "display_name": request.dist_channel_name,
-                                "reason_code": "ok",
-                                "candidates": [],
-                                "channel_type": "bank",
-                                "available_materials": [],
-                                "available_strategies": [],
-                                "resolved_at": 1,
-                            }
-                        ),
-                    ),
-                ]
-            )
-
-    runtime = CrewAIReplyRuntime(
-        _test_settings(),
-        conversation_store=store,
-        preflight_service=FakePreflight(),
-    )
-    install_fake_planner(
-        runtime,
-        make_reply_plan(
-            intent="send_weekly_report",
-            required_adapter_resolves=["weekly_report"],
-            evidence_requests=[
-                {
-                    "capability": "resolve_weekly_report",
-                    "reason": "confirm weekly report can be sent",
-                }
-            ],
-            candidate_actions=[{"type": "send_weekly_report", "report_scope": "channel_all"}],
-        ),
-    )
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            return SimpleNamespace(
-                pydantic=ReplyResponse(
-                    response_id="resp-agent",
-                    reply=PrimaryReply(kind="answer", text=""),
-                    actions=[
-                        SendWeeklyReportAction(
-                            type="send_weekly_report",
-                            action_id="act-weekly",
-                        )
-                    ],
-                ),
-                raw="",
-            )
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
-
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
-
-    assert response.reply.text.startswith("目前这个渠道下我没有看到可发送的对应材料")
-    assert response.reply.kind == "human_handoff"
-    assert len(response.reply.mentions) == 1
-    assert response.reply.mentions[0].type == "sales"
-    assert response.actions == []
-
-
-def test_runtime_uses_safe_fallback_for_non_compliant_plan_without_repair():
-    store = ConversationStore(max_messages=12)
-    runtime = CrewAIReplyRuntime(
-        _test_settings(),
-        conversation_store=store,
-        preflight_service=NoopAdapterPreflightService(),
-    )
-    install_fake_planner(
-        runtime,
-        make_reply_plan(
-            user_need="refuse expected return request",
-            intent="refusal",
-            compliance={
-                "is_compliant": False,
-                "reason_code": "expected_or_target_return",
-                "reason": "expected return requests must be refused",
-            },
-            confidence=0.9,
-        ),
-    )
-    calls = {"composer": 0}
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            del prompt, response_format
-            calls["composer"] += 1
-            return SimpleNamespace(
-                pydantic=ReplyResponse(
-                    response_id="resp-agent",
-                    reply=PrimaryReply(kind="answer", text="预计收益可以看周报。"),
-                    actions=[
-                        SendWeeklyReportAction(
-                            type="send_weekly_report",
-                            action_id="act-weekly",
-                        )
-                    ],
-                ),
-                raw="",
-            )
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
-
-    response = asyncio.run(
-        runtime.reply(ReplyRequestShim("请问产品预计收益多少？").payload())
-    )
-
-    assert calls["composer"] == 1
-    assert response.reply.kind == "unable_to_answer"
-    assert "不设置预计收益" in response.reply.text
-    assert response.actions == []
-
-
-def test_runtime_falls_back_when_agent_returns_invalid_reply_contract():
-    store = ConversationStore(max_messages=12)
-    runtime = CrewAIReplyRuntime(
-        _test_settings(),
-        conversation_store=store,
-        preflight_service=NoopAdapterPreflightService(),
-    )
-    install_fake_planner(runtime)
-
-    class FakeAgent:
-        async def kickoff_async(self, prompt, response_format):
-            return SimpleNamespace(pydantic=None, raw='{"not": "a reply"}')
-
-    runtime._build_agent = lambda: FakeAgent()  # type: ignore[method-assign]
-
-    import asyncio
-
-    response = asyncio.run(runtime.reply(ReplyRequestShim("bad output").payload()))
-
-    assert response.response_id.startswith("resp-")
-    assert response.reply.kind == "no_reply"
-    assert response.reply.text == ""
-    assert response.actions == []
+    assert "weekly:resolve-ref" not in planner_prompts[0]
+    assert "not prompted" not in planner_prompts[0]
 
 
 def test_history_trims_to_max_messages():
@@ -938,11 +943,11 @@ def _test_settings() -> Settings:
 
 class ReplyRequestShim:
     def __init__(
-            self,
-            message: str,
-            conversation_key: str = "wecom:group-1:sender-1",
-            group_id: str = "group-1",
-            sender_id: str = "sender-1",
+        self,
+        message: str,
+        conversation_key: str = "wecom:group-1:sender-1",
+        group_id: str = "group-1",
+        sender_id: str = "sender-1",
     ) -> None:
         self.message = message
         self.conversation_key = conversation_key

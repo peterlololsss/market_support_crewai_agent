@@ -1,6 +1,6 @@
 # Agent Prompt and Documentation Hygiene
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-14.
 
 This guide is for writing repo instructions that coding agents can follow without absorbing stale design debris.
 
@@ -13,7 +13,7 @@ Active instructions should describe the target state, not every historical wrong
 Good active instruction shape:
 
 ```text
-Public side-effect action types:
+Public outbound action types:
 - send_material_pack
 - send_weekly_report
 - send_monthly_report
@@ -37,7 +37,7 @@ reply.mentions contains customer-visible sales mentions.
 
 Place historical rejected designs in ADRs, migration notes, or tests. Do not load them in `AGENTS.md` unless the current task is contract migration or history review.
 
-Reason: naming an obsolete field, obsolete action, or obsolete compatibility strategy in active context can make a coding agent reproduce it.
+Reason: naming an obsolete field, obsolete action, or obsolete transition strategy in active context can make a coding agent reproduce it.
 
 ## Encode recurring mistakes as tests
 
@@ -48,12 +48,12 @@ Pydantic forbid extra fields
 schema allowlist
 validator branch
 golden test
-contract smoke test
+contract check
 ```
 
 Use prose only for routing and intent.
 
-## Compatibility policy wording
+## Transition policy wording
 
 Prefer this wording:
 
@@ -85,6 +85,6 @@ Before committing active instructions, check:
 
 - Can the agent start coding from this without reading five long files?
 - Does the doc state canonical names rather than rejected names?
-- Are compatibility bridges gated by external contract evidence?
+- Are transition bridges backed by external contract evidence?
 - Are safety requirements encoded as validators/tests where possible?
 - Are historical details in ADRs rather than routine context?

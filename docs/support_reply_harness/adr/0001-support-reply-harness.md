@@ -10,7 +10,7 @@ Accepted.
 
 The service is an external reasoning brain for a market support workflow. It receives structured WeCom chat context and returns one `ReplyResponse` for a WeCom adapter to execute.
 
-The system must handle terse Chinese sales/support phrasing without enumerating every possible user message. It also must prevent unsupported claims, internal data leakage, permission bypass, and unsafe side effects.
+The system must handle terse Chinese sales/support phrasing without enumerating every possible user message. It also must prevent unsupported claims, internal data leakage, permission bypass, and unsafe outbound actions.
 
 The core tension is bounded autonomy: enough model interpretation to understand ambiguous domain language, but not enough model authority to invent facts or execute actions without deterministic evidence.
 
@@ -28,23 +28,23 @@ Use deterministic runtime layers for:
 - lightweight EvidenceFact derivation;
 - BusinessFacts derivation;
 - reply/action validation;
-- deterministic fallback;
+- deterministic renderer;
 - audit and eval logging.
 
 Use LLM stages only for bounded language work:
 
 ```text
-Planner LLM -> validated ReplyPlan
+Planner LLM -> IntentFrame -> validated ExecutionPlan
 Reply Composer LLM -> validated ReplyResponse
 ```
 
-The planner proposes evidence needs and candidate terminal actions. Planner conclusions are not facts. The composer sees sanitized evidence/business facts and proposes the public response. Validators determine whether the final response is allowed.
+The planner proposes evidence needs and planned capabilities. Planner conclusions are not facts. The composer sees sanitized evidence/business facts and proposes the public response. Validators determine whether the final response is allowed.
 
 ## Consequences
 
 The first safe build path is validators and contracts before autonomy. MCP integration, broad RAG, and additional agents come later.
 
-The adapter remains the final side-effect gate. It validates the `ReplyResponse`, executes the primary reply and side-effect action proposals, owns outbox/retry/idempotency, and writes execution feedback for ledger/audit.
+The adapter has final execution authority for outbound actions. It validates the `ReplyResponse`, executes the primary reply and outbound action proposals, owns outbox/retry/idempotency, and writes execution feedback for ledger/audit.
 
 The public `/reply` boundary remains stable unless an explicit contract change is accepted.
 
