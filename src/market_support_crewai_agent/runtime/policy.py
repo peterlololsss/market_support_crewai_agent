@@ -2,102 +2,30 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import get_args
 
 from market_support_crewai_agent.runtime.action_ledger import ActionLedgerRecord
+from market_support_crewai_agent.runtime.capabilities import (
+    CapabilityName,
+    ReadCapability,
+    ResponseMode,
+    capability_by_name,
+    material_action_type,
+    report_action_types,
+)
 from market_support_crewai_agent.schemas import (
     AdapterResolveType,
     ChannelType,
     MaterialType,
-    ReplyKind,
     ReplyRequest,
     SideEffectActionType,
 )
 
-ReadCapability = Literal[
-    "resolve_material_pack",
-    "resolve_weekly_report",
-    "resolve_monthly_report",
-    "resolve_sales_mention",
-    "query_internal_company_info",
-]
-BusinessCheck = Literal[
-    "resolve_strategy_alias",
-    "check_material_pack_resolvable",
-    "check_weekly_report_resolvable",
-    "check_monthly_report_resolvable",
-    "check_report_contains_strategy",
-    "check_report_generation_scope",
-    "check_channel_permission",
-]
-ForbiddenClaimCategory = Literal[
-    "unsupported_report_scope_exclusion",
-    "unsupported_report_non_inclusion",
-    "pre_execution_success_claim",
-    "sent_claim_without_ledger_evidence",
-    "internal_locator_leak",
-]
-
-_ACTION_BY_MATERIAL: dict[MaterialType, SideEffectActionType] = {
-    "material": "send_material_pack",
-    "weekly": "send_weekly_report",
-    "monthly": "send_monthly_report",
-}
-_READ_CAPABILITY_BY_RESOLVE: dict[AdapterResolveType, ReadCapability] = {
-    "material_pack": "resolve_material_pack",
-    "weekly_report": "resolve_weekly_report",
-    "monthly_report": "resolve_monthly_report",
-    "sales_mention": "resolve_sales_mention",
-}
-_DOCUMENT_READ_CAPABILITIES: frozenset[ReadCapability] = frozenset(
-    {
-        "query_internal_company_info",
-    }
+_DEFAULT_REPLY_MODES: frozenset[ResponseMode] = frozenset(
+    mode
+    for mode in get_args(ResponseMode)
+    if mode != "knowledge_answer"
 )
-_ALL_REPLY_KINDS: frozenset[ReplyKind] = frozenset(
-    {
-        "answer",
-        "clarification",
-        "human_handoff",
-        "unable_to_answer",
-        "no_reply",
-    }
-)
-_ALL_RESOLVES: frozenset[AdapterResolveType] = frozenset(
-    {
-        "material_pack",
-        "weekly_report",
-        "monthly_report",
-        "sales_mention",
-    }
-)
-_ALL_BUSINESS_CHECKS: frozenset[BusinessCheck] = frozenset(
-    {
-        "resolve_strategy_alias",
-        "check_material_pack_resolvable",
-        "check_weekly_report_resolvable",
-        "check_monthly_report_resolvable",
-        "check_report_contains_strategy",
-        "check_report_generation_scope",
-        "check_channel_permission",
-    }
-)
-_DEFAULT_FORBIDDEN_CLAIMS: frozenset[ForbiddenClaimCategory] = frozenset(
-    {
-        "unsupported_report_scope_exclusion",
-        "unsupported_report_non_inclusion",
-        "pre_execution_success_claim",
-        "sent_claim_without_ledger_evidence",
-        "internal_locator_leak",
-    }
-)
-
-
-@dataclass(frozen=True)
-class RepairPolicy:
-    allow_repair: bool = True
-    max_attempts: int = 1
-    fallback_reply_kind: ReplyKind = "unable_to_answer"
 
 
 @dataclass(frozen=True)
@@ -124,15 +52,13 @@ class LedgerSummary:
 @dataclass(frozen=True)
 class PolicyManifest:
     policy_id: str
-    allowed_reply_kinds: frozenset[ReplyKind]
+    allowed_reply_modes: frozenset[ResponseMode]
+    allowed_capabilities: frozenset[CapabilityName]
     allowed_side_effect_actions: frozenset[SideEffectActionType]
-    required_adapter_resolves: frozenset[AdapterResolveType]
     allowed_read_capabilities: frozenset[ReadCapability]
-    allowed_business_checks: frozenset[BusinessCheck]
-    forbidden_claim_categories: frozenset[ForbiddenClaimCategory]
+    allowed_adapter_resolves: frozenset[AdapterResolveType]
     ledger_summary: LedgerSummary = field(default_factory=LedgerSummary)
     evidence_call_limit: int = 4
-    repair_policy: RepairPolicy = field(default_factory=RepairPolicy)
 
 
 def compile_policy(
@@ -141,39 +67,55 @@ def compile_policy(
         doc_mcp_enabled: bool = False,
         doc_mcp_allowed_channel_types: tuple[ChannelType, ...] = ("bank", "non_bank"),
 ) -> PolicyManifest:
-    materials = (
-        tuple(request.available_materials)
-        if request is not None
-        else ("material", "weekly", "monthly")
-    )
-    allowed_actions = frozenset(
-        _ACTION_BY_MATERIAL[material]
-        for material in materials
-        if material in _ACTION_BY_MATERIAL
-    )
-    policy_scope = request.channel_type if request is not None else "compat"
+    policy_scope = request.channel_type if request is not None else "default"
+    allowed_capabilities: set[CapabilityName] = {
+        "weekly_report",
+        "monthly_report",
+        "sales_mention",
+    }
+    materials = set(request.available_materials) if request is not None else {"material"}
+    if "material" in materials:
+        allowed_capabilities.add("material_pack")
 
-    read_capabilities = frozenset(
-        _READ_CAPABILITY_BY_RESOLVE[resolve_type]
-        for resolve_type in _ALL_RESOLVES
-    )
     if _doc_mcp_allowed_for_request(
         request,
         doc_mcp_enabled,
         doc_mcp_allowed_channel_types,
     ):
-        read_capabilities = read_capabilities | _DOCUMENT_READ_CAPABILITIES
+        allowed_capabilities.add("document_context")
+
+    allowed_actions = set(report_action_types())
+    material_action = material_action_type("material")
+    if "material_pack" in allowed_capabilities and material_action is not None:
+        allowed_actions.add(material_action)
+
+    allowed_read_capabilities = frozenset(
+        capability.read_capability
+        for capability_name in allowed_capabilities
+        if (
+            capability := capability_by_name(capability_name)
+        ) is not None and capability.read_capability is not None
+    )
+    allowed_adapter_resolves = frozenset(
+        capability.resolve_type
+        for capability_name in allowed_capabilities
+        if (
+            capability := capability_by_name(capability_name)
+        ) is not None and capability.resolve_type is not None
+    )
+    allowed_reply_modes = _DEFAULT_REPLY_MODES
+    if "document_context" in allowed_capabilities:
+        allowed_reply_modes = allowed_reply_modes | frozenset({"knowledge_answer"})
 
     return PolicyManifest(
-        policy_id=f"support-reply-policy.v1:{policy_scope}",
-        allowed_reply_kinds=_ALL_REPLY_KINDS,
-        allowed_side_effect_actions=allowed_actions,
-        required_adapter_resolves=_ALL_RESOLVES,
-        allowed_read_capabilities=read_capabilities,
-        allowed_business_checks=_ALL_BUSINESS_CHECKS,
-        forbidden_claim_categories=_DEFAULT_FORBIDDEN_CLAIMS,
+        policy_id=f"support-reply-policy:{policy_scope}",
+        allowed_reply_modes=allowed_reply_modes,
+        allowed_capabilities=frozenset(allowed_capabilities),
+        allowed_side_effect_actions=frozenset(allowed_actions),
+        allowed_read_capabilities=allowed_read_capabilities,
+        allowed_adapter_resolves=allowed_adapter_resolves,
         ledger_summary=ledger_summary or LedgerSummary(),
-        evidence_call_limit=len(read_capabilities),
+        evidence_call_limit=len(allowed_read_capabilities),
     )
 
 

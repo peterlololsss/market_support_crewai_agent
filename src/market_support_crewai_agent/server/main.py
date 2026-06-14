@@ -5,6 +5,7 @@ from hmac import compare_digest
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from market_support_crewai_agent.runtime.action_ledger import get_action_ledger
+from market_support_crewai_agent.runtime.guardrails import ReplyContractError
 from market_support_crewai_agent.runtime.input_guardrails import (
     InputGuardrailError,
     validate_reply_request_input,
@@ -68,6 +69,8 @@ async def reply(
         return await build_reply(request)
     except InputGuardrailError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ReplyContractError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except AgentRuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

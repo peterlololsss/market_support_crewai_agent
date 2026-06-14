@@ -27,18 +27,35 @@ def make_request(**overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def test_compile_policy_allows_actions_from_available_materials():
-    policy = compile_policy(make_request(available_materials=["weekly"]))
+def test_compile_policy_preflights_reports_without_csv_material_hint():
+    policy = compile_policy(make_request(available_materials=[]))
 
-    assert policy.allowed_side_effect_actions == frozenset({"send_weekly_report"})
-    assert "send_material_pack" not in policy.allowed_side_effect_actions
-    assert "send_monthly_report" not in policy.allowed_side_effect_actions
-    assert policy.required_adapter_resolves == frozenset(
+    assert policy.policy_id == "support-reply-policy:bank"
+    assert policy.allowed_side_effect_actions == frozenset(
         {
-            "material_pack",
+            "send_weekly_report",
+            "send_monthly_report",
+        }
+    )
+    assert "send_material_pack" not in policy.allowed_side_effect_actions
+    assert policy.allowed_adapter_resolves == frozenset(
+        {
             "weekly_report",
             "monthly_report",
             "sales_mention",
+        }
+    )
+    assert "material_pack" not in policy.allowed_capabilities
+
+
+def test_compile_policy_allows_material_pack_from_available_materials():
+    policy = compile_policy(make_request(available_materials=["material"]))
+
+    assert policy.allowed_side_effect_actions == frozenset(
+        {
+            "send_material_pack",
+            "send_weekly_report",
+            "send_monthly_report",
         }
     )
 
@@ -46,16 +63,17 @@ def test_compile_policy_allows_actions_from_available_materials():
 def test_compile_policy_keeps_all_safe_reply_kinds_available():
     policy = compile_policy(make_request())
 
-    assert policy.allowed_reply_kinds == frozenset(
+    assert policy.allowed_reply_modes == frozenset(
         {
-            "answer",
+            "action",
             "clarification",
-            "human_handoff",
-            "unable_to_answer",
+            "handoff",
+            "refusal",
+            "unable",
             "no_reply",
         }
     )
-    assert "unsupported_report_scope_exclusion" in policy.forbidden_claim_categories
+    assert "knowledge_answer" not in policy.allowed_reply_modes
     assert policy.evidence_call_limit == 4
 
 
@@ -63,7 +81,10 @@ def test_compile_policy_enables_document_capability_only_when_configured():
     default_policy = compile_policy(make_request())
     doc_policy = compile_policy(make_request(), doc_mcp_enabled=True)
 
+    assert "document_context" not in default_policy.allowed_capabilities
     assert "query_internal_company_info" not in default_policy.allowed_read_capabilities
+    assert "document_context" in doc_policy.allowed_capabilities
+    assert "knowledge_answer" in doc_policy.allowed_reply_modes
     assert "query_internal_company_info" in doc_policy.allowed_read_capabilities
     assert doc_policy.evidence_call_limit == 5
 
@@ -97,17 +118,19 @@ def test_compile_policy_includes_adapter_safe_ledger_summary():
                 "response_id": "resp-1",
                 "executions": [
                     {
-                        "action_type": "send_material",
+                        "action_type": "send_monthly_report",
                         "status": "failed",
                         "action_id": "act-failed",
+                        "resolve_ref": "monthly:resolve-ref",
                         "material_type": "monthly",
                         "material_id": "monthly:opaque",
                         "version": "202605",
                     },
                     {
-                        "action_type": "send_material",
+                        "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-weekly",
+                        "resolve_ref": "weekly:resolve-ref",
                         "material_type": "weekly",
                         "strategy": "中证1000",
                         "material_id": "weekly:opaque",

@@ -12,26 +12,22 @@ from market_support_crewai_agent.runtime.adapter_preflight import (
 )
 from market_support_crewai_agent.runtime.audit import AuditStore
 from market_support_crewai_agent.runtime.conversation_store import ConversationStore
-from market_support_crewai_agent.runtime.planning import ReplyPlan
+from market_support_crewai_agent.runtime.planning import IntentFrame
 from market_support_crewai_agent.runtime.reply_agent import CrewAIReplyRuntime
 from market_support_crewai_agent.schemas import (
     AdapterResolveResult,
+    AdapterResolveStatus,
     AdapterResolveType,
-    PrimaryReply,
     ReplyRequest,
-    ReplyResponse,
-    SendMaterialPackAction,
-    SendWeeklyReportAction,
 )
 from market_support_crewai_agent.settings import Settings
 
 
 @dataclass(frozen=True)
-class SmokeScenario:
+class RuntimeScenario:
     name: str
     request: ReplyRequest
-    plan: ReplyPlan
-    composer_response: ReplyResponse
+    intent_frame: IntentFrame
 
 
 class FakeCrewAgent:
@@ -43,10 +39,16 @@ class FakeCrewAgent:
         return SimpleNamespace(
             pydantic=self.pydantic_result,
             raw="",
-            agent_role="smoke",
+            agent_role="fake-deps-check",
             usage_metrics={"total_tokens": 0},
             todos=[],
         )
+
+
+class ComposerShouldNotRun:
+    async def kickoff_async(self, prompt, response_format):
+        del prompt, response_format
+        raise AssertionError("fake-deps scenarios should be deterministic")
 
 
 class FakePreflightService:
@@ -67,7 +69,7 @@ class FakePreflightService:
         resolve_strategies = resolve_strategies or {}
         return AdapterPreflightSnapshot(
             items=[
-                _resolved_item(
+                _resolve_item(
                     resolve_type,
                     request,
                     strategy=resolve_strategies.get(resolve_type),
@@ -77,43 +79,56 @@ class FakePreflightService:
         )
 
 
-def _resolved_item(
+def _resolve_item(
     resolve_type: AdapterResolveType,
     request: ReplyRequest,
     *,
     strategy: str | None = None,
 ) -> AdapterPreflightItem:
+    status: AdapterResolveStatus = "resolved"
+    resolve_ref = f"{resolve_type}:runtime-check-ref"
+    if (
+        resolve_type == "material_pack"
+        and request.channel_type == "bank"
+        and not strategy
+        and len(request.available_strategies) > 1
+    ):
+        status = "ambiguous"
+        resolve_ref = None
+
+    payload = {
+        "contract_version": "adapter-resolve",
+        "resolve_type": resolve_type,
+        "status": status,
+        "display_name": request.dist_channel_name,
+        "reason_code": "ok" if status == "resolved" else "multiple_candidates",
+        "candidates": request.available_strategies if status == "ambiguous" else [],
+        "channel_type": request.channel_type,
+        "available_materials": request.available_materials,
+        "available_strategies": request.available_strategies,
+        "resolved_at": 1,
+        "resolve_ref": resolve_ref,
+        "strategy": strategy,
+        "period": "20260529" if resolve_type == "weekly_report" else None,
+        "report_date": "2026-05-29" if resolve_type == "weekly_report" else None,
+        "scope_status": "included" if resolve_type == "weekly_report" else "unknown",
+        "contains_strategy": True if resolve_type == "weekly_report" else None,
+    }
     return AdapterPreflightItem(
         resolve_type=resolve_type,
-        result=AdapterResolveResult.model_validate(
-            {
-                "contract_version": "adapter-resolve.v1",
-                "resolve_type": resolve_type,
-                "status": "resolved",
-                "display_name": request.dist_channel_name,
-                "reason_code": "ok",
-                "candidates": request.available_strategies,
-                "channel_type": request.channel_type,
-                "available_materials": request.available_materials,
-                "available_strategies": request.available_strategies,
-                "resolved_at": 1,
-                "strategy": strategy,
-                "period": "20260529" if resolve_type == "weekly_report" else None,
-                "scope_status": "unknown",
-            }
-        ),
+        result=AdapterResolveResult.model_validate(payload),
     )
 
 
 def _request(message: str, **overrides) -> ReplyRequest:
     payload = {
-        "context_id": "smoke-msg-1",
-        "conversation_key": "wecom:smoke-group:smoke-sender",
-        "group_id": "smoke-group",
-        "sender_id": "smoke-sender",
+        "context_id": "runtime-check-msg-1",
+        "conversation_key": "wecom:runtime-check-group:runtime-check-sender",
+        "group_id": "runtime-check-group",
+        "sender_id": "runtime-check-sender",
         "message": message,
         "is_group": True,
-        "group_name": "smoke group",
+        "group_name": "runtime check group",
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
         "available_materials": ["material", "weekly", "monthly"],
@@ -124,95 +139,66 @@ def _request(message: str, **overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def _plan(**overrides) -> ReplyPlan:
+def _intent_frame(**overrides) -> IntentFrame:
     payload = {
-        "user_need": "smoke test",
-        "intent": "clarification",
+        "user_need": "runtime check",
+        "artifact_kind": "unclear",
+        "action_intent": "none",
+        "report_scope": "none",
+        "ambiguity_slots": ["request_meaning"],
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
-            "reason": "smoke test compliant request",
+            "reason": "runtime check compliant request",
         },
         "confidence": 0.8,
     }
     payload.update(overrides)
-    return ReplyPlan.model_validate(payload)
+    return IntentFrame.model_validate(payload)
 
 
-def _weekly_scenario() -> SmokeScenario:
+def _weekly_scenario() -> RuntimeScenario:
     request = _request("请发一下周报", available_strategies=[])
-    return SmokeScenario(
+    return RuntimeScenario(
         name="weekly_report_action",
         request=request,
-        plan=_plan(
+        intent_frame=_intent_frame(
             user_need="send weekly report",
-            intent="send_weekly_report",
-            required_adapter_resolves=["weekly_report"],
-            evidence_requests=[
-                {
-                    "capability": "resolve_weekly_report",
-                    "reason": "confirm weekly report can be sent",
-                }
-            ],
-            candidate_actions=[
-                {"type": "send_weekly_report", "report_scope": "channel_all"}
-            ],
-        ),
-        composer_response=ReplyResponse(
-            response_id="smoke-weekly",
-            reply=PrimaryReply(kind="answer", text=""),
-            actions=[
-                SendWeeklyReportAction(
-                    type="send_weekly_report",
-                    action_id="send-weekly",
-                )
-            ],
+            artifact_kind="weekly_report",
+            action_intent="send",
+            report_scope="channel_all",
+            ambiguity_slots=[],
+            requested_capabilities=["weekly_report"],
         ),
     )
 
 
-def _bank_material_clarification_scenario() -> SmokeScenario:
+def _bank_material_clarification_scenario() -> RuntimeScenario:
     request = _request("发一下材料包")
-    return SmokeScenario(
+    return RuntimeScenario(
         name="bank_material_strategy_clarification",
         request=request,
-        plan=_plan(
+        intent_frame=_intent_frame(
             user_need="send material pack but strategy is unclear",
-            intent="send_material_pack",
-            required_adapter_resolves=["material_pack"],
-            evidence_requests=[
-                {
-                    "capability": "resolve_material_pack",
-                    "reason": "confirm material pack can be sent",
-                }
-            ],
-            candidate_actions=[
-                {"type": "send_material_pack"}
-            ],
-        ),
-        composer_response=ReplyResponse(
-            response_id="smoke-material",
-            reply=PrimaryReply(kind="answer", text=""),
-            actions=[
-                SendMaterialPackAction(
-                    type="send_material_pack",
-                    action_id="send-material",
-                )
-            ],
+            artifact_kind="material_pack",
+            action_intent="send",
+            report_scope="none",
+            ambiguity_slots=[],
+            requested_capabilities=["material_pack"],
         ),
     )
 
 
-async def _run_scenario(scenario: SmokeScenario) -> dict:
+async def _run_scenario(scenario: RuntimeScenario) -> dict:
     runtime = CrewAIReplyRuntime(
-        Settings(llm_api_key="smoke-key", adapter_preflight_enabled=True),
+        Settings(llm_api_key="check-key"),
         conversation_store=ConversationStore(),
         action_ledger=ActionLedger(),
         preflight_service=FakePreflightService(),
         audit_store=AuditStore(),
     )
-    runtime._build_planner_agent = lambda: FakeCrewAgent(scenario.plan)  # type: ignore[method-assign]
-    runtime._build_agent = lambda: FakeCrewAgent(scenario.composer_response)  # type: ignore[method-assign]
+    runtime._build_planner_agent = lambda: FakeCrewAgent(scenario.intent_frame)  # type: ignore[method-assign]
+    runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
 
     response = await runtime.reply(scenario.request)
     return {

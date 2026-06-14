@@ -15,21 +15,27 @@ from market_support_crewai_agent.runtime.canonicalization import (
     CanonicalContext,
     canonicalize_request,
 )
+from market_support_crewai_agent.runtime.decision import ResponseDirective
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.guardrails import ValidationResult
-from market_support_crewai_agent.runtime.planning import PlanValidationResult, ReplyPlan
+from market_support_crewai_agent.runtime.planning import ExecutionPlan, PlanValidationResult
 from market_support_crewai_agent.runtime.policy import PolicyManifest
+from market_support_crewai_agent.runtime.capabilities import (
+    capability_registry_hash,
+    resolve_type_for_action,
+)
+from market_support_crewai_agent.runtime.prompt_assembler import PromptProgram
+from market_support_crewai_agent.runtime.prompt_context import IntentGateResult
 from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse
 from market_support_crewai_agent.settings import Settings
 
-AuditTraceVersion = Literal["audit-trace.v1"]
+AuditTraceVersion = Literal["audit-trace"]
 
-AUDIT_TRACE_VERSION: AuditTraceVersion = "audit-trace.v1"
-PLANNER_PROMPT_VERSION = "planner-prompt.v1"
-COMPOSER_PROMPT_VERSION = "composer-prompt.v1"
-PLAN_VALIDATOR_VERSION = "plan-validator.v1"
-REPLY_VALIDATOR_VERSION = "reply-action-validator.v1"
-BUSINESS_FACTS_VERSION = "business-facts.v1"
+AUDIT_TRACE_VERSION: AuditTraceVersion = "audit-trace"
+PLAN_VALIDATOR_VERSION = "plan-validator"
+REPLY_VALIDATOR_VERSION = "reply-action-validator"
+BUSINESS_FACTS_VERSION = "business-facts"
+PROMPT_PROGRAM_SCHEMA_VERSION = "prompt-program"
 
 
 @dataclass(frozen=True)
@@ -45,12 +51,15 @@ class AuditTrace:
     sender_id: str
     request: dict
     model: dict
+    intent_gate: dict
+    prompt_programs: list[dict]
     llm_executions: list[dict]
     policy_id: str
     policy_hash: str
     policy: dict
     canonical_entities: dict
     planner_output: dict
+    response_directive: dict
     plan_validation: dict
     action_history: list[dict]
     adapter_preflight: list[dict]
@@ -58,9 +67,6 @@ class AuditTrace:
     business_facts: dict
     reply_output: dict
     reply_validation: dict | None
-    repair_attempts: list[dict]
-    fallback_used: bool
-    fallback_reason: str
     final_actions: list[dict]
     action_preconditions: list[dict]
     adapter_execution_status: str
@@ -143,7 +149,8 @@ def build_audit_trace(
         request: ReplyRequest,
         settings: Settings,
         policy: PolicyManifest,
-        plan: ReplyPlan,
+        plan: ExecutionPlan,
+        directive: ResponseDirective,
         plan_validation: PlanValidationResult,
         action_history: list[ActionLedgerRecord],
         preflight: AdapterPreflightSnapshot,
@@ -151,9 +158,9 @@ def build_audit_trace(
         business_facts: BusinessFacts,
         response: ReplyResponse,
         reply_validation: ValidationResult | None,
-        fallback_used: bool,
         canonical_context: CanonicalContext | None = None,
-        repair_attempts: list[dict] | None = None,
+        intent_gate: IntentGateResult | None = None,
+        prompt_programs: list[PromptProgram] | None = None,
         llm_executions: list[dict] | None = None,
 ) -> AuditTrace:
     policy_payload = _compact_policy(policy)
@@ -175,12 +182,22 @@ def build_audit_trace(
         sender_id=request.sender_id,
         request=_compact_request(request),
         model=_compact_model(settings),
+        intent_gate=(
+            intent_gate.model_dump(mode="json", exclude_none=True)
+            if intent_gate is not None
+            else {}
+        ),
+        prompt_programs=[
+            _compact_prompt_program(program)
+            for program in prompt_programs or []
+        ],
         llm_executions=llm_executions or [],
         policy_id=policy.policy_id,
         policy_hash=_stable_hash(policy_payload),
         policy=policy_payload,
         canonical_entities=canonical_payload,
         planner_output=plan.model_dump(mode="json", exclude_none=True),
+        response_directive=_compact_response_directive(directive),
         plan_validation=_compact_plan_validation(plan_validation),
         action_history=[
             _compact_action_record(record)
@@ -192,13 +209,10 @@ def build_audit_trace(
             for fact in evidence_facts
         ],
         business_facts=business_facts.to_prompt_dict(),
-        reply_output=response.model_dump(mode="json", exclude_none=True),
+        reply_output=_compact_response(response),
         reply_validation=reply_validation_payload,
-        repair_attempts=repair_attempts or [],
-        fallback_used=fallback_used,
-        fallback_reason=_fallback_reason(reply_validation_payload, fallback_used),
         final_actions=[
-            action.model_dump(mode="json", exclude_none=True)
+            _compact_action(action)
             for action in response.actions
         ],
         action_preconditions=_compact_action_preconditions(response, plan, preflight),
@@ -207,8 +221,11 @@ def build_audit_trace(
         ),
         versions={
             "audit_trace": AUDIT_TRACE_VERSION,
-            "planner_prompt": PLANNER_PROMPT_VERSION,
-            "composer_prompt": COMPOSER_PROMPT_VERSION,
+            "prompt_program_schema": PROMPT_PROGRAM_SCHEMA_VERSION,
+            "prompt_profile_ids": _prompt_profile_ids(llm_executions or []),
+            "capability_registry_hash": capability_registry_hash(),
+            "adapter_contract": "adapter-resolve",
+            "action_contract": "adapter-action",
             "policy": policy.policy_id.split(":", 1)[0],
             "plan_validator": PLAN_VALIDATOR_VERSION,
             "reply_validator": REPLY_VALIDATOR_VERSION,
@@ -234,12 +251,42 @@ def _compact_request(request: ReplyRequest) -> dict:
     }
 
 
+def _compact_response(response: ReplyResponse) -> dict:
+    payload = response.model_dump(mode="json", exclude_none=True)
+    for action in payload.get("actions", []):
+        if "resolve_ref" in action:
+            action["resolve_ref_available"] = bool(action.pop("resolve_ref"))
+    return payload
+
+
+def _compact_response_directive(directive: ResponseDirective) -> dict:
+    return directive.model_dump(mode="json", exclude_none=True)
+
+
+def _compact_action(action) -> dict:
+    payload = action.model_dump(mode="json", exclude_none=True)
+    if "resolve_ref" in payload:
+        payload["resolve_ref_available"] = bool(payload.pop("resolve_ref"))
+    return payload
+
+
 def _compact_model(settings: Settings) -> dict:
     return {
         "provider": settings.llm_provider,
         "model": settings.llm_model,
         "temperature": settings.llm_temperature,
         "max_tokens": settings.llm_max_tokens,
+    }
+
+
+def _compact_prompt_program(program: PromptProgram) -> dict:
+    return {
+        "stage": program.profile.stage,
+        "profile_id": program.profile.id,
+        "model_family": program.profile.model_family,
+        "fragment_ids": list(program.fragment_ids),
+        "prompt_hash": program.prompt_hash,
+        "fragment_hashes": dict(program.fragment_hashes),
     }
 
 
@@ -250,19 +297,13 @@ def _compact_canonical_context(canonical_context: CanonicalContext) -> dict:
 def _compact_policy(policy: PolicyManifest) -> dict:
     return {
         "policy_id": policy.policy_id,
-        "allowed_reply_kinds": sorted(policy.allowed_reply_kinds),
+        "allowed_reply_modes": sorted(policy.allowed_reply_modes),
+        "allowed_capabilities": sorted(policy.allowed_capabilities),
         "allowed_side_effect_actions": sorted(policy.allowed_side_effect_actions),
-        "required_adapter_resolves": sorted(policy.required_adapter_resolves),
         "allowed_read_capabilities": sorted(policy.allowed_read_capabilities),
-        "allowed_business_checks": sorted(policy.allowed_business_checks),
-        "forbidden_claim_categories": sorted(policy.forbidden_claim_categories),
+        "allowed_adapter_resolves": sorted(policy.allowed_adapter_resolves),
         "ledger_summary": policy.ledger_summary.to_prompt_dict(),
         "evidence_call_limit": policy.evidence_call_limit,
-        "repair_policy": {
-            "allow_repair": policy.repair_policy.allow_repair,
-            "max_attempts": policy.repair_policy.max_attempts,
-            "fallback_reply_kind": policy.repair_policy.fallback_reply_kind,
-        },
     }
 
 
@@ -285,20 +326,26 @@ def _compact_reply_validation(validation: ValidationResult) -> dict:
     return {
         "valid": validation.valid,
         "severity": validation.severity,
-        "repairable": validation.repairable,
-        "fallback_reply_kind": validation.fallback_reply_kind,
         "issues": [
             {
                 "code": issue.code,
                 "message": issue.message,
                 "severity": issue.severity,
-                "repairable": issue.repairable,
-                "fallback_reply_kind": issue.fallback_reply_kind,
                 "metadata": issue.metadata,
             }
             for issue in validation.issues
         ],
     }
+
+
+def _prompt_profile_ids(llm_executions: list[dict]) -> list[str]:
+    return sorted(
+        {
+            str(execution.get("prompt_profile_id") or "")
+            for execution in llm_executions
+            if execution.get("prompt_profile_id")
+        }
+    )
 
 
 def _compact_action_record(record: ActionLedgerRecord) -> dict:
@@ -309,6 +356,7 @@ def _compact_action_record(record: ActionLedgerRecord) -> dict:
         "action_id": execution.action_id,
         "action_type": execution.action_type,
         "status": execution.status,
+        "resolve_ref_available": bool(execution.resolve_ref),
         "material_type": execution.material_type,
         "strategy": execution.strategy,
         "version": execution.version,
@@ -353,7 +401,7 @@ def _compact_preflight(preflight: AdapterPreflightSnapshot) -> list[dict]:
 
 def _compact_action_preconditions(
         response: ReplyResponse,
-        plan: ReplyPlan,
+        plan: ExecutionPlan,
         preflight: AdapterPreflightSnapshot,
 ) -> list[dict]:
     return [
@@ -365,10 +413,10 @@ def _compact_action_preconditions(
 def _compact_action_precondition(
         action,
         index: int,
-        plan: ReplyPlan,
+        plan: ExecutionPlan,
         preflight: AdapterPreflightSnapshot,
 ) -> dict:
-    resolve_type = _resolve_type_for_action(action.type)
+    resolve_type = resolve_type_for_action(action.type) or ""
     candidate = _matching_plan_candidate(action, plan)
     item = _preflight_item(preflight, resolve_type)
     result = item.result if item is not None else None
@@ -382,7 +430,8 @@ def _compact_action_precondition(
         "plan_strategy": getattr(candidate, "strategy", None),
         "action_strategy": getattr(action, "strategy", None),
         "adapter_strategy": result.strategy if result is not None else None,
-        "adapter_ref_available": bool(result.card_ref) if result is not None else False,
+        "adapter_ref_available": bool(result.resolve_ref) if result is not None else False,
+        "action_ref_available": bool(getattr(action, "resolve_ref", None)),
         "contains_strategy": (
             result.contains_strategy if result is not None else None
         ),
@@ -392,23 +441,17 @@ def _compact_action_precondition(
     }
 
 
-def _resolve_type_for_action(action_type: str) -> str:
-    if action_type == "send_material_pack":
-        return "material_pack"
-    if action_type == "send_weekly_report":
-        return "weekly_report"
-    if action_type == "send_monthly_report":
-        return "monthly_report"
-    return ""
-
-
-def _matching_plan_candidate(action, plan: ReplyPlan):
-    for candidate in plan.candidate_actions:
-        if candidate.type != action.type:
+def _matching_plan_candidate(action, plan: ExecutionPlan):
+    for candidate in plan.action_intents:
+        if candidate.action_type != action.type:
             continue
         candidate_strategy = getattr(candidate, "strategy", None)
         action_strategy = getattr(action, "strategy", None)
         if candidate_strategy and action_strategy and candidate_strategy != action_strategy:
+            continue
+        candidate_scope = getattr(candidate, "report_scope", "none")
+        action_scope = getattr(action, "report_scope", "none")
+        if candidate_scope != "none" and action_scope != candidate_scope:
             continue
         return candidate
     return None
@@ -425,29 +468,17 @@ def _preflight_item(
 
 
 def _compact_evidence_fact(fact: EvidenceFact) -> dict:
+    metadata = dict(fact.metadata)
+    if "resolve_ref" in metadata:
+        metadata["resolve_ref_available"] = bool(metadata.pop("resolve_ref"))
     return {
         "fact_type": fact.fact_type,
         "value": fact.value,
         "source_type": fact.source_type,
         "source_id": fact.source_id,
         "resolve_type": fact.resolve_type,
-        "metadata": dict(fact.metadata),
+        "metadata": metadata,
     }
-
-
-def _fallback_reason(
-        reply_validation_payload: dict | None,
-        fallback_used: bool,
-) -> str:
-    if not fallback_used:
-        return ""
-    if not reply_validation_payload:
-        return "plan_or_contract_fallback"
-    issues = reply_validation_payload.get("issues") or []
-    if not issues:
-        return "reply_guardrail_fallback"
-    return str(issues[0].get("code") or "reply_guardrail_fallback")
-
 
 def _stable_hash(payload: dict) -> str:
     serialized = json.dumps(
