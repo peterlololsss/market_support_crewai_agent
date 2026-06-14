@@ -1,8 +1,10 @@
-# Xiaoyan WeCom Adapter Contract
+# Xiaoyan WeCom Current Adapter Contract
 
-Last updated: 2026-06-03.
+Last updated: 2026-06-14.
 
 The `xiaoyan_wecom` backend provides adapter preflight/resolve for `market-support-crewai-agent`. Contract models live in `src/market_support_crewai_agent/schemas.py`. Cross-repo acceptance lives in `tests/test_xiaoyan_adapter_live_contract.py`.
+
+This document describes the single current adapter contract. Older adapter payload shapes are removed and are not accepted by the agent runtime. The adapter must return current capabilities, current resolve results, current batch resolve results, and current action feedback.
 
 ## Endpoint surface
 
@@ -17,7 +19,7 @@ POST /actions/feedback
 
 ## Capabilities
 
-`GET /adapter/capabilities` returns service metadata for `xiaoyan-wecom-market-agent-adapter`, contract versions `adapter-resolve.v1` and `adapter-resolve-batch.v1`, endpoint paths, supported resolve types, status values, request-size limits, batch limits, cache settings, and optional auth metadata.
+`GET /adapter/capabilities` returns service metadata for `xiaoyan-wecom-market-agent-adapter`, contract versions `adapter-resolve`, `adapter-resolve-batch`, and `adapter-action`, endpoint paths, supported resolve types, status values, request-size limits, batch limits, cache settings, and optional auth metadata.
 
 ## Resolve request
 
@@ -55,7 +57,7 @@ sales_mention
 }
 ```
 
-Each result uses `AdapterResolveResult` with `contract_version=adapter-resolve.v1`, typed status, display name, reason code, and adapter evidence needed by the runtime.
+Each result uses `AdapterResolveResult` with `contract_version=adapter-resolve`, typed status, display name, reason code, and adapter evidence needed by the runtime. When `status=resolved`, `resolve_ref` is required.
 
 Report scope evidence uses:
 
@@ -68,26 +70,26 @@ period
 report_date
 ```
 
-Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `card_ref` and `material_id` are opaque adapter identifiers.
+Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `resolve_ref` and `material_id` are opaque adapter identifiers.
 
 Raw send targets, URLs, filesystem paths, receiver identifiers, credentials, and internal execution records stay in adapter storage.
 
-Current action compatibility: the existing WeCom action consumer accepts only `type`, `action_id`, and `strategy` on
-agent-returned action objects. The harness therefore keeps report selector and `card_ref` details in validation/audit
-state for now, and does not emit public `selector` or `card_ref` fields until the adapter action contract is explicitly
-bumped.
+Agent-returned send actions carry the adapter-safe `resolve_ref` needed for execution. Report actions also carry
+`resolve_type`, `report_scope`, `strategy` when scoped to one strategy, `period`, and `report_date`. The adapter must execute from `resolve_ref`; it must not re-select artifacts by guessing from strategy or free-form reply text.
+
+Removed locator fields such as `card_ref`, URLs, filesystem paths, and raw MCP locators are not accepted in agent-facing payloads.
 
 The adapter owns standard post-send follow-up wording for material packs, weekly reports, and monthly reports. The
-harness returns semantic side-effect proposals and should not send duplicate "already sent / please check" text before
+harness returns semantic outbound action proposals and should not send duplicate "already sent / please check" text before
 adapter execution.
 
 ## Runtime preflight requirement
 
-The reply runtime verifies `/adapter/capabilities`, then collects preflight checks with `/adapter/resolve/batch` before LLM composition. Matching `status=resolved` is required before the runtime can return material/report/sales side-effect action proposals.
+The reply runtime verifies `/adapter/capabilities`, then collects preflight checks with `/adapter/resolve/batch` before LLM composition. Matching `status=resolved` is required before the runtime can return material/report/sales outbound action proposals.
 
 Missing report scope evidence remains `unknown`. The runtime can use positive scope evidence when the adapter supplies it.
 
-## Live adapter smoke
+## Live adapter eval
 
 Start the real adapter server from `xiaoyan_wecom`:
 
@@ -100,7 +102,7 @@ Run live contract tests from this repo:
 
 ```bash
 cd /Users/ivan/PycharmProjects/market_support_crewai_agent
-MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:8011 uv run pytest tests/test_xiaoyan_adapter_live_contract.py
+MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:8011 uv run --extra dev python -m pytest -q tests/test_xiaoyan_adapter_live_contract.py
 ```
 
 To test a real channel's current sendability:
@@ -116,7 +118,7 @@ cd /Users/ivan/PycharmProjects/xiaoyan_wecom
 python3 scripts/market_agent_adapter_scope_fixture.py
 ```
 
-The fixture-backed live smoke sets `MARKET_AGENT_LIVE_ADAPTER_STRATEGY` and `MARKET_AGENT_LIVE_ADAPTER_EXPECT_SCOPE=1`, then verifies that the real adapter returns `contains_strategy=true` and `scope_status=included`.
+The fixture-backed live eval sets `MARKET_AGENT_LIVE_ADAPTER_STRATEGY` and `MARKET_AGENT_LIVE_ADAPTER_EXPECT_SCOPE=1`, then verifies that the real adapter returns `contains_strategy=true` and `scope_status=included`.
 
 ## Action feedback
 
@@ -128,8 +130,18 @@ POST /actions/feedback
 
 The runtime action ledger stores adapter-confirmed executions. Repeated identical feedback payloads are idempotent. The runtime includes only recent `status=executed` adapter actions in prompts so “just sent” references are grounded by adapter-confirmed execution.
 
-Accepted feedback action categories reflect adapter execution metadata and remain adapter-safe. `material_id` is an opaque adapter reference, and `adapter_result` carries sanitized execution metadata.
+Accepted feedback action categories reflect adapter execution metadata and remain adapter-safe:
+
+```text
+send_material_pack
+send_weekly_report
+send_monthly_report
+mention_sales
+send_text
+```
+
+`material_id` is an opaque adapter reference, and `adapter_result` carries sanitized execution metadata.
 
 ## Metrics
 
-The adapter client exposes typed `metrics()` for cache/uptime checks during live smoke and performance testing. Metrics include sanitized transport counters by canonical route name, status code, and duration aggregate.
+The adapter client exposes typed `metrics()` for cache/uptime checks during live eval and performance testing. Metrics include sanitized transport counters by canonical route name, status code, and duration aggregate.

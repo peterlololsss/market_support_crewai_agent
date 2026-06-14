@@ -6,6 +6,7 @@ import threading
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from market_support_crewai_agent.runtime.capabilities import adapter_resolve_types
 from market_support_crewai_agent.schemas import (
     AdapterCapabilities,
     AdapterMetrics,
@@ -18,18 +19,15 @@ from market_support_crewai_agent.settings import Settings, get_settings
 
 
 REQUIRED_ADAPTER_SERVICE = "xiaoyan-wecom-market-agent-adapter"
-REQUIRED_RESOLVE_CONTRACT_VERSION = "adapter-resolve.v1"
-REQUIRED_BATCH_CONTRACT_VERSION = "adapter-resolve-batch.v1"
-REQUIRED_RESOLVE_TYPES = {
-    "material_pack",
-    "weekly_report",
-    "monthly_report",
-    "sales_mention",
-}
+REQUIRED_RESOLVE_CONTRACT_VERSION = "adapter-resolve"
+REQUIRED_BATCH_CONTRACT_VERSION = "adapter-resolve-batch"
+REQUIRED_ACTION_CONTRACT_VERSION = "adapter-action"
+REQUIRED_RESOLVE_TYPES = adapter_resolve_types()
 REQUIRED_STATUSES = {
     "resolved",
     "missing",
     "ambiguous",
+    "forbidden",
     "temporarily_unavailable",
 }
 REQUIRED_ENDPOINTS = {
@@ -39,7 +37,7 @@ REQUIRED_ENDPOINTS = {
     "resolve": "/adapter/resolve",
     "batch_resolve": "/adapter/resolve/batch",
 }
-REQUIRED_MIN_BATCH_REQUESTS = 4
+REQUIRED_MIN_BATCH_REQUESTS = len(REQUIRED_RESOLVE_TYPES)
 
 
 class AdapterClientError(RuntimeError):
@@ -168,6 +166,8 @@ def _adapter_capability_errors(capabilities: AdapterCapabilities) -> list[str]:
         errors.append("contract_version={}".format(capabilities.contract_version))
     if capabilities.batch_contract_version != REQUIRED_BATCH_CONTRACT_VERSION:
         errors.append("batch_contract_version={}".format(capabilities.batch_contract_version))
+    if capabilities.action_contract_version != REQUIRED_ACTION_CONTRACT_VERSION:
+        errors.append("action_contract_version={}".format(capabilities.action_contract_version))
     for name, path in REQUIRED_ENDPOINTS.items():
         actual = getattr(capabilities.endpoints, name)
         if actual != path:

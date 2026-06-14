@@ -32,9 +32,10 @@ def make_feedback(**overrides):
         "response_id": "resp-1",
         "executions": [
             {
-                "action_type": "send_material",
+                "action_type": "send_weekly_report",
                 "status": "executed",
                 "action_id": "act-1",
+                "resolve_ref": "weekly:resolve-ref",
                 "material_type": "weekly",
                 "strategy": None,
                 "material_id": "weekly:opaque-ref",

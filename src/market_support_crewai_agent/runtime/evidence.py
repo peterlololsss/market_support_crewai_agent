@@ -5,6 +5,9 @@ from typing import Any, Literal
 
 from market_support_crewai_agent.runtime.action_ledger import ActionLedgerRecord
 from market_support_crewai_agent.runtime.adapter_preflight import AdapterPreflightSnapshot
+from market_support_crewai_agent.runtime.capabilities import (
+    capability_by_resolve_type,
+)
 from market_support_crewai_agent.schemas import AdapterResolveType
 
 EvidenceFactType = Literal[
@@ -35,37 +38,40 @@ class EvidenceFact:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-_RESOLVABLE_FACT_BY_TYPE: dict[AdapterResolveType, EvidenceFactType] = {
-    "material_pack": "material_pack_resolvable",
-    "weekly_report": "weekly_report_resolvable",
-    "monthly_report": "monthly_report_resolvable",
-    "sales_mention": "sales_mention_resolvable",
-}
-
-
 def evidence_facts_from_preflight(
         preflight: AdapterPreflightSnapshot,
 ) -> list[EvidenceFact]:
     facts: list[EvidenceFact] = []
     for item in preflight.items:
-        fact_type = _RESOLVABLE_FACT_BY_TYPE.get(item.resolve_type)
+        capability = capability_by_resolve_type(item.resolve_type)
+        fact_type = capability.resolvable_fact_type if capability is not None else None
         if fact_type is not None:
+            result = item.result
             facts.append(
                 EvidenceFact(
-                    fact_type=fact_type,
+                    fact_type=fact_type,  # type: ignore[arg-type]
                     value=item.status == "resolved",
                     source_id=item.resolve_type,
                     resolve_type=item.resolve_type,
                     metadata={
                         "status": item.status,
+                        "resolve_ref": (
+                            result.resolve_ref if result is not None else None
+                        ),
                         "candidates": (
-                            item.result.candidates if item.result is not None else []
+                            result.candidates if result is not None else []
                         ),
                         "reason_code": (
-                            item.result.reason_code if item.result is not None else ""
+                            result.reason_code if result is not None else ""
                         ),
                         "strategy": (
-                            item.result.strategy if item.result is not None else None
+                            result.strategy if result is not None else None
+                        ),
+                        "period": (
+                            result.period if result is not None else None
+                        ),
+                        "report_date": (
+                            result.report_date if result is not None else None
                         ),
                     },
                 )
@@ -75,7 +81,8 @@ def evidence_facts_from_preflight(
             continue
 
         result = item.result
-        if result.resolve_type in {"weekly_report", "monthly_report"}:
+        capability = capability_by_resolve_type(result.resolve_type)
+        if capability is not None and capability.is_report:
             if result.contains_strategy is not None:
                 facts.append(
                     EvidenceFact(
@@ -86,6 +93,7 @@ def evidence_facts_from_preflight(
                         metadata={
                             "strategy": result.strategy,
                             "period": result.period,
+                            "report_date": result.report_date,
                         },
                     )
                 )
@@ -99,6 +107,7 @@ def evidence_facts_from_preflight(
                         metadata={
                             "strategy": result.strategy,
                             "period": result.period,
+                            "report_date": result.report_date,
                         },
                     )
                 )
@@ -124,6 +133,8 @@ def evidence_facts_from_action_history(
                     "response_id": record.response_id,
                     "action_id": execution.action_id,
                     "action_type": execution.action_type,
+                    "resolve_ref": execution.resolve_ref,
+                    "resolve_ref_available": bool(execution.resolve_ref),
                     "material_type": execution.material_type,
                     "strategy": execution.strategy,
                     "version": execution.version,

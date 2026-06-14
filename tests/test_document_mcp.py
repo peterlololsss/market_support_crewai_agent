@@ -11,7 +11,11 @@ from market_support_crewai_agent.runtime.document_mcp import (
     _sanitize_document_text,
     _select_document_text,
 )
-from market_support_crewai_agent.runtime.planning import ReplyPlan
+from market_support_crewai_agent.runtime.planning import (
+    ExecutionPlan,
+    IntentFrame,
+    compile_intent_frame,
+)
 from market_support_crewai_agent.runtime.policy import compile_policy
 from market_support_crewai_agent.schemas import ReplyRequest
 from market_support_crewai_agent.settings import Settings
@@ -36,28 +40,27 @@ def make_request(**overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def make_plan(**overrides) -> ReplyPlan:
+def make_plan(**overrides) -> ExecutionPlan:
     payload = {
         "user_need": "answer product knowledge question",
-        "intent": "knowledge_qa",
+        "artifact_kind": "knowledge_answer",
+        "action_intent": "answer",
+        "requested_capabilities": ["document_context"],
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
             "reason": "normal product knowledge question",
         },
-        "evidence_requests": [
-            {
-                "capability": "query_internal_company_info",
-                "reason": "answer from approved document context",
-            }
-        ],
-        "business_checks": [],
-        "required_adapter_resolves": [],
-        "candidate_actions": [],
         "confidence": 0.8,
     }
     payload.update(overrides)
-    return ReplyPlan.model_validate(payload)
+    request = make_request()
+    return compile_intent_frame(
+        IntentFrame.model_validate(payload),
+        request,
+        canonicalize_request(request),
+        compile_policy(request, doc_mcp_enabled=True),
+    )
 
 
 class FakeDocumentClient:

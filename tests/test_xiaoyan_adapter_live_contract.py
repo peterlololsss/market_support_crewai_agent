@@ -44,8 +44,8 @@ def test_live_xiaoyan_adapter_capabilities_contract():
     capabilities = _live_adapter_client(base_url, api_key).assert_ready()
 
     assert capabilities.service == "xiaoyan-wecom-market-agent-adapter"
-    assert capabilities.contract_version == "adapter-resolve.v1"
-    assert capabilities.batch_contract_version == "adapter-resolve-batch.v1"
+    assert capabilities.contract_version == "adapter-resolve"
+    assert capabilities.batch_contract_version == "adapter-resolve-batch"
     assert capabilities.endpoints.metrics == "/adapter/metrics"
     assert capabilities.endpoints.resolve == "/adapter/resolve"
     assert capabilities.endpoints.batch_resolve == "/adapter/resolve/batch"
@@ -111,7 +111,7 @@ def test_live_xiaoyan_adapter_metrics_contract():
 def test_live_xiaoyan_adapter_batch_contract():
     base_url = _live_adapter_base_url()
     api_key = os.getenv("MARKET_AGENT_LIVE_ADAPTER_API_KEY") or None
-    dist_name = os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "__contract_smoke__")
+    dist_name = os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "__contract_check__")
     strategy = os.getenv("MARKET_AGENT_LIVE_ADAPTER_STRATEGY") or None
     expect_scope = os.getenv("MARKET_AGENT_LIVE_ADAPTER_EXPECT_SCOPE", "").strip() == "1"
 
@@ -135,7 +135,7 @@ def test_live_xiaoyan_adapter_batch_contract():
     ]
     assert len(results) == len(requests)
     for result in results:
-        assert result.contract_version == "adapter-resolve.v1"
+        assert result.contract_version == "adapter-resolve"
         assert result.reason_code
         assert isinstance(result.resolved_at, int)
         payload = result.model_dump(mode="json", exclude_none=True)
@@ -158,7 +158,7 @@ def test_live_xiaoyan_adapter_batch_contract():
 
 def test_live_xiaoyan_adapter_preflight_service_scope_contract():
     if os.getenv("MARKET_AGENT_LIVE_ADAPTER_EXPECT_SCOPE", "").strip() != "1":
-        pytest.skip("scope preflight live smoke requires fixture-backed adapter")
+        pytest.skip("scope preflight live eval requires fixture-backed adapter")
 
     base_url = _live_adapter_base_url()
     api_key = os.getenv("MARKET_AGENT_LIVE_ADAPTER_API_KEY") or None
@@ -211,7 +211,7 @@ def test_live_xiaoyan_adapter_rejects_short_resolve_endpoint():
     _skip_if_adapter_is_not_running(base_url, api_key)
 
     body = json.dumps(
-        {"resolve_type": "weekly_report", "dist_name": "__contract_smoke__"},
+        {"resolve_type": "weekly_report", "dist_name": "__contract_check__"},
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -238,7 +238,7 @@ def test_live_xiaoyan_adapter_rejects_raw_list_batch_payload():
     _skip_if_adapter_is_not_running(base_url, api_key)
 
     body = json.dumps(
-        [{"resolve_type": "weekly_report", "dist_name": "__contract_smoke__"}],
+        [{"resolve_type": "weekly_report", "dist_name": "__contract_check__"}],
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")

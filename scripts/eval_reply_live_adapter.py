@@ -57,8 +57,10 @@ def _assert_adapter_health(base_url: str, api_key: str) -> None:
 
 
 def main() -> None:
+    _load_dotenv()
+
     parser = argparse.ArgumentParser(
-        description="Run a real LLM-backed /reply smoke with live adapter preflight."
+        description="Run a real LLM-backed /reply eval with live adapter preflight."
     )
     parser.add_argument("--message", default="请发一下周报")
     parser.add_argument("--dist-name", default=os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "ScopeTest"))
@@ -68,11 +70,13 @@ def main() -> None:
     parser.add_argument("--adapter-api-key", default=_adapter_api_key())
     parser.add_argument("--available-materials", default="material,weekly,monthly")
     parser.add_argument("--available-strategies", default="")
+    parser.add_argument("--llm-timeout-seconds", default=os.getenv("YANFU_LLM_TIMEOUT_SECONDS", "90"))
+    parser.add_argument("--llm-max-tokens", default=os.getenv("YANFU_LLM_MAX_TOKENS", "6000"))
     args = parser.parse_args()
 
-    _load_dotenv()
     os.environ["MARKET_AGENT_ADAPTER_BASE_URL"] = args.adapter_base_url
-    os.environ["MARKET_AGENT_ADAPTER_PREFLIGHT_ENABLED"] = "true"
+    os.environ["YANFU_LLM_TIMEOUT_SECONDS"] = str(args.llm_timeout_seconds)
+    os.environ["YANFU_LLM_MAX_TOKENS"] = str(args.llm_max_tokens)
     if args.adapter_api_key:
         os.environ["MARKET_AGENT_ADAPTER_API_KEY"] = args.adapter_api_key
 
@@ -85,15 +89,15 @@ def main() -> None:
         available_strategies = [args.strategy]
 
     payload = {
-        "context_id": "live-adapter-smoke-1",
-        "conversation_key": "wecom:live-adapter-smoke-group:live-adapter-smoke-sender",
-        "group_id": "live-adapter-smoke-group",
-        "sender_id": "live-adapter-smoke-sender",
+        "context_id": "live-adapter-eval-1",
+        "conversation_key": "wecom:live-adapter-eval-group:live-adapter-eval-sender",
+        "group_id": "live-adapter-eval-group",
+        "sender_id": "live-adapter-eval-sender",
         "message": args.message,
         "is_group": True,
         "group_name": f"{args.dist_name}-群",
         "dist_channel_name": args.dist_name,
-        "sender_nickname": "live adapter smoke user",
+        "sender_nickname": "live adapter eval user",
         "available_materials": _csv_values(args.available_materials),
         "available_strategies": available_strategies,
         "channel_type": args.channel_type,
