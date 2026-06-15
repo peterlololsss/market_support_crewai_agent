@@ -66,9 +66,27 @@ class FakePreflightService:
                             "period": (
                                 "20260529"
                                 if resolve_type == "weekly_report"
+                                else "202605"
+                                if resolve_type == "monthly_report"
                                 else None
                             ),
-                            "scope_status": "unknown",
+                            "report_date": (
+                                "2026-05-29"
+                                if resolve_type == "weekly_report"
+                                else "2026-05-31"
+                                if resolve_type == "monthly_report"
+                                else None
+                            ),
+                            "scope_status": (
+                                "included"
+                                if resolve_type in {"weekly_report", "monthly_report"} and strategy
+                                else "unknown"
+                            ),
+                            "contains_strategy": (
+                                True
+                                if resolve_type in {"weekly_report", "monthly_report"} and strategy
+                                else None
+                            ),
                         }
                     ),
                 )

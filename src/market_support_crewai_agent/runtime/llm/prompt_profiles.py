@@ -6,9 +6,17 @@ from typing import Literal
 from pydantic import BaseModel
 
 from market_support_crewai_agent.runtime.domain.planning import IntentFrame
+from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
+    ReplyAlignmentVerdict,
+)
 from market_support_crewai_agent.schemas import ReplyResponse
 
-PromptStage = Literal["planner_intent", "knowledge_composer", "smalltalk_composer"]
+PromptStage = Literal[
+    "planner_intent",
+    "knowledge_composer",
+    "smalltalk_composer",
+    "alignment_verifier",
+]
 ModelFamily = Literal["ds_v4pro", "deepseek", "gpt", "claude", "generic"]
 
 
@@ -55,6 +63,18 @@ def _smalltalk_composer_profile(model_family: ModelFamily) -> PromptProfile:
     )
 
 
+def _alignment_verifier_profile(model_family: ModelFamily) -> PromptProfile:
+    return PromptProfile(
+        id=f"alignment_verifier.{model_family}",
+        stage="alignment_verifier",
+        base_template_name="base.alignment_verifier",
+        response_model=ReplyAlignmentVerdict,
+        model_family=model_family,
+        temperature=0.0,
+        max_tokens=1200,
+    )
+
+
 PROMPT_PROFILES: tuple[PromptProfile, ...] = tuple(
     profile
     for model_family in ("ds_v4pro", "deepseek", "gpt", "claude", "generic")
@@ -62,6 +82,7 @@ PROMPT_PROFILES: tuple[PromptProfile, ...] = tuple(
         _planner_profile(model_family),
         _composer_profile(model_family),
         _smalltalk_composer_profile(model_family),
+        _alignment_verifier_profile(model_family),
     )
 )
 

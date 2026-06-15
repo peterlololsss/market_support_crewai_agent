@@ -44,6 +44,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         required=True,
     ),
     PromptFragment(
+        id="base.alignment_verifier",
+        stage="alignment_verifier",
+        priority=10,
+        template_name="base/alignment_verifier_base.md",
+        required=True,
+    ),
+    PromptFragment(
         id="model.ds_v4pro.structured",
         stage="planner_intent",
         priority=20,
@@ -65,6 +72,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         required=True,
     ),
     PromptFragment(
+        id="model.ds_v4pro.structured",
+        stage="alignment_verifier",
+        priority=20,
+        template_name="model/ds_v4pro_structured.md",
+        required=True,
+    ),
+    PromptFragment(
         id="model.generic.structured",
         stage="planner_intent",
         priority=20,
@@ -81,6 +95,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
     PromptFragment(
         id="model.generic.structured",
         stage="smalltalk_composer",
+        priority=20,
+        template_name="model/generic_structured.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="model.generic.structured",
+        stage="alignment_verifier",
         priority=20,
         template_name="model/generic_structured.md",
         required=True,
@@ -111,6 +132,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         stage="smalltalk_composer",
         priority=30,
         template_name="output/reply_response_no_actions.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="output.reply_alignment_verdict_schema",
+        stage="alignment_verifier",
+        priority=30,
+        template_name="output/reply_alignment_verdict_schema.md",
         required=True,
     ),
     PromptFragment(

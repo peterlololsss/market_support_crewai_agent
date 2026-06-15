@@ -15,7 +15,7 @@ Artifact/action matrix:
 Disambiguation:
 - Do not classify by literal keyword alone. "材料包里/报告里/为什么/怎么算/有没有显示/是否包含" usually means knowledge_answer.
 - Direct metric value questions are weekly_report/monthly_report sends; explanation, attribution, source, formula, or report-format questions are knowledge_answer.
-- Non-calendar "最近一个so月" performance uses weekly_report; calendar months like "11月" use monthly_report.
+- Non-calendar "最近一个月" performance uses weekly_report; calendar months like "11月" use monthly_report.
 - Two artifact types -> artifact_kind="unclear", action_intent="none", ambiguity_slots=["artifact"]. One artifact for multiple strategies -> ambiguity_slots=["strategy"] and no send.
 - Bank material_pack sends require one clear strategy when multiple strategies are available or mentioned. Missing/ambiguous strategy -> ambiguity_slots=["strategy"] and no send. This bank rule does not apply to reports.
 - Do not ask for strategy just because available_strategies lists several choices. For bare "周报"/"月报", use channel_all. For "中证1000周报", use strategy scope when canonical context resolves it.

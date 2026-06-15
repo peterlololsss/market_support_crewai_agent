@@ -228,7 +228,7 @@ def test_build_audit_trace_records_adapter_safe_runtime_state():
 def test_runtime_records_trace_for_deterministic_action_response():
     audit_store = AuditStore()
     runtime = CrewAIReplyRuntime(
-        Settings(llm_api_key="test-key"),
+        Settings(llm_api_key="test-key", reply_alignment_verifier_enabled=False),
         conversation_store=ConversationStore(),
         preflight_service=ResolvedWeeklyPreflight(),
         audit_store=audit_store,
