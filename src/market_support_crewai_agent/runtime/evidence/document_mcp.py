@@ -4,15 +4,18 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
+from typing import Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from pydantic import Field
 
 from market_support_crewai_agent.runtime.domain.capabilities import read_capabilities_for_artifact
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
-from market_support_crewai_agent.schemas import ReplyRequest
+from market_support_crewai_agent.schemas import ReplyRequest, StrictModel
 from market_support_crewai_agent.settings import Settings, get_settings
 
 _DOC_CAPABILITY = next(iter(read_capabilities_for_artifact("knowledge_answer")), "")
@@ -59,11 +62,93 @@ class SanitizedDocumentText:
     metadata: dict[str, object]
 
 
-class DocumentMcpClient:
+class DocumentProductCandidate(StrictModel):
+    id: str = Field(min_length=1, max_length=160)
+    name: str = Field(default="", max_length=160)
+    title: str = Field(default="", max_length=240)
+    category: str = Field(default="", max_length=80)
+    keywords: tuple[str, ...] = Field(default_factory=tuple, max_length=20)
+    summary: str = Field(default="", max_length=1200)
+
+
+class DocumentProductSelection(StrictModel):
+    document_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
+    confidence: Literal["none", "low", "medium", "high"] = "none"
+    rationale: str = Field(default="", max_length=600)
+
+
+class DocumentProductSelector(Protocol):
+    async def select(
+        self,
+        *,
+        request: ReplyRequest,
+        evidence_query: str,
+        canonical_context: CanonicalContext,
+        products: list[dict],
+        max_documents: int,
+    ) -> DocumentProductSelection: ...
+
+
+class NoopDocumentProductSelector:
+    async def select(
+        self,
+        *,
+        request: ReplyRequest,
+        evidence_query: str,
+        canonical_context: CanonicalContext,
+        products: list[dict],
+        max_documents: int,
+    ) -> DocumentProductSelection:
+        del request, evidence_query, canonical_context, products, max_documents
+        return DocumentProductSelection(confidence="none")
+
+
+class CrewAIDocumentProductSelector:
+    """Closed-set semantic selector for Document MCP product IDs."""
+
     def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+
+    async def select(
+        self,
+        *,
+        request: ReplyRequest,
+        evidence_query: str,
+        canonical_context: CanonicalContext,
+        products: list[dict],
+        max_documents: int,
+    ) -> DocumentProductSelection:
+        if not self.settings.llm_api_key:
+            return DocumentProductSelection(confidence="none")
+        manifest = _product_manifest(products)
+        if not manifest:
+            return DocumentProductSelection(confidence="none")
+        prompt = _document_product_selector_prompt(
+            request=request,
+            evidence_query=evidence_query,
+            canonical_context=canonical_context,
+            candidates=manifest,
+            max_documents=max_documents,
+        )
+        return await _run_crewai_document_product_selector(
+            prompt,
+            self.settings,
+            timeout_seconds=self.settings.llm_timeout_seconds,
+        )
+
+
+class DocumentMcpClient:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        product_selector: DocumentProductSelector | None = None,
+    ) -> None:
         self.settings = settings or get_settings()
         self.base_url = (self.settings.doc_mcp_base_url or "").rstrip("/")
         self.timeout = self.settings.doc_mcp_timeout_seconds
+        self.product_selector = product_selector or CrewAIDocumentProductSelector(
+            self.settings
+        )
 
     def fetch_context(
         self,
@@ -71,26 +156,58 @@ class DocumentMcpClient:
         canonical_context: CanonicalContext,
         *,
         evidence_query: str | None = None,
-        max_documents: int = 2,
+        max_documents: int = 3,
+        max_chars_per_document: int = _MAX_CHARS_PER_DOCUMENT,
+    ) -> list[DocumentEvidenceChunk]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.fetch_context_async(
+                    request,
+                    canonical_context,
+                    evidence_query=evidence_query,
+                    max_documents=max_documents,
+                    max_chars_per_document=max_chars_per_document,
+                )
+            )
+        raise DocumentMcpError(
+            "synchronous document MCP fetch cannot run inside an active event loop"
+        )
+
+    async def fetch_context_async(
+        self,
+        request: ReplyRequest,
+        canonical_context: CanonicalContext,
+        *,
+        evidence_query: str | None = None,
+        max_documents: int = 3,
         max_chars_per_document: int = _MAX_CHARS_PER_DOCUMENT,
     ) -> list[DocumentEvidenceChunk]:
         if not self.base_url:
             return []
 
         query_text = _retrieval_query(request, evidence_query)
-        products = self._list_products()
-        selected_products = _select_products(
+        products = await asyncio.to_thread(self._list_products)
+        try:
+            selection = await self.product_selector.select(
+                request=request,
+                evidence_query=query_text,
+                canonical_context=canonical_context,
+                products=products,
+                max_documents=max_documents,
+            )
+        except Exception as exc:
+            raise DocumentMcpError("document MCP product selector failed") from exc
+        document_ids = _validated_selected_document_ids(
+            selection,
             products,
-            query_text,
-            canonical_context,
             max_documents=max_documents,
         )
-        if not selected_products:
+        if not document_ids:
             return []
 
-        documents = self._get_documents(
-            [str(product.get("id") or "") for product in selected_products]
-        )
+        documents = await asyncio.to_thread(self._get_documents, document_ids)
         chunks: list[DocumentEvidenceChunk] = []
         for document in documents:
             document_id = str(document.get("id") or "")
@@ -111,24 +228,6 @@ class DocumentMcpClient:
                 )
             )
         return chunks
-
-    async def fetch_context_async(
-        self,
-        request: ReplyRequest,
-        canonical_context: CanonicalContext,
-        *,
-        evidence_query: str | None = None,
-        max_documents: int = 2,
-        max_chars_per_document: int = _MAX_CHARS_PER_DOCUMENT,
-    ) -> list[DocumentEvidenceChunk]:
-        return await asyncio.to_thread(
-            self.fetch_context,
-            request,
-            canonical_context,
-            evidence_query=evidence_query,
-            max_documents=max_documents,
-            max_chars_per_document=max_chars_per_document,
-        )
 
     def _list_products(self) -> list[dict]:
         result = self._call_tool("list_products", {})
@@ -332,6 +431,149 @@ def _tool_text_json(result: dict) -> dict:
     return {}
 
 
+def _product_manifest(products: list[dict]) -> tuple[DocumentProductCandidate, ...]:
+    candidates: list[DocumentProductCandidate] = []
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        product_id = str(product.get("id") or "").strip()
+        if not product_id:
+            continue
+        keywords = tuple(
+            keyword
+            for keyword in (
+                str(item or "").strip() for item in product.get("keywords") or ()
+            )
+            if keyword
+        )
+        candidates.append(
+            DocumentProductCandidate(
+                id=product_id,
+                name=str(product.get("name") or "").strip(),
+                title=str(product.get("title") or "").strip(),
+                category=str(product.get("category") or "").strip(),
+                keywords=keywords,
+                summary=str(product.get("summary") or "").strip(),
+            )
+        )
+    return tuple(candidates)
+
+
+def _validated_selected_document_ids(
+    selection: DocumentProductSelection,
+    products: list[dict],
+    *,
+    max_documents: int,
+) -> list[str]:
+    if selection.confidence == "none":
+        return []
+    valid_ids = {
+        str(product.get("id") or "").strip()
+        for product in products
+        if isinstance(product, dict)
+    }
+    output: list[str] = []
+    seen: set[str] = set()
+    for document_id in selection.document_ids:
+        normalized_id = str(document_id or "").strip()
+        if not normalized_id or normalized_id in seen or normalized_id not in valid_ids:
+            continue
+        seen.add(normalized_id)
+        output.append(normalized_id)
+        if len(output) >= max_documents:
+            break
+    return output
+
+
+def _document_product_selector_prompt(
+    *,
+    request: ReplyRequest,
+    evidence_query: str,
+    canonical_context: CanonicalContext,
+    candidates: tuple[DocumentProductCandidate, ...],
+    max_documents: int,
+) -> str:
+    payload = {
+        "user_message": str(request.message or "").strip(),
+        "evidence_query": evidence_query,
+        "canonical_context": canonical_context.to_prompt_dict(),
+        "max_documents": max_documents,
+        "candidate_documents": [
+            candidate.model_dump(mode="json", exclude_none=True)
+            for candidate in candidates
+        ],
+    }
+    return (
+        "You are the closed-set Document MCP document selector for a deterministic "
+        "support reply harness.\n\n"
+        "Your only job is to choose which candidate document IDs should be fetched "
+        "as evidence for the current user question.\n"
+        "Select IDs only from candidate_documents[].id. Do not invent IDs, document "
+        "titles, facts, answer text, actions, or image markers.\n"
+        "Use the candidate metadata semantically: id, name, title, category, "
+        "keywords, and summary. Do not perform or describe keyword scoring, "
+        "substring ranking, regex matching, fuzzy matching, or n-gram matching.\n"
+        "Prefer one precise document. Select multiple documents only when the "
+        "question truly combines company information with a specifically named "
+        "product/strategy or FAQ topic. Never return more than max_documents IDs.\n"
+        "For company-wide questions about Yanfu/衍复 facts, team, address, overall "
+        "or latest scale/AUM, or product line, choose the company-introduction "
+        "candidate rather than a single strategy document unless the user clearly "
+        "names that strategy.\n"
+        "For a specifically named index or strategy, choose only the exact matching "
+        "strategy document. Strictly distinguish 中证A500 from 中证500, 中证1000 "
+        "from 中证500, and 沪深300 from 中证500.\n"
+        "For hedge, market-neutral, or absolute-return strategy questions, choose "
+        "the matching hedge-strategy candidate. For operational FAQ questions, "
+        "choose the FAQ candidate.\n"
+        "If the candidates do not contain a directly relevant document, return "
+        "confidence='none' and document_ids=[].\n"
+        "Return only DocumentProductSelection matching the response schema.\n\n"
+        "Selector input JSON:\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}"
+    )
+
+
+async def _run_crewai_document_product_selector(
+    prompt: str,
+    settings: Settings,
+    *,
+    timeout_seconds: float,
+) -> DocumentProductSelection:
+    from crewai import Agent, LLM
+
+    agent = Agent(
+        role="Closed-set Document MCP Selector",
+        goal="Select only valid candidate document IDs for evidence retrieval.",
+        backstory=(
+            "You specialize in choosing evidence sources from a fixed catalog. "
+            "You never compose customer replies, invent IDs, or call tools."
+        ),
+        llm=LLM(
+            model=settings.llm_model,
+            provider=settings.llm_provider,
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            temperature=0,
+            max_tokens=min(settings.llm_max_tokens, 1200),
+            timeout=settings.llm_timeout_seconds,
+        ),
+        allow_delegation=False,
+        verbose=settings.crewai_verbose,
+        max_iter=1,
+        max_execution_time=settings.crewai_max_execution_time,
+        max_retry_limit=settings.crewai_max_retry_limit,
+        planning=False,
+    )
+    result = await asyncio.wait_for(
+        agent.kickoff_async(prompt, response_format=DocumentProductSelection),
+        timeout=timeout_seconds,
+    )
+    if result.pydantic is not None:
+        return DocumentProductSelection.model_validate(result.pydantic)
+    return DocumentProductSelection.model_validate_json(result.raw)
+
+
 def _document_context_unavailable_fact(
     *,
     reason_code: str,
@@ -426,109 +668,6 @@ def _retrieval_query(request: ReplyRequest, evidence_query: str | None) -> str:
     return str(request.message or "").strip()
 
 
-def _select_products(
-    products: list[dict],
-    query_text: str,
-    canonical_context: CanonicalContext,
-    *,
-    max_documents: int,
-) -> list[dict]:
-    scored = [
-        (_score_product(product, query_text, canonical_context), product)
-        for product in products
-    ]
-    selected = [
-        product
-        for score, product in sorted(scored, key=lambda item: item[0], reverse=True)
-        if score > 0
-    ]
-    if selected:
-        return selected[:max_documents]
-
-    faq_product = _first_category(products, "常见问答")
-    return [faq_product] if faq_product else []
-
-
-def _score_product(
-    product: dict,
-    query_text: str,
-    canonical_context: CanonicalContext,
-) -> int:
-    normalized_query = query_text.lower()
-    searchable = _product_searchable_text(product)
-    query_index_tokens = _index_tokens(
-        " ".join(
-            value
-            for value in (
-                normalized_query,
-                (canonical_context.selected_strategy or "").lower(),
-            )
-            if value
-        )
-    )
-    product_index_tokens = _index_tokens(searchable)
-    if (
-        query_index_tokens
-        and product_index_tokens
-        and not query_index_tokens.intersection(product_index_tokens)
-    ):
-        return 0
-
-    score = _text_similarity_score(normalized_query, searchable)
-
-    strategy = (canonical_context.selected_strategy or "").lower()
-    if strategy and strategy in searchable:
-        score += 100
-
-    for keyword in product.get("keywords") or []:
-        normalized_keyword = str(keyword).lower()
-        if normalized_keyword and normalized_keyword in normalized_query:
-            score += 10
-
-    product_name = str(product.get("name") or "").lower()
-    product_title = str(product.get("title") or "").lower()
-    if product_name and product_name in normalized_query:
-        score += 40
-    if product_title and product_title in normalized_query:
-        score += 40
-
-    return score
-
-
-def _product_searchable_text(product: dict) -> str:
-    values = [
-        product.get("id"),
-        product.get("name"),
-        product.get("title"),
-        product.get("category"),
-        product.get("summary"),
-        " ".join(str(keyword) for keyword in product.get("keywords") or []),
-    ]
-    return " ".join(str(value or "") for value in values).lower()
-
-
-def _index_tokens(text: str) -> set[str]:
-    normalized = str(text or "").lower()
-    tokens: set[str] = set()
-    if re.search(r"中证\s*a\s*500|(?<![0-9a-z])a\s*500(?![0-9a-z])", normalized):
-        tokens.add("a500")
-    if re.search(r"中证\s*1000|(?<![0-9a-z])1000(?![0-9a-z])", normalized):
-        tokens.add("1000")
-    if re.search(r"中证\s*500|(?<![0-9a-z])500(?![0-9a-z])", normalized):
-        tokens.add("500")
-    if re.search(r"沪深\s*300|(?<![0-9a-z])300(?![0-9a-z])", normalized):
-        tokens.add("300")
-    if "中证全指" in normalized or "全指" in normalized:
-        tokens.add("全指")
-    if "万得小市值" in normalized or "小市值" in normalized or "小盘" in normalized:
-        tokens.add("小市值")
-    if "灵活对冲" in normalized:
-        tokens.add("灵活对冲")
-    if "完全对冲" in normalized or "市场中性" in normalized or "中性" in normalized:
-        tokens.add("中性")
-    return tokens
-
-
 def _text_similarity_score(query: str, text: str) -> int:
     query_terms = _semantic_terms(query)
     if not query_terms:
@@ -563,13 +702,6 @@ def _semantic_terms(text: str) -> set[str]:
             for index in range(0, len(compact) - 2)
         )
     return terms
-
-
-def _first_category(products: list[dict], category: str) -> dict | None:
-    for product in products:
-        if product.get("category") == category:
-            return product
-    return None
 
 
 def _select_document_text(
