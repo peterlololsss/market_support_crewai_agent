@@ -14,6 +14,9 @@ from market_support_crewai_agent.runtime.state.audit import AuditStore
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
 from market_support_crewai_agent.runtime.domain.planning import IntentFrame
 from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
+from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
+    ReplyAlignmentVerdict,
+)
 from market_support_crewai_agent.schemas import (
     AdapterResolveResult,
     AdapterResolveStatus,
@@ -49,6 +52,16 @@ class ComposerShouldNotRun:
     async def kickoff_async(self, prompt, response_format):
         del prompt, response_format
         raise AssertionError("fake-deps scenarios should be deterministic")
+
+
+class PassingAlignmentVerifier:
+    async def verify(self, **kwargs):
+        del kwargs
+        return ReplyAlignmentVerdict(
+            aligned=True,
+            safe_to_return=True,
+            confidence=1.0,
+        )
 
 
 class FakePreflightService:
@@ -196,6 +209,7 @@ async def _run_scenario(scenario: RuntimeScenario) -> dict:
         action_ledger=ActionLedger(),
         preflight_service=FakePreflightService(),
         audit_store=AuditStore(),
+        alignment_verifier=PassingAlignmentVerifier(),
     )
     runtime._build_planner_agent = lambda: FakeCrewAgent(scenario.intent_frame)  # type: ignore[method-assign]
     runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]

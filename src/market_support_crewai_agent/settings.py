@@ -34,6 +34,11 @@ class Settings(BaseModel):
     doc_mcp_timeout_seconds: float = Field(default=5.0, gt=0)
     doc_mcp_enabled: bool = False
     doc_mcp_allowed_channel_types: tuple[ChannelType, ...] = _ALL_CHANNEL_TYPES
+    reply_alignment_verifier_enabled: bool = True
+    reply_alignment_max_replans: int = Field(default=1, ge=0)
+    reply_alignment_max_evidence_refetches: int = Field(default=1, ge=0)
+    reply_alignment_max_recomposes: int = Field(default=1, ge=0)
+    reply_alignment_max_total_remediations: int = Field(default=2, ge=0)
 
 
 def get_settings() -> Settings:
@@ -76,6 +81,21 @@ def get_settings() -> Settings:
         doc_mcp_allowed_channel_types=_channel_types_env(
             "MARKET_AGENT_DOC_MCP_ALLOWED_CHANNEL_TYPES",
             _ALL_CHANNEL_TYPES,
+        ),
+        reply_alignment_verifier_enabled=_bool_env(
+            "MARKET_AGENT_REPLY_ALIGNMENT_VERIFIER_ENABLED", True
+        ),
+        reply_alignment_max_replans=_non_negative_int_env(
+            "MARKET_AGENT_REPLY_ALIGNMENT_MAX_REPLANS", 1
+        ),
+        reply_alignment_max_evidence_refetches=_non_negative_int_env(
+            "MARKET_AGENT_REPLY_ALIGNMENT_MAX_EVIDENCE_REFETCHES", 1
+        ),
+        reply_alignment_max_recomposes=_non_negative_int_env(
+            "MARKET_AGENT_REPLY_ALIGNMENT_MAX_RECOMPOSES", 1
+        ),
+        reply_alignment_max_total_remediations=_non_negative_int_env(
+            "MARKET_AGENT_REPLY_ALIGNMENT_MAX_TOTAL_REMEDIATIONS", 2
         ),
     )
 

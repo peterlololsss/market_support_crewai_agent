@@ -62,6 +62,8 @@ def select_prompt_program(ctx: PromptAssemblyContext) -> PromptProgram:
         fragment_ids = _knowledge_composer_fragments(ctx)
     elif ctx.stage == "smalltalk_composer":
         fragment_ids = _smalltalk_composer_fragments(ctx)
+    elif ctx.stage == "alignment_verifier":
+        fragment_ids = _alignment_verifier_fragments(ctx)
     else:
         raise ValueError(f"unsupported prompt stage: {ctx.stage}")
     return assemble_prompt_program(ctx, profile, tuple(fragment_ids))
@@ -93,6 +95,14 @@ def _smalltalk_composer_fragments(ctx: PromptAssemblyContext) -> list[str]:
         _model_fragment(ctx.model_family),
         "output.reply_response_no_actions",
         "style.wecom_concise_zh",
+    ]
+
+
+def _alignment_verifier_fragments(ctx: PromptAssemblyContext) -> list[str]:
+    return [
+        "base.alignment_verifier",
+        _model_fragment(ctx.model_family),
+        "output.reply_alignment_verdict_schema",
     ]
 
 

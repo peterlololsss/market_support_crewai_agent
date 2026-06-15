@@ -19,11 +19,14 @@ from market_support_crewai_agent.runtime.domain.planning import (
     PlanValidationResult,
 )
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
+from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
+    ReplyAlignmentVerdict,
+)
 from market_support_crewai_agent.runtime.llm.prompt_profiles import (
     ModelFamily,
     PromptStage,
 )
-from market_support_crewai_agent.schemas import ReplyRequest, StrictModel
+from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse, StrictModel
 
 
 class IntentGateResult(StrictModel):
@@ -60,6 +63,9 @@ class PromptAssemblyContext:
     business_facts: BusinessFacts | None = None
     history: list[ConversationMessage] = field(default_factory=list)
     action_history: list[ActionLedgerRecord] = field(default_factory=list)
+    candidate_response: ReplyResponse | None = None
+    alignment_verdict: ReplyAlignmentVerdict | None = None
+    alignment_attempt: int = 0
 
 
 def render_prompt_context(ctx: PromptAssemblyContext) -> str:
@@ -123,6 +129,20 @@ def render_prompt_context(ctx: PromptAssemblyContext) -> str:
         parts.append(
             "BusinessFacts JSON:\n{}".format(_json(ctx.business_facts.to_prompt_dict()))
         )
+    if ctx.alignment_verdict is not None:
+        parts.append(
+            "Previous alignment verdict JSON:\n{}".format(
+                _json(ctx.alignment_verdict.model_dump(mode="json", exclude_none=True))
+            )
+        )
+    if ctx.candidate_response is not None:
+        parts.append(
+            "Candidate ReplyResponse JSON:\n{}".format(
+                _json(_compact_response(ctx.candidate_response))
+            )
+        )
+    if ctx.alignment_attempt:
+        parts.append(f"Alignment attempt: {ctx.alignment_attempt}")
     parts.append("Current user message:\n{}".format(ctx.request.message))
     return "\n\n".join(parts)
 
@@ -233,3 +253,11 @@ def _compact_evidence_fact(fact: EvidenceFact) -> dict:
         "resolve_type": fact.resolve_type,
         "metadata": metadata,
     }
+
+
+def _compact_response(response: ReplyResponse) -> dict:
+    payload = response.model_dump(mode="json", exclude_none=True)
+    for action in payload.get("actions", []):
+        if "resolve_ref" in action:
+            action["resolve_ref_available"] = bool(action.pop("resolve_ref"))
+    return payload
