@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from time import perf_counter
 
@@ -22,6 +23,7 @@ from market_support_crewai_agent.runtime.state.audit import (
     get_audit_store,
 )
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
+from market_support_crewai_agent.runtime.domain.capabilities import capability_by_name
 from market_support_crewai_agent.runtime.domain.canonicalization import (
     CanonicalContext,
     canonicalize_request,
@@ -259,7 +261,7 @@ class CrewAIReplyRuntime:
         self.conversation_store.save_turn(
             request.conversation_key,
             request.message,
-            _compact_assistant_result(candidate.response),
+            _compact_assistant_result(candidate.response, candidate.plan),
         )
         return candidate.response
 
@@ -308,6 +310,11 @@ class CrewAIReplyRuntime:
         intent_frame = _coerce_intent_frame(frame_result)
         if intent_frame is None:
             raise AgentRuntimeError("CrewAI planner returned an invalid IntentFrame contract")
+        intent_frame = _resolve_followup_intent_frame(
+            intent_frame,
+            history,
+            canonical_context,
+        )
 
         plan = compile_intent_frame(
             intent_frame,
@@ -1111,8 +1118,135 @@ def _coerce_alignment_verdict(result) -> ReplyAlignmentVerdict | None:
         return None
 
 
-def _compact_assistant_result(response: ReplyResponse) -> str:
-    return response.model_dump_json(exclude_none=True)
+def _compact_assistant_result(response: ReplyResponse, plan: ExecutionPlan) -> str:
+    return json.dumps(
+        {
+            "contract_version": "reply-runtime-history",
+            "reply_response": response.model_dump(mode="json", exclude_none=True),
+            "pending_plan": _compact_pending_plan(plan),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _compact_pending_plan(plan: ExecutionPlan) -> dict[str, object] | None:
+    if plan.response_mode != "clarification" and not plan.ambiguity_slots:
+        return None
+    return {
+        "artifact_kind": plan.artifact_kind,
+        "response_mode": plan.response_mode,
+        "ambiguity_slots": list(plan.ambiguity_slots),
+        "selected_strategy": plan.selected_strategy,
+        "report_scope": getattr(plan, "report_scope", "none"),
+        "capabilities": list(plan.capabilities),
+    }
+
+
+def _resolve_followup_intent_frame(
+    frame: IntentFrame,
+    history: list,
+    canonical_context: CanonicalContext,
+) -> IntentFrame:
+    pending = _latest_pending_plan(history)
+    if not pending:
+        return frame
+
+    pending_strategy = _clean_str(pending.get("selected_strategy"))
+    current_strategy = (
+        _clean_str(frame.selected_strategy)
+        or _clean_str(canonical_context.selected_strategy)
+    )
+    slots = set(frame.ambiguity_slots)
+    pending_slots = set(_string_list(pending.get("ambiguity_slots")))
+    pending_artifact = _clean_str(pending.get("artifact_kind"))
+
+    if (
+        "strategy" in pending_slots
+        and current_strategy
+        and pending_artifact in _SEND_ARTIFACTS
+    ):
+        return _frame_for_followup_send(
+            frame,
+            artifact_kind=pending_artifact,
+            selected_strategy=current_strategy,
+            ambiguity_slots=[
+                slot
+                for slot in frame.ambiguity_slots
+                if slot not in {"artifact", "strategy"}
+            ],
+        )
+
+    if (
+        "strategy" in slots
+        and not current_strategy
+        and pending_strategy
+        and frame.artifact_kind in _SEND_ARTIFACTS
+        and frame.action_intent == "send"
+    ):
+        return _frame_for_followup_send(
+            frame,
+            artifact_kind=frame.artifact_kind,
+            selected_strategy=pending_strategy,
+            ambiguity_slots=[slot for slot in frame.ambiguity_slots if slot != "strategy"],
+        )
+
+    return frame
+
+
+_SEND_ARTIFACTS = frozenset({"material_pack", "weekly_report", "monthly_report"})
+
+
+def _frame_for_followup_send(
+    frame: IntentFrame,
+    *,
+    artifact_kind: str,
+    selected_strategy: str,
+    ambiguity_slots: list[str],
+) -> IntentFrame:
+    capability = capability_by_name(artifact_kind)
+    if capability is None:
+        return frame
+    updates: dict[str, object] = {
+        "artifact_kind": artifact_kind,
+        "action_intent": "send",
+        "selected_strategy": selected_strategy,
+        "requested_capabilities": [capability.name],
+        "ambiguity_slots": ambiguity_slots,
+    }
+    if artifact_kind == "material_pack":
+        updates["report_scope"] = "none"
+    elif artifact_kind in {"weekly_report", "monthly_report"}:
+        updates["report_scope"] = "strategy"
+    return frame.model_copy(update=updates)
+
+
+def _latest_pending_plan(history: list) -> dict[str, object] | None:
+    for message in reversed(history or []):
+        if getattr(message, "role", None) != "assistant":
+            continue
+        content = getattr(message, "content", "")
+        try:
+            payload = json.loads(content)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        pending = payload.get("pending_plan")
+        if isinstance(pending, dict):
+            return pending
+    return None
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in (_clean_str(item) for item in value) if item]
+
+
+def _clean_str(value: object) -> str:
+    return str(value or "").strip()
 
 
 def _validation_error_summary(validation: PlanValidationResult) -> str:
