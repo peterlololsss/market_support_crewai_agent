@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
-from market_support_crewai_agent.runtime.planning import (
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.domain.planning import (
     IntentFrame,
     compile_intent_frame,
     validate_execution_plan,
 )
-from market_support_crewai_agent.runtime.policy import compile_policy
+from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.schemas import ReplyRequest
 
 

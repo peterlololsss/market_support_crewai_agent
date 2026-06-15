@@ -3,24 +3,24 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from market_support_crewai_agent.runtime.adapter_preflight import (
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightItem,
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.audit import AuditStore, build_audit_trace
-from market_support_crewai_agent.runtime.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
-from market_support_crewai_agent.runtime.conversation_store import ConversationStore
-from market_support_crewai_agent.runtime.decision import ResponseDirective
+from market_support_crewai_agent.runtime.state.audit import AuditStore, build_audit_trace
+from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
+from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.evidence import evidence_facts_from_preflight
-from market_support_crewai_agent.runtime.guardrails import validate_reply
-from market_support_crewai_agent.runtime.planning import (
+from market_support_crewai_agent.runtime.validation.guardrails import validate_reply
+from market_support_crewai_agent.runtime.domain.planning import (
     IntentFrame,
     compile_intent_frame,
     validate_execution_plan,
 )
-from market_support_crewai_agent.runtime.policy import compile_policy
-from market_support_crewai_agent.runtime.reply_agent import CrewAIReplyRuntime
+from market_support_crewai_agent.runtime.domain.policy import compile_policy
+from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
 from market_support_crewai_agent.schemas import (
     AdapterResolveResult,
     PrimaryReply,
@@ -248,6 +248,6 @@ def test_runtime_records_trace_for_deterministic_action_response():
     assert trace.llm_executions[0]["stage"] == "planner_intent"
     assert trace.llm_executions[0]["prompt_profile_id"] == "planner_intent.ds_v4pro"
     assert trace.llm_executions[0]["prompt_hash"].startswith("sha256:")
-    assert "capability.weekly_report" in trace.llm_executions[0]["prompt_fragment_ids"]
+    assert "planner.intent_taxonomy" in trace.llm_executions[0]["prompt_fragment_ids"]
     assert trace.versions["prompt_profile_ids"] == ["planner_intent.ds_v4pro"]
     assert all(item["stage"] != "knowledge_composer" for item in trace.llm_executions)

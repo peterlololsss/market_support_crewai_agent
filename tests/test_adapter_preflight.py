@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-from market_support_crewai_agent.runtime.adapter_client import AdapterClientError
-from market_support_crewai_agent.runtime.adapter_preflight import (
+from market_support_crewai_agent.runtime.evidence.adapter_client import AdapterClientError
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightService,
     AdapterPreflightSnapshot,
 )

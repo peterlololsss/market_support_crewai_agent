@@ -33,7 +33,7 @@ class FakePreflightService:
         resolve_strategies=None,
     ):
         del canonical_context
-        from market_support_crewai_agent.runtime.adapter_preflight import (
+        from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
             AdapterPreflightItem,
             AdapterPreflightSnapshot,
         )
@@ -106,10 +106,10 @@ def _request(message: str, **overrides):
 
 
 async def _run_scenario(name: str, request, preflight_service):
-    from market_support_crewai_agent.runtime.action_ledger import ActionLedger
-    from market_support_crewai_agent.runtime.audit import AuditStore
-    from market_support_crewai_agent.runtime.conversation_store import ConversationStore
-    from market_support_crewai_agent.runtime.reply_agent import CrewAIReplyRuntime
+    from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
+    from market_support_crewai_agent.runtime.state.audit import AuditStore
+    from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
+    from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
     from market_support_crewai_agent.settings import get_settings
 
     runtime = CrewAIReplyRuntime(

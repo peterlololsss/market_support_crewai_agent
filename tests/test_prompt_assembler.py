@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.runtime.policy import compile_policy
-from market_support_crewai_agent.runtime.prompt_assembler import assemble_prompt_program
-from market_support_crewai_agent.runtime.prompt_context import PromptAssemblyContext
-from market_support_crewai_agent.runtime.prompt_profiles import prompt_profile_by_stage
-from market_support_crewai_agent.runtime.prompt_router import (
+from market_support_crewai_agent.runtime.domain.policy import compile_policy
+from market_support_crewai_agent.runtime.llm.prompt_assembler import assemble_prompt_program
+from market_support_crewai_agent.runtime.llm.prompt_context import PromptAssemblyContext
+from market_support_crewai_agent.runtime.llm.prompt_profiles import prompt_profile_by_stage
+from market_support_crewai_agent.runtime.llm.prompt_router import (
     route_intent,
     select_prompt_program,
 )
@@ -79,7 +79,7 @@ def test_duplicate_fragment_ids_are_deduped():
 
 
 def test_prompt_hash_changes_when_fragment_content_changes(monkeypatch):
-    import market_support_crewai_agent.runtime.prompt_assembler as assembler
+    import market_support_crewai_agent.runtime.llm.prompt_assembler as assembler
 
     ctx = make_ctx()
     profile = prompt_profile_by_stage("planner_intent", "ds_v4pro")
@@ -132,6 +132,36 @@ def test_raw_resolve_ref_is_not_present_in_assembled_prompt():
 
     assert "weekly:resolve-ref" not in program.prompt_text
     assert "resolve_ref_available" in program.prompt_text
+
+
+def test_planner_prompt_uses_compact_schema_skeleton_not_full_schema_dump():
+    _, program = route_and_select("发下这个渠道的周报")
+
+    assert "IntentFrame compact schema:" in program.prompt_text
+    assert '"artifact_kind": "material_pack|weekly_report|monthly_report|knowledge_answer|human_support|refusal|unclear|smalltalk"' in program.prompt_text
+    assert "Canonical JSON schema:" not in program.prompt_text
+    assert '"$defs"' not in program.prompt_text
+    assert '"properties"' not in program.prompt_text
+
+
+def test_composer_prompt_uses_compact_no_action_skeleton_not_full_schema_dump():
+    ctx = make_ctx(stage="knowledge_composer")
+    profile = prompt_profile_by_stage("knowledge_composer", "ds_v4pro")
+    program = assemble_prompt_program(
+        ctx,
+        profile,
+        (
+            "base.knowledge_composer",
+            "model.ds_v4pro.structured",
+            "output.reply_response_no_actions",
+        ),
+    )
+
+    assert "ReplyResponse compact no-action schema:" in program.prompt_text
+    assert '"actions": []' in program.prompt_text
+    assert "Canonical JSON schema:" not in program.prompt_text
+    assert '"$defs"' not in program.prompt_text
+    assert '"properties"' not in program.prompt_text
 
 
 def test_knowledge_composer_never_receives_action_fragments():

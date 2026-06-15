@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from market_support_crewai_agent.runtime.adapter_client import (
+from market_support_crewai_agent.runtime.evidence.adapter_client import (
     AdapterClientError,
     AdapterResolveClient,
 )
