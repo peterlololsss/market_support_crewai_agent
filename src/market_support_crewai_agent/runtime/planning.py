@@ -15,6 +15,9 @@ from market_support_crewai_agent.runtime.capabilities import (
 from market_support_crewai_agent.runtime.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.compliance_policy import ComplianceReasonCode
 from market_support_crewai_agent.runtime.policy import PolicyManifest
+from market_support_crewai_agent.runtime.send_scope_guard import (
+    detect_send_scope_conflict,
+)
 from market_support_crewai_agent.schemas import (
     AdapterResolveType,
     ReplyRequest,
@@ -73,6 +76,7 @@ class IntentFrame(StrictModel):
     artifact_kind: ArtifactKind
     action_intent: ActionIntent
     compliance: ComplianceDecision
+    evidence_query: str | None = Field(default=None, max_length=200)
     strategy_mentions: list[StrategyMention] = Field(default_factory=list, max_length=8)
     selected_strategy: str | None = None
     report_scope: IntentReportScope = "none"
@@ -107,6 +111,7 @@ class ExecutionPlan(StrictModel):
     artifact_kind: ArtifactKind
     response_mode: ResponseMode
     compliance: ComplianceDecision
+    evidence_query: str | None = Field(default=None, max_length=200)
     capabilities: list[CapabilityName] = Field(default_factory=list, max_length=8)
     adapter_resolves: list[AdapterResolveSpec] = Field(default_factory=list, max_length=8)
     action_intents: list[ActionIntentSpec] = Field(default_factory=list, max_length=4)
@@ -139,6 +144,18 @@ def compile_intent_frame(
     canonical_context: CanonicalContext,
     policy: PolicyManifest,
 ) -> ExecutionPlan:
+    selected_strategy = _selected_strategy(frame, canonical_context)
+    if _send_scope_conflict(frame, request, canonical_context):
+        return _plan(
+            frame,
+            response_mode="unable",
+            capabilities=[],
+            adapter_resolves=[],
+            action_intents=[],
+            selected_strategy=selected_strategy,
+        )
+
+    frame = _normalize_report_send_defaults(frame, request, canonical_context)
     selected_strategy = _selected_strategy(frame, canonical_context)
 
     if frame.compliance.is_compliant is False:
@@ -231,7 +248,7 @@ def compile_intent_frame(
     if frame.artifact_kind == "smalltalk" and frame.action_intent == "none":
         return _plan(
             frame,
-            response_mode="no_reply",
+            response_mode="smalltalk",
             capabilities=[],
             adapter_resolves=[],
             action_intents=[],
@@ -476,6 +493,7 @@ def _plan(
         artifact_kind=frame.artifact_kind,
         response_mode=response_mode,
         compliance=frame.compliance,
+        evidence_query=frame.evidence_query,
         capabilities=_capabilities(capabilities),
         adapter_resolves=_unique_adapter_resolves(adapter_resolves),
         action_intents=action_intents,
@@ -490,6 +508,96 @@ def _selected_strategy(
     canonical_context: CanonicalContext,
 ) -> str | None:
     return frame.selected_strategy or canonical_context.selected_strategy
+
+
+def _send_scope_conflict(
+    frame: IntentFrame,
+    request: ReplyRequest,
+    canonical_context: CanonicalContext,
+) -> bool:
+    if frame.action_intent != "send":
+        return False
+    return (
+        detect_send_scope_conflict(
+            request,
+            canonical_context,
+            frame.artifact_kind,
+        )
+        is not None
+    )
+
+
+def _normalize_report_send_defaults(
+    frame: IntentFrame,
+    request: ReplyRequest,
+    canonical_context: CanonicalContext,
+) -> IntentFrame:
+    if frame.compliance.is_compliant is False:
+        return frame
+    if frame.artifact_kind not in {"weekly_report", "monthly_report"}:
+        return frame
+    if frame.action_intent != "send":
+        return frame
+    if not frame.ambiguity_slots and frame.report_scope != "ambiguous":
+        return frame
+    if not _report_scope_can_default(request, frame, canonical_context):
+        return frame
+
+    selected_strategy = _selected_strategy(frame, canonical_context)
+    updates: dict[str, object] = {}
+    if frame.ambiguity_slots:
+        updates["ambiguity_slots"] = [
+            slot
+            for slot in frame.ambiguity_slots
+            if slot not in {"strategy", "report_scope"}
+        ]
+    if frame.report_scope == "ambiguous":
+        updates["report_scope"] = "strategy" if selected_strategy else "channel_all"
+    if selected_strategy:
+        updates["selected_strategy"] = selected_strategy
+    if not updates:
+        return frame
+    return frame.model_copy(update=updates)
+
+
+def _report_scope_can_default(
+    request: ReplyRequest,
+    frame: IntentFrame,
+    canonical_context: CanonicalContext,
+) -> bool:
+    if canonical_context.strategy_status == "ambiguous":
+        return False
+    selected_strategy = _selected_strategy(frame, canonical_context)
+    if selected_strategy:
+        return True
+    return not _message_requests_unnamed_strategy_report(request.message)
+
+
+def _message_requests_unnamed_strategy_report(message: str) -> bool:
+    text = _user_visible_text(message)
+    if not any(token in text for token in ("周报", "月报", "weekly", "monthly")):
+        return False
+    return any(
+        token in text
+        for token in (
+            "某个策略",
+            "具体策略",
+            "哪个策略",
+            "哪一个策略",
+            "策略的",
+            "这个策略",
+        )
+    )
+
+
+def _user_visible_text(message: str) -> str:
+    lines = []
+    for line in message.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[adapter_") and stripped.endswith("]"):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip().lower()
 
 
 def _report_scope(

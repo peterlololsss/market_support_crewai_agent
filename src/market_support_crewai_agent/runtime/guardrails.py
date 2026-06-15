@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Literal
 
 from market_support_crewai_agent.runtime.business_facts import BusinessFacts
@@ -38,6 +39,8 @@ ValidationCode = Literal[
     "handoff_missing_sales_mention",
     "sales_mention_not_resolvable",
     "knowledge_answer_without_document_evidence",
+    "image_marker_not_allowed",
+    "image_marker_not_in_evidence",
     "sent_claim_without_ledger_evidence",
     "unsupported_report_scope_claim",
     "unsupported_report_content_claim",
@@ -105,6 +108,20 @@ _REPORT_MISSING_TOKENS = (
     "{} does not include",
     "{} does not show",
 )
+_IMAGE_MARKER_RE = re.compile(r"%%([\w\d_.-]+\.png)%%")
+_ALLOWED_IMAGE_MARKERS = frozenset(
+    {
+        "comp_wx_qr_code.png",
+        "alpha_beta_comparison.png",
+        "quant_difference.png",
+        "company_shareholders.png",
+        "SH000985_weights.png",
+        "SH000985_features.png",
+        "SH000985_constituents.png",
+        "company_historical_aum.png",
+        "indice_comparison.png",
+    }
+)
 
 
 class ReplyContractError(RuntimeError):
@@ -147,6 +164,7 @@ def validate_reply(
     issues.extend(_validate_handoff(response, directive, business_facts))
     issues.extend(_validate_actions(response, directive, business_facts, policy))
     issues.extend(_validate_knowledge_grounding(response, directive, evidence_facts))
+    issues.extend(_validate_image_markers(response.reply.text, evidence_facts))
     issues.extend(_validate_sent_claims_grounded_by_ledger(response, business_facts))
     issues.extend(_validate_report_claims(response.reply.text, business_facts))
     return ValidationResult(valid=not issues, issues=tuple(issues))
@@ -167,6 +185,8 @@ def _validate_policy_and_kind(
                 metadata={"mode": directive.mode},
             )
         )
+    if _reply_kind_matches_directive(response, directive):
+        return issues
     if response.reply.kind != directive.reply_kind:
         issues.append(
             ValidationIssue(
@@ -180,6 +200,19 @@ def _validate_policy_and_kind(
             )
         )
     return issues
+
+
+def _reply_kind_matches_directive(
+    response: ReplyResponse,
+    directive: ResponseDirective,
+) -> bool:
+    if response.reply.kind == directive.reply_kind:
+        return True
+    return (
+        directive.mode == "knowledge_answer"
+        and directive.reply_kind == "answer"
+        and response.reply.kind == "unable_to_answer"
+    )
 
 
 def _validate_no_reply(response: ReplyResponse) -> list[ValidationIssue]:
@@ -472,6 +505,55 @@ def _validate_knowledge_grounding(
             message="knowledge answer requires document_context evidence",
         )
     ]
+
+
+def _validate_image_markers(
+    text: str,
+    evidence_facts: list[EvidenceFact],
+) -> list[ValidationIssue]:
+    markers = _image_markers(text)
+    if not markers:
+        return []
+    evidence_text = "\n".join(
+        str(fact.value or "")
+        for fact in evidence_facts
+        if fact.fact_type == "document_context"
+    )
+    issues: list[ValidationIssue] = []
+    for filename in markers:
+        marker = f"%%{filename}%%"
+        if filename not in _ALLOWED_IMAGE_MARKERS:
+            issues.append(
+                ValidationIssue(
+                    code="image_marker_not_allowed",
+                    message="reply text contains an image marker outside the whitelist",
+                    severity="fatal",
+                    metadata={"filename": filename},
+                )
+            )
+            continue
+        if marker not in evidence_text:
+            issues.append(
+                ValidationIssue(
+                    code="image_marker_not_in_evidence",
+                    message="reply text image marker must appear in document evidence",
+                    severity="fatal",
+                    metadata={"filename": filename},
+                )
+            )
+    return issues
+
+
+def _image_markers(text: str) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for match in _IMAGE_MARKER_RE.finditer(str(text or "")):
+        filename = match.group(1)
+        if filename in seen:
+            continue
+        seen.add(filename)
+        output.append(filename)
+    return output
 
 
 def _validate_sent_claims_grounded_by_ledger(

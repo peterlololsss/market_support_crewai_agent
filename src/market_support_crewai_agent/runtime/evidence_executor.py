@@ -7,6 +7,10 @@ from market_support_crewai_agent.runtime.adapter_preflight import (
     AdapterPreflightService,
     AdapterPreflightSnapshot,
 )
+from market_support_crewai_agent.runtime.approved_knowledge import (
+    ApprovedKnowledgeEvidenceService,
+    NoopApprovedKnowledgeEvidenceService,
+)
 from market_support_crewai_agent.runtime.business_facts import (
     BusinessFacts,
     derive_business_facts,
@@ -50,10 +54,16 @@ class EvidenceExecutor:
         document_evidence_service: (
             DocumentMcpEvidenceService | NoopDocumentMcpEvidenceService | None
         ) = None,
+        approved_knowledge_service: (
+            ApprovedKnowledgeEvidenceService | NoopApprovedKnowledgeEvidenceService | None
+        ) = None,
     ) -> None:
         self.preflight_service = preflight_service
         self.document_evidence_service = (
             document_evidence_service or NoopDocumentMcpEvidenceService()
+        )
+        self.approved_knowledge_service = (
+            approved_knowledge_service or ApprovedKnowledgeEvidenceService()
         )
 
     async def execute(
@@ -75,6 +85,14 @@ class EvidenceExecutor:
         evidence_facts.extend(evidence_facts_from_action_history(action_history))
         evidence_facts.extend(
             await self.document_evidence_service.collect(
+                request,
+                canonical_context,
+                plan,
+                policy,
+            )
+        )
+        evidence_facts.extend(
+            await self.approved_knowledge_service.collect(
                 request,
                 canonical_context,
                 plan,

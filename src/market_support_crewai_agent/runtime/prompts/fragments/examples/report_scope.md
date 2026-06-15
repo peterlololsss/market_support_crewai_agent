@@ -1,5 +1,13 @@
 Report scope examples:
+- "周报" -> weekly_report, action_intent=send, report_scope=channel_all, selected_strategy=null.
 - "发下这个渠道的周报" -> weekly_report, action_intent=send, report_scope=channel_all, selected_strategy=null.
 - "发中证1000周报" -> weekly_report, action_intent=send, report_scope=strategy, selected_strategy="中证1000".
+- "这周500怎么样" -> weekly_report, action_intent=send, report_scope=strategy, selected_strategy="中证500".
+- "1000策略超额最大回撤是多少" -> weekly_report, action_intent=send, report_scope=strategy, selected_strategy="中证1000".
+- "500增强今年绝对收益多少，过去3年相对收益多少" -> weekly_report, action_intent=send, report_scope=strategy, selected_strategy="中证500".
+- "最近一个月衍复的超额怎么样" -> weekly_report, action_intent=send, report_scope=channel_all unless canonical context resolves a strategy.
+- "月报" -> monthly_report, action_intent=send, report_scope=channel_all, selected_strategy=null.
 - "发下月报" -> monthly_report, action_intent=send, report_scope=channel_all, selected_strategy=null.
 - "中证500月报发一下" -> monthly_report, action_intent=send, report_scope=strategy, selected_strategy="中证500".
+- "11月表现怎么样" / "上个月表现怎么样" -> monthly_report, action_intent=send, report_scope=channel_all unless canonical context resolves a strategy.
+- "为什么月报里没有显示产品的年化收益率" -> knowledge_answer when document_context is allowed; this asks about report format, not a monthly report send.

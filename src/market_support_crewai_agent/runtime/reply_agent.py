@@ -166,7 +166,7 @@ class CrewAIReplyRuntime:
             ),
             doc_mcp_allowed_channel_types=self.settings.doc_mcp_allowed_channel_types,
         )
-        intent_gate = route_intent(request, canonical_context, policy)
+        intent_gate = route_intent(request, canonical_context, policy, history=history)
         planner_program = select_prompt_program(
             PromptAssemblyContext(
                 stage="planner_intent",
@@ -197,6 +197,12 @@ class CrewAIReplyRuntime:
         intent_frame = _coerce_intent_frame(frame_result)
         if intent_frame is None:
             raise AgentRuntimeError("CrewAI planner returned an invalid IntentFrame contract")
+        intent_frame = _align_intent_frame_with_gate(
+            intent_frame,
+            intent_gate,
+            request,
+            canonical_context,
+        )
 
         plan = compile_intent_frame(
             intent_frame,
@@ -231,10 +237,11 @@ class CrewAIReplyRuntime:
         )
 
         if directive.requires_knowledge_composer:
-            composer_agent = self._build_agent()
+            composer_stage = directive.composer_stage or "knowledge_composer"
+            composer_agent = self._build_agent(composer_stage)
             composer_program = select_prompt_program(
                 PromptAssemblyContext(
-                    stage="knowledge_composer",
+                    stage=composer_stage,
                     model_family=model_family,
                     request=request,
                     canonical_context=canonical_context,
@@ -371,7 +378,7 @@ class CrewAIReplyRuntime:
             ),
         )
 
-    def _build_agent(self):
+    def _build_agent(self, stage="knowledge_composer"):
         return self._build_crewai_agent(
             role="Market Support Reply Composer",
             goal=(
@@ -380,12 +387,11 @@ class CrewAIReplyRuntime:
             ),
             backstory=(
                 "You are the external agent brain for a market support workflow. "
-                "You use the validated plan and evidence facts, and never send "
-                "WeWork messages directly."
+                "You use the validated plan and evidence facts."
             ),
             inject_date=True,
             prompt_profile=prompt_profile_by_stage(
-                "knowledge_composer",
+                stage,
                 model_family_from_settings(self.settings),
             ),
         )
@@ -519,6 +525,82 @@ def _coerce_intent_frame(result) -> IntentFrame | None:
         return IntentFrame.model_validate_json(result.raw)
     except ValueError:
         return None
+
+
+def _align_intent_frame_with_gate(
+    frame: IntentFrame,
+    intent_gate: IntentGateResult,
+    request: ReplyRequest,
+    canonical_context: CanonicalContext,
+) -> IntentFrame:
+    if frame.compliance.is_compliant is False:
+        return frame
+    if not intent_gate.side_effect_hint:
+        return frame
+    artifact = intent_gate.artifact_hint
+    if artifact not in {"material_pack", "weekly_report", "monthly_report"}:
+        return frame
+    if frame.artifact_kind == artifact and frame.action_intent == "send":
+        return frame
+    if not _frame_is_weak_or_ambiguous(frame):
+        return frame
+
+    selected_strategy = frame.selected_strategy or canonical_context.selected_strategy
+    updates: dict[str, object] = {
+        "artifact_kind": artifact,
+        "action_intent": "send",
+        "requested_capabilities": _append_unique(
+            frame.requested_capabilities,
+            artifact,
+        ),
+    }
+    if artifact in {"weekly_report", "monthly_report"}:
+        updates["ambiguity_slots"] = _without_ambiguity_slots(
+            frame.ambiguity_slots,
+            {"artifact", "request_meaning", "strategy", "report_scope"},
+        )
+        if selected_strategy:
+            updates["selected_strategy"] = selected_strategy
+            updates["report_scope"] = "strategy"
+        else:
+            updates["selected_strategy"] = None
+            updates["report_scope"] = "channel_all"
+    else:
+        updates["report_scope"] = "none"
+        if selected_strategy:
+            updates["selected_strategy"] = selected_strategy
+            updates["ambiguity_slots"] = _without_ambiguity_slots(
+                frame.ambiguity_slots,
+                {"artifact", "request_meaning", "strategy"},
+            )
+        elif request.channel_type == "bank" and len(request.available_strategies) > 1:
+            updates["ambiguity_slots"] = ["strategy"]
+            updates["action_intent"] = "none"
+        else:
+            updates["ambiguity_slots"] = _without_ambiguity_slots(
+                frame.ambiguity_slots,
+                {"artifact", "request_meaning"},
+            )
+    return frame.model_copy(update=updates)
+
+
+def _frame_is_weak_or_ambiguous(frame: IntentFrame) -> bool:
+    return (
+        frame.artifact_kind == "unclear"
+        or frame.action_intent == "none"
+        or bool(frame.ambiguity_slots)
+    )
+
+
+def _append_unique(values: list[str], value: str) -> list[str]:
+    output = list(values)
+    if value not in output:
+        output.append(value)
+    return output
+
+
+def _without_ambiguity_slots(values: list[str], remove: set[str]) -> list[str]:
+    return [value for value in values if value not in remove]
 
 
 def _coerce_agent_response(result) -> ReplyResponse | None:

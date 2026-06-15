@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from market_support_crewai_agent.runtime.planning import IntentFrame
 from market_support_crewai_agent.schemas import ReplyResponse
 
-PromptStage = Literal["planner_intent", "knowledge_composer"]
+PromptStage = Literal["planner_intent", "knowledge_composer", "smalltalk_composer"]
 ModelFamily = Literal["ds_v4pro", "deepseek", "gpt", "claude", "generic"]
 
 
@@ -43,10 +43,26 @@ def _composer_profile(model_family: ModelFamily) -> PromptProfile:
     )
 
 
+def _smalltalk_composer_profile(model_family: ModelFamily) -> PromptProfile:
+    return PromptProfile(
+        id=f"smalltalk_composer.{model_family}",
+        stage="smalltalk_composer",
+        base_template_name="base.smalltalk_composer",
+        response_model=ReplyResponse,
+        model_family=model_family,
+        temperature=0.2,
+        max_tokens=300,
+    )
+
+
 PROMPT_PROFILES: tuple[PromptProfile, ...] = tuple(
     profile
     for model_family in ("ds_v4pro", "deepseek", "gpt", "claude", "generic")
-    for profile in (_planner_profile(model_family), _composer_profile(model_family))
+    for profile in (
+        _planner_profile(model_family),
+        _composer_profile(model_family),
+        _smalltalk_composer_profile(model_family),
+    )
 )
 
 

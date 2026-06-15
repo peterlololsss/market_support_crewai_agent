@@ -70,6 +70,7 @@ def test_compile_policy_keeps_all_safe_reply_kinds_available():
             "handoff",
             "refusal",
             "unable",
+            "smalltalk",
             "no_reply",
         }
     )
@@ -87,6 +88,26 @@ def test_compile_policy_enables_document_capability_only_when_configured():
     assert "knowledge_answer" in doc_policy.allowed_reply_modes
     assert "query_internal_company_info" in doc_policy.allowed_read_capabilities
     assert doc_policy.evidence_call_limit == 5
+
+
+def test_compile_policy_intersects_structured_adapter_read_capabilities():
+    request = make_request(
+        allowed_read_capabilities=[
+            "resolve_weekly_report",
+            "query_internal_company_info",
+        ],
+    )
+
+    policy = compile_policy(request, doc_mcp_enabled=True)
+
+    assert policy.allowed_capabilities == frozenset(
+        {"weekly_report", "document_context"}
+    )
+    assert policy.allowed_read_capabilities == frozenset(
+        {"resolve_weekly_report", "query_internal_company_info"}
+    )
+    assert policy.allowed_adapter_resolves == frozenset({"weekly_report"})
+    assert policy.allowed_side_effect_actions == frozenset({"send_weekly_report"})
 
 
 def test_compile_policy_scopes_document_capability_by_channel_type():

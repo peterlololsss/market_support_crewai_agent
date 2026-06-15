@@ -167,6 +167,126 @@ def test_evidence_executor_passes_plan_strategy_selector_to_preflight():
     assert result.business_facts.weekly_report.strategy == "中证1000"
 
 
+def test_evidence_executor_allows_plan_without_adapter_resolves():
+    request = make_request(message="hi")
+    canonical_context = canonicalize_request(request)
+
+    class EmptyPreflightService:
+        def __init__(self):
+            self.calls = []
+
+        async def collect(
+                self,
+                request,
+                canonical_context=None,
+                resolve_types=None,
+                resolve_strategies=None,
+        ):
+            self.calls.append(
+                (
+                    request,
+                    canonical_context,
+                    tuple(resolve_types or []),
+                    dict(resolve_strategies or {}),
+                )
+            )
+            return AdapterPreflightSnapshot.empty()
+
+    preflight = EmptyPreflightService()
+    executor = EvidenceExecutor(preflight)
+    policy = compile_policy(request)
+    plan = compile_intent_frame(
+        IntentFrame.model_validate(
+            {
+                "user_need": "smalltalk greeting",
+                "artifact_kind": "smalltalk",
+                "action_intent": "none",
+                "compliance": {
+                    "is_compliant": True,
+                    "reason_code": "unrelated_request",
+                    "reason": "greeting",
+                },
+                "confidence": 0.9,
+            }
+        ),
+        request,
+        canonical_context,
+        policy,
+    )
+
+    result = asyncio.run(
+        executor.execute(
+            request,
+            canonical_context,
+            plan,
+            policy,
+        )
+    )
+
+    assert preflight.calls == [(request, canonical_context, (), {})]
+    assert result.preflight == AdapterPreflightSnapshot.empty()
+    assert result.evidence_facts == []
+
+
+def test_evidence_executor_adds_approved_static_knowledge_context():
+    request = make_request(
+        message="你们有微信公众号吗",
+        allowed_read_capabilities=["query_internal_company_info"],
+    )
+    canonical_context = canonicalize_request(request)
+    policy = compile_policy(request, doc_mcp_enabled=True)
+    plan = compile_intent_frame(
+        IntentFrame.model_validate(
+            {
+                "user_need": "answer public account question",
+                "artifact_kind": "knowledge_answer",
+                "action_intent": "answer",
+                "requested_capabilities": ["document_context"],
+                "evidence_query": "衍复投资 微信公众号 二维码",
+                "compliance": {
+                    "is_compliant": True,
+                    "reason_code": "compliant_product_request",
+                    "reason": "normal company question",
+                },
+                "confidence": 0.9,
+            }
+        ),
+        request,
+        canonical_context,
+        policy,
+    )
+
+    class EmptyPreflightService:
+        async def collect(
+                self,
+                request,
+                canonical_context=None,
+                resolve_types=None,
+                resolve_strategies=None,
+        ):
+            del request, canonical_context, resolve_types, resolve_strategies
+            return AdapterPreflightSnapshot.empty()
+
+    result = asyncio.run(
+        EvidenceExecutor(EmptyPreflightService()).execute(
+            request,
+            canonical_context,
+            plan,
+            policy,
+        )
+    )
+
+    static_facts = [
+        fact
+        for fact in result.evidence_facts
+        if fact.source_type == "approved_static_knowledge"
+    ]
+    assert static_facts
+    assert static_facts[0].fact_type == "document_context"
+    assert "%%comp_wx_qr_code.png%%" in str(static_facts[0].value)
+    assert static_facts[0].metadata["content_is_data_only"] is True
+
+
 def test_evidence_executor_merges_recent_executed_action_facts():
     request = make_request()
     canonical_context = canonicalize_request(request)

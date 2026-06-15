@@ -398,3 +398,185 @@ def test_validate_reply_requires_document_evidence_for_knowledge_answer():
 
     assert result.valid is False
     assert result.issues[0].code == "knowledge_answer_without_document_evidence"
+
+
+def test_validate_reply_allows_knowledge_composer_to_downgrade_to_unable():
+    request = make_request(message="介绍一下衍复")
+    plan = make_plan(
+        request,
+        user_need="answer company question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["document_context"],
+        compliance={
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal company question",
+        },
+    )
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="unable_to_answer", text="当前没有足够证据安全回复。"),
+        actions=[],
+    )
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            mode="knowledge_answer",
+            reply_kind="answer",
+            requires_knowledge_composer=True,
+            action_intents=[],
+        ),
+        plan,
+        derive_business_facts([], request),
+        [],
+        compile_policy(request, doc_mcp_enabled=True),
+    )
+
+    assert result.valid is True
+
+
+def test_validate_reply_allows_whitelisted_image_marker_from_evidence():
+    request = make_request(message="你们有微信公众号吗")
+    plan = make_plan(
+        request,
+        user_need="answer WeChat public account question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["document_context"],
+        compliance={
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal company question",
+        },
+    )
+    facts = [
+        EvidenceFact(
+            fact_type="document_context",
+            value="Q：你们有微信公众号吗？\nA：%%comp_wx_qr_code.png%%",
+            source_type="document_mcp",
+            source_id="company",
+        )
+    ]
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="%%comp_wx_qr_code.png%%"),
+        actions=[],
+    )
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            mode="knowledge_answer",
+            reply_kind="answer",
+            requires_knowledge_composer=True,
+            action_intents=[],
+        ),
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request, doc_mcp_enabled=True),
+    )
+
+    assert result.valid is True
+
+
+def test_validate_reply_blocks_image_marker_outside_whitelist():
+    request = make_request(message="发个图")
+    plan = make_plan(
+        request,
+        user_need="answer image question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["document_context"],
+        compliance={
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal company question",
+        },
+    )
+    facts = [
+        EvidenceFact(
+            fact_type="document_context",
+            value="A：%%unknown.png%%",
+            source_type="document_mcp",
+            source_id="company",
+        )
+    ]
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="%%unknown.png%%"),
+        actions=[],
+    )
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            mode="knowledge_answer",
+            reply_kind="answer",
+            requires_knowledge_composer=True,
+            action_intents=[],
+        ),
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request, doc_mcp_enabled=True),
+    )
+
+    assert result.valid is False
+    assert result.issues[0].code == "image_marker_not_allowed"
+
+
+def test_validate_reply_blocks_image_marker_missing_from_evidence():
+    request = make_request(message="你们有微信公众号吗")
+    plan = make_plan(
+        request,
+        user_need="answer WeChat public account question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["document_context"],
+        compliance={
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal company question",
+        },
+    )
+    facts = [
+        EvidenceFact(
+            fact_type="document_context",
+            value="A：欢迎搜索衍复投资公众号。",
+            source_type="document_mcp",
+            source_id="company",
+        )
+    ]
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="%%comp_wx_qr_code.png%%"),
+        actions=[],
+    )
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            mode="knowledge_answer",
+            reply_kind="answer",
+            requires_knowledge_composer=True,
+            action_intents=[],
+        ),
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request, doc_mcp_enabled=True),
+    )
+
+    assert result.valid is False
+    assert result.issues[0].code == "image_marker_not_in_evidence"

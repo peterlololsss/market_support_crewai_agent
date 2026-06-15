@@ -74,6 +74,71 @@ def test_compile_intent_frame_uses_registry_for_weekly_action():
     assert plan.action_intents[0].report_scope == "channel_all"
 
 
+def test_compile_intent_frame_blocks_explicit_foreign_channel_report_send():
+    request = make_request(
+        message="发个银河证券的周报",
+        dist_channel_name="浦发银行",
+    )
+    plan = compile_plan(make_frame(), request)
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.response_mode == "unable"
+    assert plan.capabilities == []
+    assert plan.adapter_resolves == []
+    assert plan.action_intents == []
+
+
+def test_compile_intent_frame_allows_omitted_or_matching_channel_report_send():
+    omitted = make_request(message="发个周报", dist_channel_name="浦发银行")
+    matching = make_request(message="发个浦发银行的周报", dist_channel_name="浦发银行")
+
+    omitted_plan = compile_plan(make_frame(), omitted)
+    matching_plan = compile_plan(make_frame(), matching)
+
+    assert omitted_plan.response_mode == "action"
+    assert omitted_plan.action_intents[0].action_type == "send_weekly_report"
+    assert matching_plan.response_mode == "action"
+    assert matching_plan.action_intents[0].action_type == "send_weekly_report"
+
+
+def test_compile_intent_frame_scope_guard_does_not_treat_strategy_as_foreign_channel():
+    request = make_request(
+        message="发一下中证1000周报",
+        dist_channel_name="浦发银行",
+        available_strategies=["中证1000指增"],
+    )
+    plan = compile_plan(make_frame(report_scope="strategy"), request)
+
+    assert plan.response_mode == "action"
+    assert plan.action_intents[0].action_type == "send_weekly_report"
+    assert plan.action_intents[0].report_scope == "strategy"
+    assert plan.action_intents[0].strategy == "中证1000指增"
+
+
+def test_compile_intent_frame_scope_guard_ignores_prior_question_before_send():
+    request = make_request(
+        message="在各个策略上的规模是怎么分布呢  然后发我个月报",
+        dist_channel_name="浦发银行",
+        available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+    )
+    plan = compile_plan(
+        make_frame(
+            user_need="send monthly report",
+            artifact_kind="monthly_report",
+            report_scope="channel_all",
+        ),
+        request,
+    )
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.response_mode == "action"
+    assert plan.action_intents[0].action_type == "send_monthly_report"
+
+
 def test_compile_intent_frame_rejects_policy_disallowed_material_action():
     request = make_request(available_materials=["weekly"])
     plan = compile_plan(
@@ -106,6 +171,47 @@ def test_compile_intent_frame_defaults_report_scope_from_selected_strategy():
 def test_compile_intent_frame_clarifies_strategy_scope_without_strategy():
     request = make_request(available_strategies=[])
     plan = compile_plan(make_frame(report_scope="strategy"), request)
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.response_mode == "clarification"
+    assert plan.ambiguity_slots == ["strategy"]
+    assert plan.action_intents == []
+
+
+def test_compile_intent_frame_defaults_unnamed_report_strategy_ambiguity_to_channel_all():
+    request = make_request(
+        message="[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
+        available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+    )
+    plan = compile_plan(
+        make_frame(
+            report_scope="ambiguous",
+            ambiguity_slots=["strategy"],
+            selected_strategy=None,
+        ),
+        request,
+    )
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.response_mode == "action"
+    assert plan.ambiguity_slots == []
+    assert plan.action_intents[0].report_scope == "channel_all"
+    assert plan.action_intents[0].strategy is None
+
+
+def test_compile_intent_frame_keeps_explicit_multi_strategy_report_ambiguous():
+    request = make_request(
+        message="500和1000周报都发一下",
+        available_strategies=["中证500", "中证1000"],
+    )
+    plan = compile_plan(
+        make_frame(report_scope="ambiguous", ambiguity_slots=["strategy"]),
+        request,
+    )
 
     result = validate_execution_plan(plan, compile_policy(request))
 
@@ -197,3 +303,28 @@ def test_compile_intent_frame_disables_document_answer_when_policy_disables_mcp(
     assert result.valid is True
     assert plan.response_mode == "unable"
     assert plan.capabilities == []
+
+
+def test_compile_intent_frame_routes_smalltalk_to_no_action_composer():
+    request = make_request(message="hi")
+    plan = compile_plan(
+        make_frame(
+            user_need="greeting",
+            artifact_kind="smalltalk",
+            action_intent="none",
+            report_scope="none",
+            compliance={
+                "is_compliant": True,
+                "reason_code": "unrelated_request",
+                "reason": "greeting",
+            },
+        ),
+        request,
+    )
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.response_mode == "smalltalk"
+    assert plan.action_intents == []
+    assert plan.adapter_resolves == []

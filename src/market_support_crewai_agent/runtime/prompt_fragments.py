@@ -37,6 +37,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         required=True,
     ),
     PromptFragment(
+        id="base.smalltalk_composer",
+        stage="smalltalk_composer",
+        priority=10,
+        template_name="base/smalltalk_composer_base.md",
+        required=True,
+    ),
+    PromptFragment(
         id="model.ds_v4pro.structured",
         stage="planner_intent",
         priority=20,
@@ -46,6 +53,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
     PromptFragment(
         id="model.ds_v4pro.structured",
         stage="knowledge_composer",
+        priority=20,
+        template_name="model/ds_v4pro_structured.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="model.ds_v4pro.structured",
+        stage="smalltalk_composer",
         priority=20,
         template_name="model/ds_v4pro_structured.md",
         required=True,
@@ -60,6 +74,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
     PromptFragment(
         id="model.generic.structured",
         stage="knowledge_composer",
+        priority=20,
+        template_name="model/generic_structured.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="model.generic.structured",
+        stage="smalltalk_composer",
         priority=20,
         template_name="model/generic_structured.md",
         required=True,
@@ -74,6 +95,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
     PromptFragment(
         id="output.reply_response_no_actions",
         stage="knowledge_composer",
+        priority=30,
+        template_name="output/reply_response_no_actions.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="output.reply_response_no_actions",
+        stage="smalltalk_composer",
         priority=30,
         template_name="output/reply_response_no_actions.md",
         required=True,
@@ -155,6 +183,12 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         template_name="examples/handoff.md",
     ),
     PromptFragment(
+        id="examples.smalltalk",
+        stage="planner_intent",
+        priority=200,
+        template_name="examples/smalltalk.md",
+    ),
+    PromptFragment(
         id="examples.multi_artifact_clarification",
         stage="planner_intent",
         priority=200,
@@ -170,6 +204,13 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
     PromptFragment(
         id="style.wecom_concise_zh",
         stage="knowledge_composer",
+        priority=110,
+        template_name="style/wecom_concise_zh.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="style.wecom_concise_zh",
+        stage="smalltalk_composer",
         priority=110,
         template_name="style/wecom_concise_zh.md",
         required=True,

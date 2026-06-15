@@ -14,4 +14,4 @@ Planner ordering:
 2. Classify artifact_kind.
 3. Fill action_intent, selected_strategy, report_scope, ambiguity_slots, requested_capabilities.
 
-Side-effect executability is not your job. Output semantic intent only. For blocked compliance cases, prefer refusal/refuse and do not request capabilities. For multiple strategies or multiple sendable artifact types, prefer ambiguity_slots instead of merging requests.
+Side-effect executability is not your job. Output semantic intent only. For blocked compliance cases, prefer refusal/refuse and do not request capabilities. For multiple strategies explicitly named by the current user or multiple sendable artifact types, prefer ambiguity_slots instead of merging requests. Do not treat catalog-only available_strategies as ambiguity.

@@ -10,6 +10,7 @@ from market_support_crewai_agent.runtime.document_mcp import (
     _parse_mcp_message,
     _sanitize_document_text,
     _select_document_text,
+    _select_products,
 )
 from market_support_crewai_agent.runtime.planning import (
     ExecutionPlan,
@@ -67,8 +68,8 @@ class FakeDocumentClient:
     def __init__(self):
         self.calls = []
 
-    async def fetch_context_async(self, request, canonical_context):
-        self.calls.append((request.message, canonical_context.selected_strategy))
+    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
+        self.calls.append((request.message, canonical_context.selected_strategy, evidence_query))
         return [
             DocumentEvidenceChunk(
                 document_id="衍复中证1000指数增强策略",
@@ -79,20 +80,20 @@ class FakeDocumentClient:
 
 
 class ErrorDocumentClient:
-    async def fetch_context_async(self, request, canonical_context):
-        del request, canonical_context
+    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
+        del request, canonical_context, evidence_query
         raise DocumentMcpError("test failure")
 
 
 class EmptyDocumentClient:
-    async def fetch_context_async(self, request, canonical_context):
-        del request, canonical_context
+    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
+        del request, canonical_context, evidence_query
         return []
 
 
 class OversizedDocumentClient:
-    async def fetch_context_async(self, request, canonical_context):
-        del request, canonical_context
+    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
+        del request, canonical_context, evidence_query
         return [
             DocumentEvidenceChunk(
                 document_id="oversized-doc",
@@ -122,7 +123,7 @@ def test_document_mcp_evidence_service_returns_document_context_when_enabled():
     )
 
     assert fake_client.calls == [
-        ("介绍一下中证1000指增的因子贡献", "中证1000")
+        ("介绍一下中证1000指增的因子贡献", "中证1000", None)
     ]
     assert facts[0].fact_type == "document_context"
     assert facts[0].source_type == "document_mcp"
@@ -131,6 +132,28 @@ def test_document_mcp_evidence_service_returns_document_context_when_enabled():
     assert facts[0].metadata["sanitized"] is False
     assert "80%-90%量价因子" in str(facts[0].value)
 
+
+
+def test_document_mcp_evidence_service_passes_planner_evidence_query():
+    request = make_request(message="yanfu???")
+    canonical_context = canonicalize_request(request)
+    settings = Settings(
+        doc_mcp_enabled=True,
+        doc_mcp_base_url="http://192.168.209.195:23000",
+    )
+    fake_client = FakeDocumentClient()
+    service = DocumentMcpEvidenceService(settings, client=fake_client)
+
+    asyncio.run(
+        service.collect(
+            request,
+            canonical_context,
+            make_plan(evidence_query="?? ???? ????"),
+            compile_policy(request, doc_mcp_enabled=True),
+        )
+    )
+
+    assert fake_client.calls[-1][2] == "?? ???? ????"
 
 def test_document_mcp_evidence_service_stays_disabled_by_default():
     request = make_request()
@@ -265,6 +288,127 @@ def test_parse_mcp_sse_message():
     payload = 'event: message\ndata: {"jsonrpc":"2.0","id":"x","result":{"ok":true}}\n'
 
     assert _parse_mcp_message(payload)["result"] == {"ok": True}
+
+
+def test_select_products_routes_pinyin_company_question_to_company_intro():
+    request = make_request(message="yanfu是什么")
+    canonical_context = canonicalize_request(request)
+    products = [
+        {
+            "id": "faq",
+            "name": "常见问答",
+            "title": "常见Q&A",
+            "category": "常见问答",
+            "keywords": ["衍复"],
+        },
+        {
+            "id": "company",
+            "name": "衍复公司介绍",
+            "title": "衍复公司介绍(简介)",
+            "category": "公司介绍",
+            "keywords": ["衍复投资", "量化投资"],
+        },
+        {
+            "id": "strategy",
+            "name": "中证1000",
+            "title": "衍复中证1000指数增强策略",
+            "category": "指数增强策略",
+            "keywords": ["中证1000"],
+        },
+    ]
+
+    selected = _select_products(
+        products,
+        "衍复 公司介绍 基本信息",
+        canonical_context,
+        max_documents=2,
+    )
+
+    assert [product["id"] for product in selected] == ["company", "faq"]
+
+
+def test_select_products_routes_staff_count_question_to_company_intro():
+    request = make_request(message="衍复现在多少人")
+    canonical_context = canonicalize_request(request)
+    products = [
+        {"id": "faq", "category": "常见问答", "keywords": ["衍复"]},
+        {"id": "company", "category": "公司介绍", "keywords": ["衍复投资"]},
+    ]
+
+    selected = _select_products(
+        products,
+        "衍复 公司介绍 员工人数 团队",
+        canonical_context,
+        max_documents=1,
+    )
+
+    assert selected[0]["id"] == "company"
+
+
+def test_select_products_strictly_distinguishes_a500_from_500():
+    request = make_request(
+        message="中证500指增介绍一下",
+        available_strategies=["中证500", "中证A500"],
+    )
+    canonical_context = canonicalize_request(request)
+    products = [
+        {
+            "id": "a500",
+            "name": "衍复中证A500指数增强策略",
+            "title": "中证A500指增",
+            "category": "指数增强策略",
+            "keywords": ["中证A500", "A500"],
+        },
+        {
+            "id": "500",
+            "name": "衍复中证500指数增强策略",
+            "title": "中证500指增",
+            "category": "指数增强策略",
+            "keywords": ["中证500", "500"],
+        },
+    ]
+
+    selected = _select_products(
+        products,
+        "中证500 指数增强 策略介绍",
+        canonical_context,
+        max_documents=2,
+    )
+
+    assert [product["id"] for product in selected] == ["500"]
+
+
+def test_select_products_strictly_distinguishes_1000_from_500():
+    request = make_request(
+        message="1000指增因子贡献",
+        available_strategies=["中证1000", "中证500"],
+    )
+    canonical_context = canonicalize_request(request)
+    products = [
+        {
+            "id": "500",
+            "name": "衍复中证500指数增强策略",
+            "title": "中证500指增",
+            "category": "指数增强策略",
+            "keywords": ["中证500", "500"],
+        },
+        {
+            "id": "1000",
+            "name": "衍复中证1000指数增强策略",
+            "title": "中证1000指增",
+            "category": "指数增强策略",
+            "keywords": ["中证1000", "1000"],
+        },
+    ]
+
+    selected = _select_products(
+        products,
+        "中证1000 指数增强 因子贡献",
+        canonical_context,
+        max_documents=2,
+    )
+
+    assert [product["id"] for product in selected] == ["1000"]
 
 
 def test_sanitize_document_text_redacts_locators_secrets_and_document_instructions():

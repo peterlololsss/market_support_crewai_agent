@@ -26,6 +26,7 @@ from market_support_crewai_agent.schemas import (
     ActionFeedbackRequest,
     AdapterResolveResult,
     PrimaryReply,
+    ReplyRequest,
     ReplyResponse,
     SendWeeklyReportAction,
 )
@@ -79,6 +80,23 @@ def make_weekly_frame(**overrides) -> IntentFrame:
             "is_compliant": True,
             "reason_code": "compliant_product_request",
             "reason": "normal weekly report request",
+        },
+        "confidence": 0.8,
+    }
+    payload.update(overrides)
+    return IntentFrame.model_validate(payload)
+
+
+def make_monthly_frame(**overrides) -> IntentFrame:
+    payload = {
+        "user_need": "send monthly report",
+        "artifact_kind": "monthly_report",
+        "action_intent": "send",
+        "report_scope": "channel_all",
+        "compliance": {
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal monthly report request",
         },
         "confidence": 0.8,
     }
@@ -153,6 +171,58 @@ class ResolvedWeeklyPreflight:
         )
 
 
+class ResolvedMonthlyPreflight:
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        del request, canonical_context, resolve_types, resolve_strategies
+        return AdapterPreflightSnapshot(
+            items=[
+                resolved_item(
+                    "monthly_report",
+                    resolve_ref="monthly:ref",
+                    period="202605",
+                    report_date="2026-05-31",
+                    scope_status="included",
+                    contains_strategy=True,
+                )
+            ]
+        )
+
+
+class CapturingResolvedWeeklyPreflight:
+    def __init__(self):
+        self.resolve_strategies = None
+
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        del request, canonical_context, resolve_types
+        self.resolve_strategies = resolve_strategies or {}
+        strategy = self.resolve_strategies.get("weekly_report")
+        return AdapterPreflightSnapshot(
+            items=[
+                resolved_item(
+                    "weekly_report",
+                    resolve_ref="weekly:ref",
+                    period="20260529",
+                    report_date="2026-05-29",
+                    scope_status="included",
+                    contains_strategy=True,
+                    strategy=strategy,
+                )
+            ]
+        )
+
+
 class MissingWeeklyWithSalesPreflight:
     async def collect(
         self,
@@ -194,6 +264,27 @@ class EmptyPreflightService:
         resolve_strategies=None,
     ):
         del request, canonical_context, resolve_types, resolve_strategies
+        return AdapterPreflightSnapshot.empty()
+
+
+class CapturingEmptyPreflightService:
+    def __init__(self):
+        self.calls = []
+
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        self.calls.append(
+            {
+                "resolve_types": list(resolve_types or []),
+                "resolve_strategies": dict(resolve_strategies or {}),
+            }
+        )
+        del request, canonical_context
         return AdapterPreflightSnapshot.empty()
 
 
@@ -333,7 +424,7 @@ def test_runtime_times_out_slow_crewai_planner_before_composer_runs():
             raise AssertionError("composer should not run after planner timeout")
 
     runtime._build_planner_agent = lambda: SlowPlannerAgent()  # type: ignore[method-assign]
-    runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ComposerShouldNotRun()  # type: ignore[method-assign]
 
     try:
         asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
@@ -537,7 +628,7 @@ def test_runtime_deterministic_action_does_not_call_composer():
         async def kickoff_async(self, prompt, response_format):
             raise AssertionError("composer should not run for action responses")
 
-    runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ComposerShouldNotRun()  # type: ignore[method-assign]
 
     response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
 
@@ -546,6 +637,133 @@ def test_runtime_deterministic_action_does_not_call_composer():
     assert response.actions[0].type == "send_weekly_report"
     assert response.actions[0].resolve_ref == "weekly:ref"
     assert response.actions[0].period == "20260529"
+
+
+def test_runtime_blocks_explicit_foreign_channel_without_adapter_resolve():
+    preflight = CapturingEmptyPreflightService()
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=preflight,
+    )
+    install_fake_planner(runtime, make_weekly_frame())
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "发个银河证券的周报",
+                    dist_channel_name="浦发银行",
+                )
+            )
+        )
+    )
+
+    assert response.reply.kind == "unable_to_answer"
+    assert "银河证券" in response.reply.text
+    assert "浦发银行" in response.reply.text
+    assert response.actions == []
+    assert preflight.calls == [{"resolve_types": [], "resolve_strategies": {}}]
+
+
+def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedMonthlyPreflight(),
+    )
+    install_fake_planner(runtime, make_monthly_frame())
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "在各个策略上的规模是怎么分布呢  然后发我个月报",
+                    dist_channel_name="浦发银行",
+                    available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+                )
+            )
+        )
+    )
+
+    assert response.reply.kind == "answer"
+    assert response.reply.text == ""
+    assert response.actions[0].type == "send_monthly_report"
+    assert response.actions[0].resolve_ref == "monthly:ref"
+
+
+def test_runtime_defaults_bare_weekly_report_strategy_clarification_to_action():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+    install_fake_planner(
+        runtime,
+        make_weekly_frame(report_scope="ambiguous", ambiguity_slots=["strategy"]),
+    )
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
+                    available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+                )
+            )
+        )
+    )
+
+    assert response.reply.kind == "answer"
+    assert response.actions[0].type == "send_weekly_report"
+    assert response.actions[0].report_scope == "channel_all"
+    assert response.actions[0].strategy is None
+
+
+def test_runtime_uses_strategy_followup_to_complete_prior_weekly_clarification():
+    store = ConversationStore(max_messages=12)
+    store.save_turn(
+        "wecom:group-1:sender-1",
+        "[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
+        ReplyResponse(
+            response_id="resp-old",
+            reply=PrimaryReply(kind="clarification", text="我需要再确认一下具体策略。"),
+            actions=[],
+        ).model_dump_json(exclude_none=True),
+    )
+    preflight = CapturingResolvedWeeklyPreflight()
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=store,
+        preflight_service=preflight,
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="clarify current request",
+            artifact_kind="unclear",
+            action_intent="none",
+            report_scope="none",
+            ambiguity_slots=["artifact"],
+        ),
+    )
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "中证1000的",
+                    available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+                )
+            )
+        )
+    )
+
+    assert preflight.resolve_strategies == {"weekly_report": "中证1000指增"}
+    assert response.reply.kind == "answer"
+    assert response.actions[0].type == "send_weekly_report"
+    assert response.actions[0].report_scope == "strategy"
+    assert response.actions[0].strategy == "中证1000指增"
 
 
 def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch):
@@ -666,7 +884,7 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
             )
 
     runtime.evidence_executor = FakeEvidenceExecutor()
-    runtime._build_agent = lambda: FakeComposer()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
 
     response = asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
 
@@ -674,6 +892,57 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
     assert prompts
     assert "ExecutionPlan JSON" in prompts[0]
 
+
+
+def test_runtime_uses_smalltalk_composer_for_triggered_greeting():
+    runtime = CrewAIReplyRuntime(
+        Settings(llm_api_key="test-key"),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="greeting",
+            artifact_kind="smalltalk",
+            action_intent="none",
+            report_scope="none",
+            ambiguity_slots=[],
+            compliance={
+                "is_compliant": True,
+                "reason_code": "unrelated_request",
+                "reason": "greeting",
+            },
+        ),
+    )
+    prompts: list[str] = []
+    stages: list[str] = []
+
+    class FakeSmalltalkComposer:
+        async def kickoff_async(self, prompt, response_format):
+            prompts.append(prompt)
+            return SimpleNamespace(
+                pydantic=ReplyResponse(
+                    response_id="resp-smalltalk",
+                    reply=PrimaryReply(kind="answer", text="smalltalk response"),
+                    actions=[],
+                ),
+                raw="",
+            )
+
+    runtime._build_agent = (  # type: ignore[method-assign]
+        lambda stage="knowledge_composer": stages.append(stage) or FakeSmalltalkComposer()
+    )
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("hi").payload()))
+
+    assert stages == ["smalltalk_composer"]
+    assert response.reply.kind == "answer"
+    assert response.reply.text == "smalltalk response"
+    assert response.actions == []
+    assert prompts
+    assert "base.smalltalk_composer" in prompts[0]
+    assert "actions=[]" in prompts[0]
 
 def test_runtime_skips_knowledge_composer_without_document_evidence():
     runtime = CrewAIReplyRuntime(
@@ -712,7 +981,7 @@ def test_runtime_skips_knowledge_composer_without_document_evidence():
             )
 
     runtime.evidence_executor = EmptyEvidenceExecutor()
-    runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ComposerShouldNotRun()  # type: ignore[method-assign]
 
     response = asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
 
@@ -766,7 +1035,7 @@ def test_runtime_raises_when_composer_returns_invalid_reply_contract():
             )
 
     runtime.evidence_executor = FakeEvidenceExecutor()
-    runtime._build_agent = lambda: BadComposer()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: BadComposer()  # type: ignore[method-assign]
 
     try:
         asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))

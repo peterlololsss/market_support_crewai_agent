@@ -13,6 +13,13 @@ AdapterResolveType = Literal[
     "monthly_report",
     "sales_mention",
 ]
+ReadCapability = Literal[
+    "resolve_material_pack",
+    "resolve_weekly_report",
+    "resolve_monthly_report",
+    "resolve_sales_mention",
+    "query_internal_company_info",
+]
 AdapterResolveStatus = Literal[
     "resolved",
     "missing",
@@ -65,6 +72,7 @@ class ReplyRequest(StrictModel):
     available_materials: list[MaterialType]
     available_strategies: list[str]
     channel_type: ChannelType
+    allowed_read_capabilities: list[ReadCapability] = Field(default_factory=list)
 
 
 class AdapterResolveRequest(StrictModel):

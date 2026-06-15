@@ -8,6 +8,7 @@ from typing import Literal
 from market_support_crewai_agent.schemas import (
     AdapterResolveType,
     MaterialType,
+    ReadCapability,
     SideEffectActionType,
 )
 
@@ -35,14 +36,8 @@ ResponseMode = Literal[
     "refusal",
     "unable",
     "knowledge_answer",
+    "smalltalk",
     "no_reply",
-]
-ReadCapability = Literal[
-    "resolve_material_pack",
-    "resolve_weekly_report",
-    "resolve_monthly_report",
-    "resolve_sales_mention",
-    "query_internal_company_info",
 ]
 ResolvableBusinessStateField = Literal[
     "material_pack",
