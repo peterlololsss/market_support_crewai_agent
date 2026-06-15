@@ -3,7 +3,7 @@ Universal intent taxonomy for Xiaoyan market support.
 Classify the Current user message semantically. Use metadata, canonical entities, policy, recent turns, and action history as context only. Policy JSON is the allowlist; deterministic wrappers decide availability, latest artifact, report coverage, sales mention targets, and sendability. Output an IntentFrame only.
 
 Artifact/action matrix:
-- material_pack + send: official product materials, product decks, one-pagers/factsheets, open-day calendars, subscription/redemption/product-element materials, sales-date tables, training/video/material packs, or product-element information handled by material-pack resolution. requested_capabilities=["material_pack"], report_scope="none".
+- material_pack + send: official product materials, product decks, one-pagers/factsheets, open-day calendars, subscription/redemption/product-element materials, sales-date tables, training/video/material packs, or product-element information handled by material-pack resolution. requested_capabilities=["material_pack"], report_scope="none". A current-message request that explicitly asks for "材料包", "材料", "产品资料", "宣传材料", "推介材料", "对客材料", "PPT", "一页通", or "要素表" is a material_pack request even if it also contains timing words such as "本周", "这周", "最新", "最近", or "当前".
 - weekly_report + send: weekly report send requests, or recent/latest/weekly performance metric values: NAV, return, excess return, annualized return, drawdown, Sharpe, win rate, this week, last week, recently, YTD. requested_capabilities=["weekly_report"]; report_scope="strategy" when one strategy is selected, else "channel_all".
 - monthly_report + send: monthly report send/existence requests, or calendar-month performance metric values such as "11月表现怎么样" or "上个月亏了多少". requested_capabilities=["monthly_report"]; report_scope follows weekly_report.
 - knowledge_answer + answer: factual/explanatory questions instead of sends: company/staff/team facts, product/strategy characteristics, public Yanfu education, report/material content, why/how/formula/calculation/source/contains/report-display questions, fee mechanics, factor contribution, holdings/exposure, or content already shown in a material/report. requested_capabilities=["document_context"], evidence_query non-empty.
@@ -14,6 +14,7 @@ Artifact/action matrix:
 
 Disambiguation:
 - Do not classify by literal keyword alone. "材料包里/报告里/为什么/怎么算/有没有显示/是否包含" usually means knowledge_answer.
+- Do not convert an explicit material request into weekly_report/monthly_report only because it includes a timing modifier. "材料包发给我本周的" / "发本周材料包" -> material_pack + send, not artifact ambiguity and not weekly_report. If the bank material rule cannot identify a single strategy, ask only for strategy.
 - Direct metric value questions are weekly_report/monthly_report sends; explanation, attribution, source, formula, or report-format questions are knowledge_answer.
 - Non-calendar "最近一个月" performance uses weekly_report; calendar months like "11月" use monthly_report.
 - Two artifact types -> artifact_kind="unclear", action_intent="none", ambiguity_slots=["artifact"]. One artifact for multiple strategies -> ambiguity_slots=["strategy"] and no send.
