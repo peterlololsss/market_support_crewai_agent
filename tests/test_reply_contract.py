@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -130,6 +131,29 @@ def make_payload(message: str = "hello", **overrides):
     return payload
 
 
+
+def _assistant_history_with_pending(
+    *,
+    text: str,
+    pending_plan: dict,
+) -> str:
+    return json.dumps(
+        {
+            "contract_version": "reply-runtime-history",
+            "reply_response": {
+                "contract_version": "reply",
+                "response_id": "resp-history",
+                "reply": {"kind": "clarification", "text": text, "mentions": []},
+                "actions": [],
+            },
+            "pending_plan": pending_plan,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def resolved_item(resolve_type: str, **overrides) -> AdapterPreflightItem:
     payload = {
         "contract_version": "adapter-resolve",
@@ -220,6 +244,31 @@ class CapturingResolvedWeeklyPreflight:
                     report_date="2026-05-29",
                     scope_status="included",
                     contains_strategy=True,
+                    strategy=strategy,
+                )
+            ]
+        )
+
+
+class CapturingResolvedMaterialPreflight:
+    def __init__(self):
+        self.resolve_strategies = None
+
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        del request, canonical_context, resolve_types
+        self.resolve_strategies = resolve_strategies or {}
+        strategy = self.resolve_strategies.get("material_pack")
+        return AdapterPreflightSnapshot(
+            items=[
+                resolved_item(
+                    "material_pack",
+                    resolve_ref="material:ref",
                     strategy=strategy,
                 )
             ]
@@ -797,6 +846,116 @@ def test_runtime_uses_planner_resolved_strategy_followup_for_weekly_action():
     assert response.actions[0].type == "send_weekly_report"
     assert response.actions[0].report_scope == "strategy"
     assert response.actions[0].strategy == "中证1000指增"
+
+
+
+def test_runtime_merges_pending_material_strategy_clarification_from_history():
+    store = ConversationStore(max_messages=12)
+    store.save_turn(
+        "wecom:group-1:sender-1",
+        "材料包",
+        _assistant_history_with_pending(
+            text="我需要再确认一下具体策略。",
+            pending_plan={
+                "artifact_kind": "material_pack",
+                "response_mode": "clarification",
+                "ambiguity_slots": ["strategy"],
+                "selected_strategy": None,
+                "capabilities": ["material_pack"],
+            },
+        ),
+    )
+    preflight = CapturingResolvedMaterialPreflight()
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=store,
+        preflight_service=preflight,
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="user clarified A500 after material strategy clarification",
+            artifact_kind="unclear",
+            action_intent="none",
+            selected_strategy="中证A500指增",
+            strategy_mentions=[
+                {
+                    "raw_text": "a500",
+                    "canonical_name": "中证A500指增",
+                    "source": "canonical_context",
+                }
+            ],
+            ambiguity_slots=["artifact"],
+            requested_capabilities=[],
+        ),
+    )
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "a500",
+                    available_strategies=["完全对冲", "中证1000指增", "中证A500指增"],
+                )
+            )
+        )
+    )
+
+    assert preflight.resolve_strategies == {"material_pack": "中证A500指增"}
+    assert response.reply.kind == "answer"
+    assert response.actions[0].type == "send_material_pack"
+    assert response.actions[0].strategy == "中证A500指增"
+
+
+def test_runtime_merges_pending_strategy_when_user_allows_any_artifact():
+    store = ConversationStore(max_messages=12)
+    store.save_turn(
+        "wecom:group-1:sender-1",
+        "a500",
+        _assistant_history_with_pending(
+            text="我需要再确认你需要的是材料包、周报、月报，还是文档信息。",
+            pending_plan={
+                "artifact_kind": "unclear",
+                "response_mode": "clarification",
+                "ambiguity_slots": ["artifact"],
+                "selected_strategy": "中证A500指增",
+                "capabilities": [],
+            },
+        ),
+    )
+    preflight = CapturingResolvedMaterialPreflight()
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=store,
+        preflight_service=preflight,
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="user allows any artifact to be sent",
+            artifact_kind="material_pack",
+            action_intent="send",
+            selected_strategy=None,
+            ambiguity_slots=["strategy"],
+            requested_capabilities=["material_pack"],
+        ),
+    )
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "都行你随便发一个",
+                    available_strategies=["完全对冲", "中证1000指增", "中证A500指增"],
+                )
+            )
+        )
+    )
+
+    assert preflight.resolve_strategies == {"material_pack": "中证A500指增"}
+    assert response.reply.kind == "answer"
+    assert response.actions[0].type == "send_material_pack"
+    assert response.actions[0].strategy == "中证A500指增"
 
 
 def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch):
