@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
-from market_support_crewai_agent.runtime.document_mcp import (
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.evidence.document_mcp import (
     DocumentEvidenceChunk,
     DocumentMcpError,
     DocumentMcpEvidenceService,
@@ -12,12 +12,12 @@ from market_support_crewai_agent.runtime.document_mcp import (
     _select_document_text,
     _select_products,
 )
-from market_support_crewai_agent.runtime.planning import (
+from market_support_crewai_agent.runtime.domain.planning import (
     ExecutionPlan,
     IntentFrame,
     compile_intent_frame,
 )
-from market_support_crewai_agent.runtime.policy import compile_policy
+from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.schemas import ReplyRequest
 from market_support_crewai_agent.settings import Settings
 

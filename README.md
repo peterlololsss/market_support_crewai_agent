@@ -188,31 +188,16 @@ action proposals after its own validation.
 ## Current module ownership
 
 ```text
-src/market_support_crewai_agent/server/main.py          FastAPI routes only
-src/market_support_crewai_agent/schemas.py              HTTP and action contracts
-src/market_support_crewai_agent/runtime/reply_agent.py  CrewAI runtime orchestration
-src/market_support_crewai_agent/runtime/conversation_store.py
-src/market_support_crewai_agent/runtime/canonicalization.py
-src/market_support_crewai_agent/runtime/capabilities.py
-src/market_support_crewai_agent/runtime/adapter_preflight.py
-src/market_support_crewai_agent/runtime/policy.py
-src/market_support_crewai_agent/runtime/planning.py
-src/market_support_crewai_agent/runtime/evidence.py
-src/market_support_crewai_agent/runtime/evidence_executor.py
-src/market_support_crewai_agent/runtime/business_facts.py
-src/market_support_crewai_agent/runtime/decision.py
-src/market_support_crewai_agent/runtime/response_renderer.py
-src/market_support_crewai_agent/runtime/guardrails.py
-src/market_support_crewai_agent/runtime/action_ledger.py
-src/market_support_crewai_agent/runtime/audit.py
-src/market_support_crewai_agent/runtime/prompt_profiles.py
-src/market_support_crewai_agent/runtime/prompt_fragments.py
-src/market_support_crewai_agent/runtime/prompt_router.py
-src/market_support_crewai_agent/runtime/prompt_assembler.py
-src/market_support_crewai_agent/runtime/prompt_context.py
-src/market_support_crewai_agent/runtime/prompt_templates.py
-src/market_support_crewai_agent/runtime/response_ids.py
+src/market_support_crewai_agent/server/main.py                 FastAPI routes only
+src/market_support_crewai_agent/schemas.py                     HTTP and action contracts
+src/market_support_crewai_agent/runtime/orchestration/          reply runtime, decisions, rendering
+src/market_support_crewai_agent/runtime/validation/             input/reply/action/alignment validators
+src/market_support_crewai_agent/runtime/evidence/               adapter/document evidence wrappers and facts
+src/market_support_crewai_agent/runtime/knowledge/              approved static knowledge catalog and selector
+src/market_support_crewai_agent/runtime/domain/                 capabilities, policy, planning, canonical facts
+src/market_support_crewai_agent/runtime/llm/                    prompt assembly, routing, profiles, resources
+src/market_support_crewai_agent/runtime/state/                  conversation, ledger, and audit state
 ```
 
-Add new runtime-only harness modules under `src/market_support_crewai_agent/runtime/` as described in `AGENTS.md` and
+Add new runtime-only harness modules under the relevant `src/market_support_crewai_agent/runtime/` package described in `AGENTS.md` and
 `docs/support_reply_harness/next_session.md`.

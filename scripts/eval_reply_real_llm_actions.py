@@ -30,7 +30,7 @@ class FakePreflightService:
         resolve_strategies=None,
     ):
         del canonical_context
-        from market_support_crewai_agent.runtime.adapter_preflight import (
+        from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
             AdapterPreflightItem,
             AdapterPreflightSnapshot,
         )
@@ -98,10 +98,10 @@ def _request(message: str, **overrides):
 
 
 async def _run_scenario(name: str, request):
-    from market_support_crewai_agent.runtime.action_ledger import ActionLedger
-    from market_support_crewai_agent.runtime.audit import AuditStore
-    from market_support_crewai_agent.runtime.conversation_store import ConversationStore
-    from market_support_crewai_agent.runtime.reply_agent import CrewAIReplyRuntime
+    from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
+    from market_support_crewai_agent.runtime.state.audit import AuditStore
+    from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
+    from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
     from market_support_crewai_agent.settings import get_settings
 
     runtime = CrewAIReplyRuntime(
@@ -133,6 +133,22 @@ async def main() -> None:
         (
             "bank_material_strategy_action",
             _request("发一下中证1000材料包"),
+        ),
+        (
+            "semantic_one_pager_material_action",
+            _request("麻烦同步一下中证1000的一页通"),
+        ),
+        (
+            "semantic_weekly_metric_action",
+            _request("500最近回撤修复得怎么样"),
+        ),
+        (
+            "knowledge_question_not_monthly_send",
+            _request("月报里为什么没有年化收益率"),
+        ),
+        (
+            "multi_artifact_clarification",
+            _request("材料和周报都给我"),
         ),
     ]
     results = [await _run_scenario(name, request) for name, request in scenarios]
@@ -185,6 +201,63 @@ def _validate_results(results: list[dict]) -> list[dict]:
                 "scenario": "bank_material_strategy_action",
                 "reason": "expected empty reply text and one send_material_pack action for 中证1000",
                 "response": material_response,
+            }
+        )
+
+    one_pager = by_name.get("semantic_one_pager_material_action", {})
+    one_pager_response = one_pager.get("response", {})
+    one_pager_actions = one_pager_response.get("actions") or []
+    if (
+        _action_types(one_pager_response) != ["send_material_pack"]
+        or one_pager_actions[0].get("strategy") != "中证1000"
+        or one_pager_response.get("reply", {}).get("text") != ""
+    ):
+        failures.append(
+            {
+                "scenario": "semantic_one_pager_material_action",
+                "reason": "expected one semantic one-pager request to produce send_material_pack for 中证1000",
+                "response": one_pager_response,
+            }
+        )
+
+    weekly_metric = by_name.get("semantic_weekly_metric_action", {})
+    weekly_metric_response = weekly_metric.get("response", {})
+    weekly_metric_actions = weekly_metric_response.get("actions") or []
+    if (
+        _action_types(weekly_metric_response) != ["send_weekly_report"]
+        or weekly_metric_actions[0].get("strategy") != "中证500"
+        or weekly_metric_response.get("reply", {}).get("text") != ""
+    ):
+        failures.append(
+            {
+                "scenario": "semantic_weekly_metric_action",
+                "reason": "expected recent drawdown-recovery metric question to route to weekly report send for 中证500",
+                "response": weekly_metric_response,
+            }
+        )
+
+    knowledge = by_name.get("knowledge_question_not_monthly_send", {})
+    knowledge_response = knowledge.get("response", {})
+    if "send_monthly_report" in _action_types(knowledge_response):
+        failures.append(
+            {
+                "scenario": "knowledge_question_not_monthly_send",
+                "reason": "expected report-format why question not to produce a monthly report send",
+                "response": knowledge_response,
+            }
+        )
+
+    multi_artifact = by_name.get("multi_artifact_clarification", {})
+    multi_artifact_response = multi_artifact.get("response", {})
+    if (
+        multi_artifact_response.get("reply", {}).get("kind") != "clarification"
+        or multi_artifact_response.get("actions") != []
+    ):
+        failures.append(
+            {
+                "scenario": "multi_artifact_clarification",
+                "reason": "expected multi-artifact request to clarify with no actions",
+                "response": multi_artifact_response,
             }
         )
     return failures

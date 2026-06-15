@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.schemas import ReplyRequest
 
 
