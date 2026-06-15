@@ -14,6 +14,9 @@ from market_support_crewai_agent.runtime.state.conversation_store import Convers
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.planning import IntentFrame
 from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
+from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
+    ReplyAlignmentVerdict,
+)
 from market_support_crewai_agent.schemas import (
     AdapterResolveResult,
     PrimaryReply,
@@ -137,7 +140,7 @@ class DocumentEvidenceExecutor:
 def test_runtime_audit_records_intent_gate_and_prompt_programs():
     audit_store = AuditStore()
     runtime = CrewAIReplyRuntime(
-        Settings(llm_api_key="test-key"),
+        Settings(llm_api_key="test-key", reply_alignment_verifier_enabled=False),
         conversation_store=ConversationStore(),
         preflight_service=ResolvedWeeklyPreflight(),
         audit_store=audit_store,
@@ -159,7 +162,7 @@ def test_runtime_audit_records_intent_gate_and_prompt_programs():
 def test_deterministic_action_response_records_planner_program_only():
     audit_store = AuditStore()
     runtime = CrewAIReplyRuntime(
-        Settings(llm_api_key="test-key"),
+        Settings(llm_api_key="test-key", reply_alignment_verifier_enabled=False),
         conversation_store=ConversationStore(),
         preflight_service=ResolvedWeeklyPreflight(),
         audit_store=audit_store,
@@ -181,6 +184,7 @@ def test_knowledge_answer_records_planner_and_composer_programs():
             llm_api_key="test-key",
             doc_mcp_enabled=True,
             doc_mcp_base_url="http://doc-mcp.local:23000",
+            reply_alignment_verifier_enabled=False,
         ),
         conversation_store=ConversationStore(),
         audit_store=audit_store,
@@ -212,7 +216,7 @@ def test_knowledge_answer_records_planner_and_composer_programs():
 def test_audit_stores_hashes_and_fragment_ids_not_full_prompt_text():
     audit_store = AuditStore()
     runtime = CrewAIReplyRuntime(
-        Settings(llm_api_key="test-key"),
+        Settings(llm_api_key="test-key", reply_alignment_verifier_enabled=False),
         conversation_store=ConversationStore(),
         preflight_service=ResolvedWeeklyPreflight(),
         audit_store=audit_store,
@@ -228,3 +232,42 @@ def test_audit_stores_hashes_and_fragment_ids_not_full_prompt_text():
     assert trace.llm_executions[0]["prompt_hash"].startswith("sha256:")
     assert "prompt_text" not in str(payload)
     assert "<prompt_fragment" not in str(payload)
+
+
+def test_audit_records_alignment_verifier_program_and_verdicts():
+    audit_store = AuditStore()
+    runtime = CrewAIReplyRuntime(
+        Settings(llm_api_key="test-key"),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+        audit_store=audit_store,
+    )
+    runtime._build_planner_agent = lambda: FakePlannerAgent(make_frame())  # type: ignore[method-assign]
+
+    class FakeVerifierAgent:
+        async def kickoff_async(self, prompt, response_format):
+            assert "Candidate ReplyResponse JSON" in prompt
+            assert "weekly:ref" not in prompt
+            return SimpleNamespace(
+                pydantic=ReplyAlignmentVerdict(
+                    aligned=True,
+                    safe_to_return=True,
+                    confidence=0.9,
+                ),
+                raw="",
+            )
+
+    runtime._build_alignment_verifier_agent = lambda: FakeVerifierAgent()  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(make_request()))
+
+    trace = audit_store.latest()
+    assert response.actions[0].type == "send_weekly_report"
+    assert trace is not None
+    assert [item["stage"] for item in trace.prompt_programs] == [
+        "planner_intent",
+        "alignment_verifier",
+    ]
+    assert trace.alignment_verdicts[0]["aligned"] is True
+    assert trace.alignment_verdicts[0]["safe_to_return"] is True
+    assert "weekly:ref" not in str(trace.to_dict())

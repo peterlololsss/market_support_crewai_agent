@@ -18,6 +18,9 @@ from market_support_crewai_agent.runtime.domain.canonicalization import (
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.validation.guardrails import ValidationResult
+from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
+    ReplyAlignmentVerdict,
+)
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan, PlanValidationResult
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.runtime.domain.capabilities import (
@@ -67,6 +70,8 @@ class AuditTrace:
     business_facts: dict
     reply_output: dict
     reply_validation: dict | None
+    alignment_verdicts: list[dict]
+    alignment_remediations: list[dict]
     final_actions: list[dict]
     action_preconditions: list[dict]
     adapter_execution_status: str
@@ -162,6 +167,8 @@ def build_audit_trace(
         intent_gate: IntentGateResult | None = None,
         prompt_programs: list[PromptProgram] | None = None,
         llm_executions: list[dict] | None = None,
+        alignment_verdicts: list[ReplyAlignmentVerdict] | None = None,
+        alignment_remediations: list[dict] | None = None,
 ) -> AuditTrace:
     policy_payload = _compact_policy(policy)
     canonical_payload = _compact_canonical_context(
@@ -211,6 +218,14 @@ def build_audit_trace(
         business_facts=business_facts.to_prompt_dict(),
         reply_output=_compact_response(response),
         reply_validation=reply_validation_payload,
+        alignment_verdicts=[
+            _compact_alignment_verdict(verdict)
+            for verdict in alignment_verdicts or []
+        ],
+        alignment_remediations=[
+            _compact_alignment_remediation(item)
+            for item in alignment_remediations or []
+        ],
         final_actions=[
             _compact_action(action)
             for action in response.actions
@@ -336,6 +351,22 @@ def _compact_reply_validation(validation: ValidationResult) -> dict:
             for issue in validation.issues
         ],
     }
+
+
+def _compact_alignment_verdict(verdict: ReplyAlignmentVerdict) -> dict:
+    return verdict.model_dump(mode="json", exclude_none=True)
+
+
+def _compact_alignment_remediation(item: dict) -> dict:
+    output: dict = {}
+    for key, value in item.items():
+        if key == "resolve_ref":
+            output["resolve_ref_available"] = bool(value)
+            continue
+        if str(key).lower().endswith(("secret", "api_key", "token")):
+            continue
+        output[str(key)] = value
+    return output
 
 
 def _prompt_profile_ids(llm_executions: list[dict]) -> list[str]:

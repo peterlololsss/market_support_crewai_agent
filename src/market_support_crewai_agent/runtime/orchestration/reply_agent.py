@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
+from dataclasses import dataclass
 from time import perf_counter
 
 from market_support_crewai_agent.runtime.state.action_ledger import (
@@ -16,11 +15,6 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
 )
 from market_support_crewai_agent.runtime.knowledge.approved_knowledge import (
     ApprovedKnowledgeEvidenceService,
-)
-from market_support_crewai_agent.runtime.validation.alignment_verifier import (
-    AlignmentVerification,
-    CrewAISemanticAlignmentVerifier,
-    SemanticAlignmentVerifier,
 )
 from market_support_crewai_agent.runtime.state.audit import (
     AuditStore,
@@ -43,7 +37,12 @@ from market_support_crewai_agent.runtime.orchestration.decision import (
 from market_support_crewai_agent.runtime.evidence.executor import EvidenceExecutor
 from market_support_crewai_agent.runtime.validation.guardrails import (
     ReplyContractError,
+    ValidationResult,
     validate_reply,
+)
+from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
+    ReplyAlignmentVerifier,
+    ReplyAlignmentVerdict,
 )
 from market_support_crewai_agent.runtime.validation.input_guardrails import (
     validate_reply_request_input,
@@ -73,7 +72,7 @@ from market_support_crewai_agent.runtime.llm.prompt_router import (
 )
 from market_support_crewai_agent.runtime.orchestration.response_renderer import render_directive
 from market_support_crewai_agent.runtime.orchestration.response_ids import ensure_response_ids
-from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse
+from market_support_crewai_agent.schemas import PrimaryReply, ReplyRequest, ReplyResponse
 from market_support_crewai_agent.settings import Settings, get_settings
 
 
@@ -90,7 +89,6 @@ _DEFAULT_DOCUMENT_EVIDENCE_SERVICE = DocumentMcpEvidenceService(_DEFAULT_SETTING
 _DEFAULT_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE = ApprovedKnowledgeEvidenceService(
     settings=_DEFAULT_SETTINGS
 )
-_DEFAULT_ALIGNMENT_VERIFIER = CrewAISemanticAlignmentVerifier(_DEFAULT_SETTINGS)
 
 
 async def build_reply(
@@ -101,7 +99,7 @@ async def build_reply(
         preflight_service: AdapterPreflightService | None = None,
         evidence_executor: EvidenceExecutor | None = None,
         audit_store: AuditStore | None = None,
-        alignment_verifier: SemanticAlignmentVerifier | None = None,
+        alignment_verifier: ReplyAlignmentVerifier | None = None,
 ) -> ReplyResponse:
     resolved_settings = settings or _DEFAULT_SETTINGS
     if preflight_service is not None:
@@ -134,14 +132,21 @@ async def build_reply(
             else ApprovedKnowledgeEvidenceService(settings=resolved_settings),
         ),
         audit_store or _DEFAULT_AUDIT_STORE,
-        alignment_verifier
-        or (
-            _DEFAULT_ALIGNMENT_VERIFIER
-            if settings is None
-            else CrewAISemanticAlignmentVerifier(resolved_settings)
-        ),
+        alignment_verifier,
     )
     return await runtime.reply(request)
+
+
+@dataclass(frozen=True)
+class RuntimeAttemptResult:
+    plan: ExecutionPlan
+    plan_validation: PlanValidationResult
+    preflight: AdapterPreflightSnapshot
+    evidence_facts: list
+    business_facts: BusinessFacts
+    directive: ResponseDirective
+    response: ReplyResponse
+    reply_validation: ValidationResult
 
 
 class CrewAIReplyRuntime:
@@ -155,7 +160,7 @@ class CrewAIReplyRuntime:
             preflight_service: AdapterPreflightService | None = None,
             evidence_executor: EvidenceExecutor | None = None,
             audit_store: AuditStore | None = None,
-            alignment_verifier: SemanticAlignmentVerifier | None = None,
+            alignment_verifier: ReplyAlignmentVerifier | None = None,
     ) -> None:
         self.settings = settings
         self.conversation_store = conversation_store or ConversationStore.from_settings(
@@ -171,9 +176,7 @@ class CrewAIReplyRuntime:
             ApprovedKnowledgeEvidenceService(settings=settings),
         )
         self.audit_store = audit_store or get_audit_store()
-        self.alignment_verifier = alignment_verifier or CrewAISemanticAlignmentVerifier(
-            settings
-        )
+        self.alignment_verifier = alignment_verifier
 
     async def reply(self, request: ReplyRequest) -> ReplyResponse:
         validate_reply_request_input(request, self.settings)
@@ -196,6 +199,85 @@ class CrewAIReplyRuntime:
             doc_mcp_allowed_channel_types=self.settings.doc_mcp_allowed_channel_types,
         )
         intent_gate = route_intent(request, canonical_context, policy, history=history)
+        llm_executions: list[dict] = []
+        prompt_programs: list[PromptProgram] = []
+        alignment_verdicts: list[ReplyAlignmentVerdict] = []
+        alignment_remediations: list[dict] = []
+
+        candidate = await self._build_candidate_response(
+            request=request,
+            canonical_context=canonical_context,
+            policy=policy,
+            model_family=model_family,
+            intent_gate=intent_gate,
+            history=history,
+            action_history=action_history,
+            prompt_programs=prompt_programs,
+            llm_executions=llm_executions,
+        )
+        if candidate.reply_validation.valid and self.settings.reply_alignment_verifier_enabled:
+            candidate = await self._ensure_aligned_response(
+                request=request,
+                canonical_context=canonical_context,
+                policy=policy,
+                model_family=model_family,
+                intent_gate=intent_gate,
+                history=history,
+                action_history=action_history,
+                prompt_programs=prompt_programs,
+                llm_executions=llm_executions,
+                alignment_verdicts=alignment_verdicts,
+                alignment_remediations=alignment_remediations,
+                candidate=candidate,
+            )
+        self._record_audit_trace(
+            request=request,
+            policy=policy,
+            plan=candidate.plan,
+            directive=candidate.directive,
+            plan_validation=candidate.plan_validation,
+            action_history=action_history,
+            canonical_context=canonical_context,
+            preflight=candidate.preflight,
+            evidence_facts=candidate.evidence_facts,
+            business_facts=candidate.business_facts,
+            response=candidate.response,
+            reply_validation=candidate.reply_validation,
+            intent_gate=intent_gate,
+            prompt_programs=prompt_programs,
+            llm_executions=llm_executions,
+            alignment_verdicts=alignment_verdicts,
+            alignment_remediations=alignment_remediations,
+        )
+        if not candidate.reply_validation.valid:
+            raise ReplyContractError(
+                "rendered reply failed validation: {}".format(
+                    _reply_validation_error_summary(candidate.reply_validation)
+                )
+            )
+
+        self.conversation_store.save_turn(
+            request.conversation_key,
+            request.message,
+            _compact_assistant_result(candidate.response),
+        )
+        return candidate.response
+
+    async def _build_candidate_response(
+            self,
+            *,
+            request: ReplyRequest,
+            canonical_context: CanonicalContext,
+            policy: PolicyManifest,
+            model_family,
+            intent_gate: IntentGateResult,
+            history: list,
+            action_history: list[ActionLedgerRecord],
+            prompt_programs: list[PromptProgram],
+            llm_executions: list[dict],
+            alignment_verdict: ReplyAlignmentVerdict | None = None,
+            alignment_attempt: int = 0,
+    ) -> RuntimeAttemptResult:
         planner_program = select_prompt_program(
             PromptAssemblyContext(
                 stage="planner_intent",
@@ -206,14 +288,14 @@ class CrewAIReplyRuntime:
                 intent_gate=intent_gate,
                 history=history,
                 action_history=action_history,
+                alignment_verdict=alignment_verdict,
+                alignment_attempt=alignment_attempt,
             )
         )
-        planner_agent = self._build_planner_agent()
-        llm_executions: list[dict] = []
-        prompt_programs: list[PromptProgram] = [planner_program]
+        prompt_programs.append(planner_program)
         try:
             frame_result, planner_execution = await _run_crewai_kickoff(
-                planner_agent,
+                self._build_planner_agent(),
                 planner_program,
                 timeout_seconds=self.settings.llm_timeout_seconds,
             )
@@ -233,6 +315,37 @@ class CrewAIReplyRuntime:
             canonical_context,
             policy,
         )
+        return await self._build_candidate_from_plan(
+            request=request,
+            canonical_context=canonical_context,
+            policy=policy,
+            model_family=model_family,
+            intent_gate=intent_gate,
+            history=history,
+            action_history=action_history,
+            prompt_programs=prompt_programs,
+            llm_executions=llm_executions,
+            plan=plan,
+            alignment_verdict=alignment_verdict,
+            alignment_attempt=alignment_attempt,
+        )
+
+    async def _build_candidate_from_plan(
+            self,
+            *,
+            request: ReplyRequest,
+            canonical_context: CanonicalContext,
+            policy: PolicyManifest,
+            model_family,
+            intent_gate: IntentGateResult,
+            history: list,
+            action_history: list[ActionLedgerRecord],
+            prompt_programs: list[PromptProgram],
+            llm_executions: list[dict],
+            plan: ExecutionPlan,
+            alignment_verdict: ReplyAlignmentVerdict | None = None,
+            alignment_attempt: int = 0,
+    ) -> RuntimeAttemptResult:
         plan_validation = validate_execution_plan(plan, policy)
         if not plan_validation.valid:
             raise AgentRuntimeError(
@@ -248,9 +361,45 @@ class CrewAIReplyRuntime:
             policy,
             action_history=action_history,
         )
-        preflight = evidence_result.preflight
-        evidence_facts = evidence_result.evidence_facts
-        business_facts = evidence_result.business_facts
+        return await self._build_candidate_from_evidence(
+            request=request,
+            canonical_context=canonical_context,
+            policy=policy,
+            model_family=model_family,
+            intent_gate=intent_gate,
+            history=history,
+            action_history=action_history,
+            prompt_programs=prompt_programs,
+            llm_executions=llm_executions,
+            plan=plan,
+            plan_validation=plan_validation,
+            preflight=evidence_result.preflight,
+            evidence_facts=evidence_result.evidence_facts,
+            business_facts=evidence_result.business_facts,
+            alignment_verdict=alignment_verdict,
+            alignment_attempt=alignment_attempt,
+        )
+
+    async def _build_candidate_from_evidence(
+            self,
+            *,
+            request: ReplyRequest,
+            canonical_context: CanonicalContext,
+            policy: PolicyManifest,
+            model_family,
+            intent_gate: IntentGateResult,
+            history: list,
+            action_history: list[ActionLedgerRecord],
+            prompt_programs: list[PromptProgram],
+            llm_executions: list[dict],
+            plan: ExecutionPlan,
+            plan_validation: PlanValidationResult,
+            preflight: AdapterPreflightSnapshot,
+            evidence_facts: list,
+            business_facts: BusinessFacts,
+            alignment_verdict: ReplyAlignmentVerdict | None = None,
+            alignment_attempt: int = 0,
+    ) -> RuntimeAttemptResult:
         directive = DecisionEngine().decide(
             plan,
             business_facts,
@@ -258,53 +407,115 @@ class CrewAIReplyRuntime:
             request,
             policy,
         )
+        response = await self._compose_or_render_response(
+            request=request,
+            canonical_context=canonical_context,
+            policy=policy,
+            model_family=model_family,
+            intent_gate=intent_gate,
+            history=history,
+            action_history=action_history,
+            prompt_programs=prompt_programs,
+            llm_executions=llm_executions,
+            plan=plan,
+            plan_validation=plan_validation,
+            preflight=preflight,
+            evidence_facts=evidence_facts,
+            business_facts=business_facts,
+            directive=directive,
+            alignment_verdict=alignment_verdict,
+            alignment_attempt=alignment_attempt,
+        )
+        return self._validated_attempt(
+            plan=plan,
+            plan_validation=plan_validation,
+            preflight=preflight,
+            evidence_facts=evidence_facts,
+            business_facts=business_facts,
+            directive=directive,
+            response=response,
+            policy=policy,
+        )
 
-        composer_agent = None
-        composer_program = None
-        if directive.requires_knowledge_composer:
-            composer_stage = directive.composer_stage or "knowledge_composer"
-            composer_agent = self._build_agent(composer_stage)
-            composer_program = select_prompt_program(
-                PromptAssemblyContext(
-                    stage=composer_stage,
-                    model_family=model_family,
-                    request=request,
-                    canonical_context=canonical_context,
-                    policy=policy,
-                    intent_gate=intent_gate,
-                    execution_plan=plan,
-                    plan_validation=plan_validation,
-                    preflight=preflight,
-                    evidence_facts=evidence_facts,
-                    business_facts=business_facts,
-                    history=history,
-                    action_history=action_history,
-                )
-            )
-            prompt_programs.append(composer_program)
-            try:
-                result, composer_execution = await _run_crewai_kickoff(
-                    composer_agent,
-                    composer_program,
-                    timeout_seconds=self.settings.llm_timeout_seconds,
-                )
-                llm_executions.append(composer_execution)
-            except asyncio.TimeoutError as exc:
-                raise AgentRuntimeError("CrewAI composer timed out") from exc
-            except Exception as exc:
-                raise AgentRuntimeError("CrewAI composer failed") from exc
-
-            response = _coerce_agent_response(result)
-            if response is None:
-                raise AgentRuntimeError("CrewAI composer returned an invalid ReplyResponse contract")
-        else:
-            response = render_directive(
+    async def _compose_or_render_response(
+            self,
+            *,
+            request: ReplyRequest,
+            canonical_context: CanonicalContext,
+            policy: PolicyManifest,
+            model_family,
+            intent_gate: IntentGateResult,
+            history: list,
+            action_history: list[ActionLedgerRecord],
+            prompt_programs: list[PromptProgram],
+            llm_executions: list[dict],
+            plan: ExecutionPlan,
+            plan_validation: PlanValidationResult,
+            preflight: AdapterPreflightSnapshot,
+            evidence_facts: list,
+            business_facts: BusinessFacts,
+            directive: ResponseDirective,
+            alignment_verdict: ReplyAlignmentVerdict | None = None,
+            alignment_attempt: int = 0,
+    ) -> ReplyResponse:
+        if not directive.requires_knowledge_composer:
+            return render_directive(
                 directive,
                 plan,
                 business_facts,
                 evidence_facts,
             )
 
+        composer_stage = directive.composer_stage or "knowledge_composer"
+        composer_program = select_prompt_program(
+            PromptAssemblyContext(
+                stage=composer_stage,
+                model_family=model_family,
+                request=request,
+                canonical_context=canonical_context,
+                policy=policy,
+                intent_gate=intent_gate,
+                execution_plan=plan,
+                plan_validation=plan_validation,
+                preflight=preflight,
+                evidence_facts=evidence_facts,
+                business_facts=business_facts,
+                history=history,
+                action_history=action_history,
+                alignment_verdict=alignment_verdict,
+                alignment_attempt=alignment_attempt,
+            )
+        )
+        prompt_programs.append(composer_program)
+        try:
+            result, composer_execution = await _run_crewai_kickoff(
+                self._build_agent(composer_stage),
+                composer_program,
+                timeout_seconds=self.settings.llm_timeout_seconds,
+            )
+            llm_executions.append(composer_execution)
+        except asyncio.TimeoutError as exc:
+            raise AgentRuntimeError("CrewAI composer timed out") from exc
+        except Exception as exc:
+            raise AgentRuntimeError("CrewAI composer failed") from exc
+
+        response = _coerce_agent_response(result)
+        if response is None:
+            raise AgentRuntimeError("CrewAI composer returned an invalid ReplyResponse contract")
+        return response
+
+    def _validated_attempt(
+            self,
+            *,
+            plan: ExecutionPlan,
+            plan_validation: PlanValidationResult,
+            preflight: AdapterPreflightSnapshot,
+            evidence_facts: list,
+            business_facts: BusinessFacts,
+            directive: ResponseDirective,
+            response: ReplyResponse,
+            policy: PolicyManifest,
+    ) -> RuntimeAttemptResult:
         response = ensure_response_ids(response)
         reply_validation = validate_reply(
             response,
@@ -314,123 +525,336 @@ class CrewAIReplyRuntime:
             evidence_facts,
             policy,
         )
-        alignment_failure: AlignmentVerification | None = None
-        if reply_validation.valid:
-            alignment = await self._verify_alignment(
-                request=request,
-                canonical_context=canonical_context,
-                plan=plan,
-                directive=directive,
-                evidence_facts=evidence_facts,
-                response=response,
-            )
-            if (
-                not alignment.valid
-                and alignment.remediation == "recompose"
-                and directive.requires_knowledge_composer
-                and composer_agent is not None
-                and composer_program is not None
-            ):
-                remediation_program = _with_alignment_remediation(
-                    composer_program,
-                    alignment,
-                )
-                prompt_programs.append(remediation_program)
-                try:
-                    result, composer_execution = await _run_crewai_kickoff(
-                        composer_agent,
-                        remediation_program,
-                        timeout_seconds=self.settings.llm_timeout_seconds,
-                    )
-                    llm_executions.append(composer_execution)
-                except asyncio.TimeoutError as exc:
-                    raise AgentRuntimeError("CrewAI composer remediation timed out") from exc
-                except Exception as exc:
-                    raise AgentRuntimeError("CrewAI composer remediation failed") from exc
-
-                remediated_response = _coerce_agent_response(result)
-                if remediated_response is None:
-                    raise AgentRuntimeError(
-                        "CrewAI composer remediation returned an invalid ReplyResponse contract"
-                    )
-                response = ensure_response_ids(remediated_response)
-                reply_validation = validate_reply(
-                    response,
-                    directive,
-                    plan,
-                    business_facts,
-                    evidence_facts,
-                    policy,
-                )
-                if reply_validation.valid:
-                    alignment = await self._verify_alignment(
-                        request=request,
-                        canonical_context=canonical_context,
-                        plan=plan,
-                        directive=directive,
-                        evidence_facts=evidence_facts,
-                        response=response,
-                    )
-            if reply_validation.valid and not alignment.valid:
-                alignment_failure = alignment
-        self._record_audit_trace(
-            request=request,
-            policy=policy,
+        return RuntimeAttemptResult(
             plan=plan,
-            directive=directive,
             plan_validation=plan_validation,
-            action_history=action_history,
-            canonical_context=canonical_context,
             preflight=preflight,
             evidence_facts=evidence_facts,
             business_facts=business_facts,
+            directive=directive,
             response=response,
             reply_validation=reply_validation,
-            intent_gate=intent_gate,
-            prompt_programs=prompt_programs,
-            llm_executions=llm_executions,
         )
-        if not reply_validation.valid:
-            raise ReplyContractError(
-                "rendered reply failed validation: {}".format(
-                    _reply_validation_error_summary(reply_validation)
-                )
-            )
-        if alignment_failure is not None:
-            raise ReplyContractError(
-                "semantic alignment failed: {}".format(
-                    _alignment_error_summary(alignment_failure)
-                )
-            )
 
-        self.conversation_store.save_turn(
-            request.conversation_key,
-            request.message,
-            _compact_assistant_result(response),
-        )
-        return response
-
-    async def _verify_alignment(
+    async def _ensure_aligned_response(
             self,
             *,
             request: ReplyRequest,
             canonical_context: CanonicalContext,
-            plan: ExecutionPlan,
-            directive: ResponseDirective,
-            evidence_facts: list,
-            response: ReplyResponse,
-    ) -> AlignmentVerification:
-        try:
-            return await self.alignment_verifier.verify(
+            policy: PolicyManifest,
+            model_family,
+            intent_gate: IntentGateResult,
+            history: list,
+            action_history: list[ActionLedgerRecord],
+            prompt_programs: list[PromptProgram],
+            llm_executions: list[dict],
+            alignment_verdicts: list[ReplyAlignmentVerdict],
+            alignment_remediations: list[dict],
+            candidate: RuntimeAttemptResult,
+    ) -> RuntimeAttemptResult:
+        replan_count = 0
+        refetch_count = 0
+        recompose_count = 0
+        total_remediations = 0
+
+        while True:
+            try:
+                verdict = await self._verify_reply_alignment(
+                    request=request,
+                    canonical_context=canonical_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    candidate=candidate,
+                    attempt=len(alignment_verdicts),
+                )
+            except Exception as exc:
+                alignment_remediations.append(
+                    {
+                        "remediation": "return_unable",
+                        "reason": "verifier_failed",
+                        "error": _safe_short_text(exc),
+                    }
+                )
+                return self._fallback_attempt(
+                    candidate,
+                    policy,
+                    kind="unable",
+                    reason_code="alignment_verifier_failed",
+                )
+
+            alignment_verdicts.append(verdict)
+            if verdict.aligned and verdict.safe_to_return:
+                return candidate
+
+            if total_remediations >= self.settings.reply_alignment_max_total_remediations:
+                alignment_remediations.append(
+                    {
+                        "remediation": "return_unable",
+                        "reason": "remediation_limit_exceeded",
+                        "failure_code": verdict.failure_code,
+                    }
+                )
+                return self._fallback_attempt(
+                    candidate,
+                    policy,
+                    kind="unable",
+                    reason_code="alignment_remediation_limit",
+                )
+
+            if (
+                verdict.remediation == "replan"
+                and replan_count < self.settings.reply_alignment_max_replans
+            ):
+                replan_count += 1
+                total_remediations += 1
+                alignment_remediations.append(
+                    {
+                        "remediation": "replan",
+                        "failure_code": verdict.failure_code,
+                    }
+                )
+                candidate = await self._build_candidate_response(
+                    request=request,
+                    canonical_context=canonical_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                )
+                if not candidate.reply_validation.valid:
+                    return candidate
+                continue
+
+            if (
+                verdict.remediation == "refetch_document_context"
+                and refetch_count < self.settings.reply_alignment_max_evidence_refetches
+                and candidate.plan.response_mode == "knowledge_answer"
+                and "document_context" in candidate.plan.capabilities
+                and "document_context" in policy.allowed_capabilities
+                and (verdict.refined_evidence_query or "").strip()
+            ):
+                refetch_count += 1
+                total_remediations += 1
+                alignment_remediations.append(
+                    {
+                        "remediation": "refetch_document_context",
+                        "failure_code": verdict.failure_code,
+                    }
+                )
+                candidate = await self._build_candidate_from_plan(
+                    request=request,
+                    canonical_context=canonical_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    plan=candidate.plan.model_copy(
+                        update={"evidence_query": verdict.refined_evidence_query}
+                    ),
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                )
+                if not candidate.reply_validation.valid:
+                    return candidate
+                continue
+
+            if (
+                verdict.remediation == "recompose"
+                and recompose_count < self.settings.reply_alignment_max_recomposes
+                and candidate.directive.requires_knowledge_composer
+            ):
+                recompose_count += 1
+                total_remediations += 1
+                alignment_remediations.append(
+                    {
+                        "remediation": "recompose",
+                        "failure_code": verdict.failure_code,
+                    }
+                )
+                response = await self._compose_or_render_response(
+                    request=request,
+                    canonical_context=canonical_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    plan=candidate.plan,
+                    plan_validation=candidate.plan_validation,
+                    preflight=candidate.preflight,
+                    evidence_facts=candidate.evidence_facts,
+                    business_facts=candidate.business_facts,
+                    directive=candidate.directive,
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                )
+                candidate = self._validated_attempt(
+                    plan=candidate.plan,
+                    plan_validation=candidate.plan_validation,
+                    preflight=candidate.preflight,
+                    evidence_facts=candidate.evidence_facts,
+                    business_facts=candidate.business_facts,
+                    directive=candidate.directive,
+                    response=response,
+                    policy=policy,
+                )
+                if not candidate.reply_validation.valid:
+                    return candidate
+                continue
+
+            if verdict.remediation == "return_clarification":
+                alignment_remediations.append(
+                    {
+                        "remediation": "return_clarification",
+                        "failure_code": verdict.failure_code,
+                    }
+                )
+                return self._fallback_attempt(
+                    candidate,
+                    policy,
+                    kind="clarification",
+                    reason_code="alignment_return_clarification",
+                )
+
+            alignment_remediations.append(
+                {
+                    "remediation": "return_unable",
+                    "reason": "unsupported_or_exhausted_remediation",
+                    "suggested_remediation": verdict.remediation,
+                    "failure_code": verdict.failure_code,
+                }
+            )
+            return self._fallback_attempt(
+                candidate,
+                policy,
+                kind="unable",
+                reason_code="alignment_return_unable",
+            )
+
+    async def _verify_reply_alignment(
+            self,
+            *,
+            request: ReplyRequest,
+            canonical_context: CanonicalContext,
+            policy: PolicyManifest,
+            model_family,
+            intent_gate: IntentGateResult,
+            history: list,
+            action_history: list[ActionLedgerRecord],
+            prompt_programs: list[PromptProgram],
+            llm_executions: list[dict],
+            candidate: RuntimeAttemptResult,
+            attempt: int,
+    ) -> ReplyAlignmentVerdict:
+        if self.alignment_verifier is not None:
+            verdict = await self.alignment_verifier.verify(
                 request=request,
                 canonical_context=canonical_context,
-                plan=plan,
-                directive=directive,
-                evidence_facts=evidence_facts,
-                response=response,
+                plan=candidate.plan,
+                directive=candidate.directive,
+                evidence_facts=candidate.evidence_facts,
+                business_facts=candidate.business_facts,
+                response=candidate.response,
+                attempt=attempt,
             )
+            return ReplyAlignmentVerdict.model_validate(verdict)
+
+        verifier_program = select_prompt_program(
+            PromptAssemblyContext(
+                stage="alignment_verifier",
+                model_family=model_family,
+                request=request,
+                canonical_context=canonical_context,
+                policy=policy,
+                intent_gate=intent_gate,
+                execution_plan=candidate.plan,
+                plan_validation=candidate.plan_validation,
+                preflight=candidate.preflight,
+                evidence_facts=candidate.evidence_facts,
+                business_facts=candidate.business_facts,
+                history=history,
+                action_history=action_history,
+                candidate_response=candidate.response,
+                alignment_attempt=attempt,
+            )
+        )
+        prompt_programs.append(verifier_program)
+        try:
+            result, verifier_execution = await _run_crewai_kickoff(
+                self._build_alignment_verifier_agent(),
+                verifier_program,
+                timeout_seconds=self.settings.llm_timeout_seconds,
+            )
+            llm_executions.append(verifier_execution)
+        except asyncio.TimeoutError as exc:
+            raise AgentRuntimeError("CrewAI alignment verifier timed out") from exc
         except Exception as exc:
-            raise AgentRuntimeError("semantic alignment verifier failed") from exc
+            raise AgentRuntimeError("CrewAI alignment verifier failed") from exc
+
+        verdict = _coerce_alignment_verdict(result)
+        if verdict is None:
+            raise AgentRuntimeError(
+                "CrewAI alignment verifier returned an invalid ReplyAlignmentVerdict contract"
+            )
+        return verdict
+
+    def _fallback_attempt(
+            self,
+            candidate: RuntimeAttemptResult,
+            policy: PolicyManifest,
+            *,
+            kind: str,
+            reason_code: str,
+    ) -> RuntimeAttemptResult:
+        if candidate.plan.compliance.is_compliant is False:
+            return candidate
+        if kind == "clarification":
+            directive = ResponseDirective(
+                mode="clarification",
+                reply_kind="clarification",
+                text="我需要再确认一下你具体想要哪类内容。",
+                reason_code=reason_code,
+            )
+        else:
+            directive = ResponseDirective(
+                mode="unable",
+                reply_kind="unable_to_answer",
+                text="当前没有足够证据安全回复，我先不展开。",
+                reason_code=reason_code,
+            )
+        response = ReplyResponse(
+            reply=PrimaryReply(
+                kind=directive.reply_kind,
+                text=directive.text,
+                mentions=[],
+            ),
+            actions=[],
+        )
+        return self._validated_attempt(
+            plan=candidate.plan,
+            plan_validation=candidate.plan_validation,
+            preflight=candidate.preflight,
+            evidence_facts=candidate.evidence_facts,
+            business_facts=candidate.business_facts,
+            directive=directive,
+            response=response,
+            policy=policy,
+        )
 
     def _record_audit_trace(
             self,
@@ -450,6 +874,8 @@ class CrewAIReplyRuntime:
             intent_gate: IntentGateResult | None = None,
             prompt_programs: list[PromptProgram] | None = None,
             llm_executions: list[dict] | None = None,
+            alignment_verdicts: list[ReplyAlignmentVerdict] | None = None,
+            alignment_remediations: list[dict] | None = None,
     ) -> None:
         self.audit_store.record(
             build_audit_trace(
@@ -469,6 +895,8 @@ class CrewAIReplyRuntime:
                 intent_gate=intent_gate,
                 prompt_programs=prompt_programs,
                 llm_executions=llm_executions,
+                alignment_verdicts=alignment_verdicts,
+                alignment_remediations=alignment_remediations,
             )
         )
 
@@ -504,6 +932,24 @@ class CrewAIReplyRuntime:
             inject_date=True,
             prompt_profile=prompt_profile_by_stage(
                 stage,
+                model_family_from_settings(self.settings),
+            ),
+        )
+
+    def _build_alignment_verifier_agent(self):
+        return self._build_crewai_agent(
+            role="Market Support Reply Alignment Verifier",
+            goal=(
+                "Judge whether the validated ReplyResponse semantically aligns "
+                "with the current market support request."
+            ),
+            backstory=(
+                "You are a bounded verifier. You return only a structured verdict "
+                "and never call tools, send messages, or mutate actions."
+            ),
+            inject_date=False,
+            prompt_profile=prompt_profile_by_stage(
+                "alignment_verifier",
                 model_family_from_settings(self.settings),
             ),
         )
@@ -652,6 +1098,19 @@ def _coerce_agent_response(result) -> ReplyResponse | None:
         return None
 
 
+def _coerce_alignment_verdict(result) -> ReplyAlignmentVerdict | None:
+    if result.pydantic is not None:
+        try:
+            return ReplyAlignmentVerdict.model_validate(result.pydantic)
+        except ValueError:
+            return None
+
+    try:
+        return ReplyAlignmentVerdict.model_validate_json(result.raw)
+    except ValueError:
+        return None
+
+
 def _compact_assistant_result(response: ReplyResponse) -> str:
     return response.model_dump_json(exclude_none=True)
 
@@ -662,44 +1121,3 @@ def _validation_error_summary(validation: PlanValidationResult) -> str:
 
 def _reply_validation_error_summary(validation) -> str:
     return "; ".join(issue.code for issue in validation.issues) or "unknown"
-
-
-def _alignment_error_summary(alignment: AlignmentVerification) -> str:
-    return "; ".join(issue.code for issue in alignment.issues) or "unknown"
-
-
-def _with_alignment_remediation(
-    program: PromptProgram,
-    alignment: AlignmentVerification,
-) -> PromptProgram:
-    issue_payload = {
-        "issues": [
-            issue.model_dump(mode="json", exclude_none=True)
-            for issue in alignment.issues
-        ],
-        "remediation": alignment.remediation,
-        "rationale": alignment.rationale,
-    }
-    remediation_text = (
-        "\n\n<alignment_remediation>\n"
-        "The previous ReplyResponse failed final image semantic alignment. "
-        "Recompose once using the same evidence. Address only these bounded "
-        "issues; do not add unsupported markers, actions, mentions, or new facts.\n"
-        f"{json.dumps(issue_payload, ensure_ascii=False, indent=2, sort_keys=True)}\n"
-        "</alignment_remediation>"
-    )
-    prompt_text = program.prompt_text + remediation_text
-    return PromptProgram(
-        profile=program.profile,
-        fragment_ids=tuple([*program.fragment_ids, "alignment.remediation"]),
-        prompt_text=prompt_text,
-        prompt_hash=_sha256(prompt_text),
-        fragment_hashes={
-            **program.fragment_hashes,
-            "alignment.remediation": _sha256(remediation_text),
-        },
-    )
-
-
-def _sha256(text: str) -> str:
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()

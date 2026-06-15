@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
@@ -10,7 +12,12 @@ from market_support_crewai_agent.runtime.llm.prompt_router import (
     route_intent,
     select_prompt_program,
 )
-from market_support_crewai_agent.schemas import ReplyRequest
+from market_support_crewai_agent.schemas import (
+    PrimaryReply,
+    ReplyRequest,
+    ReplyResponse,
+    SendWeeklyReportAction,
+)
 
 
 def make_request(message: str = "发一下中证1000材料", **overrides) -> ReplyRequest:
@@ -162,6 +169,37 @@ def test_composer_prompt_uses_compact_no_action_skeleton_not_full_schema_dump():
     assert "Canonical JSON schema:" not in program.prompt_text
     assert '"$defs"' not in program.prompt_text
     assert '"properties"' not in program.prompt_text
+
+
+def test_alignment_verifier_prompt_uses_compact_schema_and_candidate_response():
+    candidate = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text=""),
+        actions=[
+            SendWeeklyReportAction(
+                type="send_weekly_report",
+                action_id="act-1",
+                resolve_type="weekly_report",
+                resolve_ref="weekly:resolve-ref",
+                report_scope="channel_all",
+                strategy=None,
+                period="20260529",
+                report_date="2026-05-29",
+            )
+        ],
+    )
+    ctx = replace(make_ctx(stage="alignment_verifier"), candidate_response=candidate)
+
+    program = select_prompt_program(ctx)
+
+    assert "base.alignment_verifier" in program.fragment_ids
+    assert "output.reply_alignment_verdict_schema" in program.fragment_ids
+    assert "ReplyAlignmentVerdict compact schema:" in program.prompt_text
+    assert "Candidate ReplyResponse JSON" in program.prompt_text
+    assert "weekly:resolve-ref" not in program.prompt_text
+    assert "resolve_ref_available" in program.prompt_text
+    assert "Canonical JSON schema:" not in program.prompt_text
+    assert '"$defs"' not in program.prompt_text
 
 
 def test_knowledge_composer_never_receives_action_fragments():
