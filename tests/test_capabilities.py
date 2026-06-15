@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.adapter_preflight import (
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightItem,
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.business_facts import (
+from market_support_crewai_agent.runtime.domain.business_facts import (
     ReportState,
     ResolvableState,
     derive_business_facts,
 )
-from market_support_crewai_agent.runtime.capabilities import (
+from market_support_crewai_agent.runtime.domain.capabilities import (
     CAPABILITY_REGISTRY,
     adapter_resolve_types,
     capability_by_action_type,
@@ -22,7 +22,7 @@ from market_support_crewai_agent.runtime.capabilities import (
     side_effect_action_types,
 )
 from market_support_crewai_agent.runtime.evidence import evidence_facts_from_preflight
-from market_support_crewai_agent.runtime.policy import compile_policy
+from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.schemas import AdapterResolveResult, ReplyRequest
 
 
@@ -112,23 +112,30 @@ def test_registry_has_no_duplicate_action_resolve_or_fact():
     assert len(fact_types) == len(set(fact_types))
 
 
-def test_registry_declares_prompt_fragments_instead_of_inline_rules():
+def test_registry_declares_capability_contract_mappings_without_prompt_coupling():
     material = capability_by_name("material_pack")
     weekly = capability_by_name("weekly_report")
+    monthly = capability_by_name("monthly_report")
+    sales = capability_by_name("sales_mention")
     document = capability_by_name("document_context")
 
-    assert material.planner_fragment_ids == (
-        "capability.material_pack",
-        "examples.material_pack",
-    )
-    assert weekly.planner_fragment_ids == (
-        "capability.weekly_report",
-        "examples.report_scope",
-    )
-    assert document.planner_fragment_ids == (
-        "capability.document_context",
-        "examples.knowledge_answer",
-    )
+    assert material.resolve_type == "material_pack"
+    assert material.side_effect_action_type == "send_material_pack"
+    assert material.read_capability == "resolve_material_pack"
+    assert material.requires_strategy_for_bank_material is True
+    assert weekly.resolve_type == "weekly_report"
+    assert weekly.side_effect_action_type == "send_weekly_report"
+    assert weekly.is_report is True
+    assert monthly.resolve_type == "monthly_report"
+    assert monthly.side_effect_action_type == "send_monthly_report"
+    assert monthly.is_report is True
+    assert sales.resolve_type == "sales_mention"
+    assert sales.side_effect_action_type is None
+    assert document.read_capability == "query_internal_company_info"
+    assert document.resolve_type is None
+    for capability in (material, weekly, monthly, sales, document):
+        assert not hasattr(capability, "planner_fragment_ids")
+        assert not hasattr(capability, "composer_fragment_ids")
 
 
 def test_policy_uses_registry_outputs():

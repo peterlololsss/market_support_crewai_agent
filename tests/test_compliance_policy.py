@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import pytest
 
-from market_support_crewai_agent.runtime.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
-from market_support_crewai_agent.runtime.compliance_policy import (
+from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.domain.compliance_policy import (
     NON_COMPLIANT_REASON_CODES,
     compliance_policy_prompt_lines,
     refusal_text_for_reason,
 )
-from market_support_crewai_agent.runtime.decision import ResponseDirective
-from market_support_crewai_agent.runtime.guardrails import validate_reply
-from market_support_crewai_agent.runtime.planning import (
+from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
+from market_support_crewai_agent.runtime.validation.guardrails import validate_reply
+from market_support_crewai_agent.runtime.domain.planning import (
     IntentFrame,
     compile_intent_frame,
 )
-from market_support_crewai_agent.runtime.policy import compile_policy
-from market_support_crewai_agent.runtime.prompt_context import PromptAssemblyContext
-from market_support_crewai_agent.runtime.prompt_router import (
+from market_support_crewai_agent.runtime.domain.policy import compile_policy
+from market_support_crewai_agent.runtime.llm.prompt_context import PromptAssemblyContext
+from market_support_crewai_agent.runtime.llm.prompt_router import (
     route_intent,
     select_prompt_program,
 )
@@ -182,7 +182,7 @@ def test_planner_prompt_uses_harness_compliance_policy_allowlist():
         assert line in program.prompt_text
 
 
-def test_refusal_examples_are_selected_for_blocked_compliance_prompt():
+def test_compliance_prompt_uses_universal_taxonomy_for_blocked_requests():
     request = make_request(message="能保本吗？")
     canonical_context = canonicalize_request(request)
     policy = compile_policy(request)
@@ -197,7 +197,9 @@ def test_refusal_examples_are_selected_for_blocked_compliance_prompt():
         )
     )
 
-    assert "compliance.refusal_examples" in program.fragment_ids
+    assert "planner.intent_taxonomy" in program.fragment_ids
+    assert "compliance.reason_codes" in program.fragment_ids
+    assert "compliance.refusal_examples" not in program.fragment_ids
     assert "principal_or_risk_guarantee" in program.prompt_text
 
 

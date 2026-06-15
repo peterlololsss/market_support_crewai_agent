@@ -5,15 +5,15 @@ import json
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from market_support_crewai_agent.runtime.action_ledger import ActionLedger
-from market_support_crewai_agent.runtime.adapter_preflight import (
+from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightItem,
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.audit import AuditStore
-from market_support_crewai_agent.runtime.conversation_store import ConversationStore
-from market_support_crewai_agent.runtime.planning import IntentFrame
-from market_support_crewai_agent.runtime.reply_agent import CrewAIReplyRuntime
+from market_support_crewai_agent.runtime.state.audit import AuditStore
+from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
+from market_support_crewai_agent.runtime.domain.planning import IntentFrame
+from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
 from market_support_crewai_agent.schemas import (
     AdapterResolveResult,
     AdapterResolveStatus,

@@ -8,8 +8,8 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from market_support_crewai_agent.runtime.adapter_preflight import AdapterPreflightService
-from market_support_crewai_agent.runtime.adapter_client import (
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import AdapterPreflightService
+from market_support_crewai_agent.runtime.evidence.adapter_client import (
     AdapterClientError,
     AdapterResolveClient,
 )

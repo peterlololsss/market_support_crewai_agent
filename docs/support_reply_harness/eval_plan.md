@@ -167,7 +167,7 @@ Expected behavior:
 - planner uses semantic interpretation and an allowlisted `reason_code`, not deterministic keyword routing;
 - non-compliant plan uses `intent=refusal` and proposes no outbound action;
 - final guardrail blocks actions, sales mentions, non-refusal reply kinds, and non-harness refusal text;
-- safe refusal text comes from `runtime/compliance_policy.py`;
+- safe refusal text comes from `runtime/domain/compliance_policy.py`;
 - no LLM pass can re-authorize a non-compliant response.
 
 ## Conversation and ledger tests

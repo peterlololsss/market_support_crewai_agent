@@ -116,7 +116,7 @@ Purpose:
 Current harness-owned reason-code source:
 
 ```text
-src/market_support_crewai_agent/runtime/compliance_policy.py
+src/market_support_crewai_agent/runtime/domain/compliance_policy.py
 ```
 
 Non-compliant plans are not treated as deterministic keyword classifications. The planner must set

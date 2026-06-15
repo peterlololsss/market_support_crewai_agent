@@ -109,21 +109,15 @@ Add focused tests for every new validator, policy branch, evidence wrapper, ledg
 Keep `/reply` stable unless a contract change is explicitly part of the task. Preserve clear module ownership:
 
 ```text
-src/market_support_crewai_agent/schemas.py            public HTTP/action DTOs
-src/market_support_crewai_agent/server/main.py        FastAPI routes only
-src/market_support_crewai_agent/runtime/reply_agent.py orchestration boundary
-src/market_support_crewai_agent/runtime/canonicalization.py deterministic entity resolution
-src/market_support_crewai_agent/runtime/capabilities.py capability registry
-src/market_support_crewai_agent/runtime/policy.py      policy compiler
-src/market_support_crewai_agent/runtime/planning.py    ExecutionPlan models/validation
-src/market_support_crewai_agent/runtime/evidence.py    evidence wrappers/facts
-src/market_support_crewai_agent/runtime/evidence_executor.py evidence wrapper orchestration
-src/market_support_crewai_agent/runtime/business_facts.py deterministic facts
-src/market_support_crewai_agent/runtime/decision.py    ResponseDirective decision engine
-src/market_support_crewai_agent/runtime/response_renderer.py deterministic renderer
-src/market_support_crewai_agent/runtime/guardrails.py  postcondition validators
-src/market_support_crewai_agent/runtime/action_ledger.py executed-action ledger
-src/market_support_crewai_agent/runtime/audit.py       audit trace
+src/market_support_crewai_agent/schemas.py                    public HTTP/action DTOs
+src/market_support_crewai_agent/server/main.py                FastAPI routes only
+src/market_support_crewai_agent/runtime/orchestration/        reply runtime, decisions, response rendering
+src/market_support_crewai_agent/runtime/validation/           input, postcondition, and alignment validators
+src/market_support_crewai_agent/runtime/evidence/             evidence facts, adapter preflight, document MCP
+src/market_support_crewai_agent/runtime/knowledge/            approved static knowledge catalog and selector
+src/market_support_crewai_agent/runtime/domain/               capabilities, policy, planning, canonical facts
+src/market_support_crewai_agent/runtime/llm/                  prompt assembly, routing, profiles, resources
+src/market_support_crewai_agent/runtime/state/                conversation store, action ledger, audit trace
 ```
 
 When a task is complete, summarize contract impact, validator impact, tests run, and remaining decisions.

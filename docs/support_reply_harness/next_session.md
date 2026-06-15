@@ -54,17 +54,13 @@ src/market_support_crewai_agent/schemas.py
 Add runtime-only modules as needed:
 
 ```text
-src/market_support_crewai_agent/runtime/policy.py
-src/market_support_crewai_agent/runtime/planning.py
-src/market_support_crewai_agent/runtime/evidence.py
-src/market_support_crewai_agent/runtime/evidence_executor.py
-src/market_support_crewai_agent/runtime/document_mcp.py
-src/market_support_crewai_agent/runtime/business_facts.py
-src/market_support_crewai_agent/runtime/decision.py
-src/market_support_crewai_agent/runtime/response_renderer.py
-src/market_support_crewai_agent/runtime/guardrails.py
-src/market_support_crewai_agent/runtime/action_ledger.py
-src/market_support_crewai_agent/runtime/audit.py
+src/market_support_crewai_agent/runtime/domain/
+src/market_support_crewai_agent/runtime/evidence/
+src/market_support_crewai_agent/runtime/knowledge/
+src/market_support_crewai_agent/runtime/llm/
+src/market_support_crewai_agent/runtime/orchestration/
+src/market_support_crewai_agent/runtime/state/
+src/market_support_crewai_agent/runtime/validation/
 ```
 
 Likely tests:

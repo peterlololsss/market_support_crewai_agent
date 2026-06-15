@@ -3,17 +3,17 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from market_support_crewai_agent.runtime.adapter_preflight import (
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightItem,
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.audit import AuditStore
-from market_support_crewai_agent.runtime.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
-from market_support_crewai_agent.runtime.conversation_store import ConversationStore
+from market_support_crewai_agent.runtime.state.audit import AuditStore
+from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.runtime.planning import IntentFrame
-from market_support_crewai_agent.runtime.reply_agent import CrewAIReplyRuntime
+from market_support_crewai_agent.runtime.domain.planning import IntentFrame
+from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
 from market_support_crewai_agent.schemas import (
     AdapterResolveResult,
     PrimaryReply,
@@ -148,11 +148,12 @@ def test_runtime_audit_records_intent_gate_and_prompt_programs():
 
     trace = audit_store.latest()
     assert trace is not None
-    assert trace.intent_gate["artifact_hint"] == "weekly_report"
+    assert trace.intent_gate["artifact_hint"] == "unclear"
+    assert trace.intent_gate["side_effect_hint"] is False
     assert len(trace.prompt_programs) == 1
     assert trace.prompt_programs[0]["stage"] == "planner_intent"
     assert trace.prompt_programs[0]["prompt_hash"].startswith("sha256:")
-    assert "capability.weekly_report" in trace.prompt_programs[0]["fragment_ids"]
+    assert "planner.intent_taxonomy" in trace.prompt_programs[0]["fragment_ids"]
 
 
 def test_deterministic_action_response_records_planner_program_only():

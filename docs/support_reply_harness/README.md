@@ -10,9 +10,9 @@ This directory is the active design source for the evidence-grounded support rep
 - Public endpoint: `POST /reply`.
 - Public response boundary: `ReplyResponse` with `reply` plus typed outbound action proposals.
 - Execution owner: existing WeCom adapter.
-- Current runtime file: `src/market_support_crewai_agent/runtime/reply_agent.py`.
+- Current runtime file: `src/market_support_crewai_agent/runtime/orchestration/reply_agent.py`.
 - Public contracts: `src/market_support_crewai_agent/schemas.py`.
-- Conversation store: `src/market_support_crewai_agent/runtime/conversation_store.py`.
+- Conversation store: `src/market_support_crewai_agent/runtime/state/conversation_store.py`.
 - Existing tests: `tests/test_reply_contract.py`, `tests/test_adapter_preflight.py`, `tests/test_structured_guardrails.py`, `tests/test_action_feedback.py`.
 
 ## Active decision

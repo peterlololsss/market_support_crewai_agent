@@ -6,22 +6,26 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from market_support_crewai_agent.runtime.action_ledger import ActionLedger
-from market_support_crewai_agent.runtime.adapter_preflight import (
+from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightItem,
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.audit import AuditStore
-from market_support_crewai_agent.runtime.conversation_store import ConversationStore
-from market_support_crewai_agent.runtime.guardrails import ReplyContractError
-from market_support_crewai_agent.runtime.input_guardrails import InputGuardrailError
-from market_support_crewai_agent.runtime.planning import IntentFrame
-from market_support_crewai_agent.runtime.reply_agent import (
+from market_support_crewai_agent.runtime.validation.alignment_verifier import (
+    AlignmentIssue,
+    AlignmentVerification,
+)
+from market_support_crewai_agent.runtime.state.audit import AuditStore
+from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
+from market_support_crewai_agent.runtime.validation.guardrails import ReplyContractError
+from market_support_crewai_agent.runtime.validation.input_guardrails import InputGuardrailError
+from market_support_crewai_agent.runtime.domain.planning import IntentFrame
+from market_support_crewai_agent.runtime.orchestration.reply_agent import (
     AgentRuntimeError,
     CrewAIReplyRuntime,
     build_reply,
 )
-from market_support_crewai_agent.runtime.response_ids import ensure_response_ids
+from market_support_crewai_agent.runtime.orchestration.response_ids import ensure_response_ids
 from market_support_crewai_agent.schemas import (
     ActionFeedbackRequest,
     AdapterResolveResult,
@@ -639,6 +643,30 @@ def test_runtime_deterministic_action_does_not_call_composer():
     assert response.actions[0].period == "20260529"
 
 
+def test_runtime_does_not_force_send_when_planner_returns_unclear_no_action():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="unclear request meaning",
+            artifact_kind="unclear",
+            action_intent="none",
+            report_scope="none",
+            ambiguity_slots=["request_meaning"],
+            requested_capabilities=[],
+        ),
+    )
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("发一下中证1000材料").payload()))
+
+    assert response.reply.kind == "clarification"
+    assert response.actions == []
+
+
 def test_runtime_blocks_explicit_foreign_channel_without_adapter_resolve():
     preflight = CapturingEmptyPreflightService()
     runtime = CrewAIReplyRuntime(
@@ -720,7 +748,7 @@ def test_runtime_defaults_bare_weekly_report_strategy_clarification_to_action():
     assert response.actions[0].strategy is None
 
 
-def test_runtime_uses_strategy_followup_to_complete_prior_weekly_clarification():
+def test_runtime_uses_planner_resolved_strategy_followup_for_weekly_action():
     store = ConversationStore(max_messages=12)
     store.save_turn(
         "wecom:group-1:sender-1",
@@ -739,12 +767,12 @@ def test_runtime_uses_strategy_followup_to_complete_prior_weekly_clarification()
     )
     install_fake_planner(
         runtime,
-        make_intent_frame(
-            user_need="clarify current request",
-            artifact_kind="unclear",
-            action_intent="none",
-            report_scope="none",
-            ambiguity_slots=["artifact"],
+        make_weekly_frame(
+            user_need="send prior weekly report request for clarified strategy",
+            report_scope="strategy",
+            selected_strategy="中证1000指增",
+            requested_capabilities=["weekly_report"],
+            ambiguity_slots=[],
         ),
     )
 
@@ -796,7 +824,7 @@ def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch
         )
 
     monkeypatch.setattr(
-        "market_support_crewai_agent.runtime.reply_agent.render_directive",
+        "market_support_crewai_agent.runtime.orchestration.reply_agent.render_directive",
         bad_render_directive,
     )
 
@@ -866,7 +894,7 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
 
     class FakeEvidenceExecutor:
         async def execute(self, request, canonical_context, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
             facts = [
@@ -891,6 +919,195 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
     assert response.reply.text == "文档证据回答"
     assert prompts
     assert "ExecutionPlan JSON" in prompts[0]
+
+
+def test_wrong_image_marker_blocked_by_alignment_verifier():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="test-key",
+            doc_mcp_enabled=True,
+            doc_mcp_base_url="http://doc-mcp.local:23000",
+        ),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="answer website question",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            requested_capabilities=["document_context"],
+            evidence_query="衍复 官网",
+            report_scope="none",
+            ambiguity_slots=[],
+        ),
+    )
+
+    class FakeComposer:
+        async def kickoff_async(self, prompt, response_format):
+            del prompt, response_format
+            return SimpleNamespace(
+                pydantic=ReplyResponse(
+                    response_id="resp-image",
+                    reply=PrimaryReply(kind="answer", text="%%comp_wx_qr_code.png%%"),
+                    actions=[],
+                ),
+                raw="",
+            )
+
+    class FakeEvidenceExecutor:
+        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.evidence import EvidenceFact
+
+            del canonical_context, plan, policy, action_history
+            facts = [
+                EvidenceFact(
+                    fact_type="document_context",
+                    value="网址：http://www.yanfuinvestments.com/\n%%comp_wx_qr_code.png%%",
+                    source_type="approved_static_knowledge",
+                    source_id="company_basic_contact",
+                    metadata={
+                        "approved_static_knowledge": True,
+                        "content_is_data_only": True,
+                        "image_markers": ("%%comp_wx_qr_code.png%%",),
+                        "image_asset_ids": ("company_public_account_qr",),
+                    },
+                )
+            ]
+            return SimpleNamespace(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=facts,
+                business_facts=derive_business_facts(facts, request),
+            )
+
+    class WrongImageVerifier:
+        async def verify(self, **kwargs):
+            del kwargs
+            return AlignmentVerification(
+                valid=False,
+                remediation="recompose",
+                issues=(
+                    AlignmentIssue(
+                        code="wrong_image_marker",
+                        message="QR code is not responsive to a website-only question",
+                    ),
+                ),
+            )
+
+    runtime.evidence_executor = FakeEvidenceExecutor()
+    runtime.alignment_verifier = WrongImageVerifier()
+    runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
+
+    try:
+        asyncio.run(runtime.reply(ReplyRequestShim("官网网址是什么").payload()))
+    except ReplyContractError as exc:
+        error = exc
+    else:
+        raise AssertionError("wrong image marker must be blocked")
+
+    assert "wrong_image_marker" in str(error)
+
+
+def test_missing_requested_image_marker_recompose_once():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="test-key",
+            doc_mcp_enabled=True,
+            doc_mcp_base_url="http://doc-mcp.local:23000",
+        ),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="answer QR code question",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            requested_capabilities=["document_context"],
+            evidence_query="衍复 公众号 二维码",
+            report_scope="none",
+            ambiguity_slots=[],
+        ),
+    )
+    composer_calls: list[str] = []
+
+    class FakeComposer:
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            composer_calls.append(prompt)
+            if len(composer_calls) == 1:
+                text = "欢迎搜索【衍复投资】公众号。"
+            else:
+                text = "%%comp_wx_qr_code.png%%\n欢迎搜索【衍复投资】公众号。"
+            return SimpleNamespace(
+                pydantic=ReplyResponse(
+                    response_id=f"resp-image-{len(composer_calls)}",
+                    reply=PrimaryReply(kind="answer", text=text),
+                    actions=[],
+                ),
+                raw="",
+            )
+
+    class FakeEvidenceExecutor:
+        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.evidence import EvidenceFact
+
+            del canonical_context, plan, policy, action_history
+            facts = [
+                EvidenceFact(
+                    fact_type="document_context",
+                    value="%%comp_wx_qr_code.png%%\n欢迎搜索【衍复投资】公众号。",
+                    source_type="approved_static_knowledge",
+                    source_id="company_public_account",
+                    metadata={
+                        "approved_static_knowledge": True,
+                        "content_is_data_only": True,
+                        "image_markers": ("%%comp_wx_qr_code.png%%",),
+                        "image_asset_ids": ("company_public_account_qr",),
+                    },
+                )
+            ]
+            return SimpleNamespace(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=facts,
+                business_facts=derive_business_facts(facts, request),
+            )
+
+    class MissingThenValidVerifier:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self, **kwargs):
+            del kwargs
+            self.calls += 1
+            if self.calls == 1:
+                return AlignmentVerification(
+                    valid=False,
+                    remediation="recompose",
+                    issues=(
+                        AlignmentIssue(
+                            code="missing_image_marker",
+                            message="requested QR code marker was omitted",
+                        ),
+                    ),
+                )
+            return AlignmentVerification(valid=True)
+
+    verifier = MissingThenValidVerifier()
+    runtime.evidence_executor = FakeEvidenceExecutor()
+    runtime.alignment_verifier = verifier
+    runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("请发一下公众号二维码").payload()))
+
+    assert response.reply.text.startswith("%%comp_wx_qr_code.png%%")
+    assert len(composer_calls) == 2
+    assert verifier.calls == 2
+    assert "alignment_remediation" in composer_calls[1]
 
 
 
@@ -942,7 +1159,7 @@ def test_runtime_uses_smalltalk_composer_for_triggered_greeting():
     assert response.actions == []
     assert prompts
     assert "base.smalltalk_composer" in prompts[0]
-    assert "actions=[]" in prompts[0]
+    assert '"actions": []' in prompts[0]
 
 def test_runtime_skips_knowledge_composer_without_document_evidence():
     runtime = CrewAIReplyRuntime(
@@ -972,7 +1189,7 @@ def test_runtime_skips_knowledge_composer_without_document_evidence():
 
     class EmptyEvidenceExecutor:
         async def execute(self, request, canonical_context, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
 
             return SimpleNamespace(
                 preflight=AdapterPreflightSnapshot.empty(),
@@ -1017,7 +1234,7 @@ def test_runtime_raises_when_composer_returns_invalid_reply_contract():
 
     class FakeEvidenceExecutor:
         async def execute(self, request, canonical_context, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
             facts = [

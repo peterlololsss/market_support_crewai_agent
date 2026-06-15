@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import asyncio
 
-from market_support_crewai_agent.runtime.action_ledger import ActionLedger
-from market_support_crewai_agent.runtime.adapter_preflight import (
+from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
+from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightItem,
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.canonicalization import canonicalize_request
-from market_support_crewai_agent.runtime.evidence_executor import EvidenceExecutor
-from market_support_crewai_agent.runtime.planning import (
+from market_support_crewai_agent.runtime.knowledge.approved_knowledge import (
+    ApprovedKnowledgeEvidenceService,
+    ApprovedKnowledgeSelection,
+)
+from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
+from market_support_crewai_agent.runtime.evidence.executor import EvidenceExecutor
+from market_support_crewai_agent.runtime.domain.planning import (
     ExecutionPlan,
     IntentFrame,
     compile_intent_frame,
 )
-from market_support_crewai_agent.runtime.policy import compile_policy
+from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.schemas import (
     ActionFeedbackRequest,
     AdapterResolveResult,
@@ -267,8 +271,22 @@ def test_evidence_executor_adds_approved_static_knowledge_context():
             del request, canonical_context, resolve_types, resolve_strategies
             return AdapterPreflightSnapshot.empty()
 
+    class FakeSelector:
+        async def select(self, **kwargs):
+            del kwargs
+            return ApprovedKnowledgeSelection(
+                selected_entry_ids=("company_public_account",),
+                selected_image_asset_ids=("company_public_account_qr",),
+                confidence="high",
+            )
+
     result = asyncio.run(
-        EvidenceExecutor(EmptyPreflightService()).execute(
+        EvidenceExecutor(
+            EmptyPreflightService(),
+            approved_knowledge_service=ApprovedKnowledgeEvidenceService(
+                selector=FakeSelector()
+            ),
+        ).execute(
             request,
             canonical_context,
             plan,
