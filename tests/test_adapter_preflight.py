@@ -5,6 +5,7 @@ import asyncio
 from market_support_crewai_agent.runtime.adapter_client import AdapterClientError
 from market_support_crewai_agent.runtime.adapter_preflight import (
     AdapterPreflightService,
+    AdapterPreflightSnapshot,
 )
 from market_support_crewai_agent.schemas import AdapterResolveResult
 
@@ -191,6 +192,21 @@ def test_preflight_can_limit_adapter_resolve_types():
     ]
     assert fake_client.requests[0].strategy is None
     assert fake_client.requests[1].strategy is None
+
+
+def test_preflight_returns_empty_snapshot_when_plan_needs_no_adapter_resolves():
+    from market_support_crewai_agent.schemas import ReplyRequest
+
+    request = ReplyRequest.model_validate(make_payload(message="hi"))
+    fake_client = FakeAdapterClient()
+    service = AdapterPreflightService(adapter_client=fake_client)
+
+    snapshot = asyncio.run(service.collect(request, resolve_types=[]))
+
+    assert snapshot == AdapterPreflightSnapshot.empty()
+    assert snapshot.available is True
+    assert fake_client.ready_calls == 0
+    assert fake_client.requests == []
 
 
 def test_preflight_uses_plan_strategy_override_for_report_resolve():

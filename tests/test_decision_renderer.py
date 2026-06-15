@@ -162,3 +162,31 @@ def test_decision_hands_off_unavailable_action_when_sales_resolves():
     assert directive.reply_kind == "human_handoff"
     assert directive.mentions[0].type == "sales"
     assert directive.action_intents == []
+
+
+def test_decision_uses_llm_composer_for_smalltalk_without_actions():
+    request = make_request(message="hi")
+    policy = compile_policy(request)
+    plan = make_plan(
+        request,
+        user_need="greeting",
+        artifact_kind="smalltalk",
+        action_intent="none",
+        report_scope="none",
+        compliance={
+            "is_compliant": True,
+            "reason_code": "unrelated_request",
+            "reason": "greeting",
+        },
+    )
+    facts = []
+    business_facts = derive_business_facts(facts, request)
+
+    directive = DecisionEngine().decide(plan, business_facts, facts, request, policy)
+
+    assert directive.mode == "smalltalk"
+    assert directive.reply_kind == "answer"
+    assert directive.text == ""
+    assert directive.action_intents == []
+    assert directive.requires_knowledge_composer is True
+    assert directive.composer_stage == "smalltalk_composer"

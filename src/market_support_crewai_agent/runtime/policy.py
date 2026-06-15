@@ -10,8 +10,6 @@ from market_support_crewai_agent.runtime.capabilities import (
     ReadCapability,
     ResponseMode,
     capability_by_name,
-    material_action_type,
-    report_action_types,
 )
 from market_support_crewai_agent.schemas import (
     AdapterResolveType,
@@ -84,10 +82,27 @@ def compile_policy(
     ):
         allowed_capabilities.add("document_context")
 
-    allowed_actions = set(report_action_types())
-    material_action = material_action_type("material")
-    if "material_pack" in allowed_capabilities and material_action is not None:
-        allowed_actions.add(material_action)
+    if request is not None and request.allowed_read_capabilities:
+        adapter_allowed = set(request.allowed_read_capabilities)
+        allowed_capabilities = {
+            capability_name
+            for capability_name in allowed_capabilities
+            if (
+                capability := capability_by_name(capability_name)
+            ) is not None
+            and (
+                capability.read_capability is None
+                or capability.read_capability in adapter_allowed
+            )
+        }
+
+    allowed_actions = {
+        capability.side_effect_action_type
+        for capability_name in allowed_capabilities
+        if (
+            capability := capability_by_name(capability_name)
+        ) is not None and capability.side_effect_action_type is not None
+    }
 
     allowed_read_capabilities = frozenset(
         capability.read_capability
