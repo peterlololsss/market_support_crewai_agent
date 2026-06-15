@@ -15,10 +15,15 @@ from market_support_crewai_agent.runtime.capabilities import (
     capability_by_resolve_type,
     resolve_type_for_action,
 )
+from market_support_crewai_agent.runtime.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.compliance_policy import refusal_text_for_reason
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.planning import ActionIntentSpec, ExecutionPlan
 from market_support_crewai_agent.runtime.policy import PolicyManifest
+from market_support_crewai_agent.runtime.send_scope_guard import (
+    conflict_explanation,
+    detect_send_scope_conflict,
+)
 from market_support_crewai_agent.schemas import (
     ReplyKind,
     ReplyMention,
@@ -35,6 +40,7 @@ class ResponseDirective(StrictModel):
     mentions: list[ReplyMention] = Field(default_factory=list)
     action_intents: list[ActionIntentSpec] = Field(default_factory=list)
     requires_knowledge_composer: bool = False
+    composer_stage: Literal["knowledge_composer", "smalltalk_composer"] | None = None
     reason_code: str = ""
 
 
@@ -78,6 +84,7 @@ class DecisionEngine:
                     mode="knowledge_answer",
                     reply_kind="answer",
                     requires_knowledge_composer=True,
+                    composer_stage="knowledge_composer",
                     reason_code="document_context_available",
                 )
             return _directive(
@@ -87,12 +94,37 @@ class DecisionEngine:
                 reason_code="document_context_missing",
             )
 
+        if plan.response_mode == "smalltalk":
+            return _directive(
+                mode="smalltalk",
+                reply_kind="answer",
+                requires_knowledge_composer=True,
+                composer_stage="smalltalk_composer",
+                reason_code="smalltalk_requires_composer",
+            )
+
         if plan.response_mode == "no_reply":
             return _directive(
                 mode="no_reply",
                 reply_kind="no_reply",
                 reason_code="no_reply",
             )
+
+        if plan.response_mode == "unable":
+            scope_conflict = detect_send_scope_conflict(
+                request,
+                # Strategy canonicalization is already reflected in the plan. The
+                # send-scope conflict check still has request-level strategy values.
+                canonical_context=CanonicalContext(),
+                artifact_kind=plan.artifact_kind,
+            )
+            if scope_conflict is not None:
+                return _directive(
+                    mode="unable",
+                    reply_kind="unable_to_answer",
+                    text=conflict_explanation(scope_conflict),
+                    reason_code="send_scope_conflict",
+                )
 
         if plan.response_mode == "action":
             return _action_directive(plan, business_facts, request)
@@ -271,6 +303,7 @@ def _directive(
     mentions: list[ReplyMention] | None = None,
     action_intents: list[ActionIntentSpec] | None = None,
     requires_knowledge_composer: bool = False,
+    composer_stage: Literal["knowledge_composer", "smalltalk_composer"] | None = None,
     reason_code: str = "",
 ) -> ResponseDirective:
     return ResponseDirective(
@@ -280,6 +313,7 @@ def _directive(
         mentions=mentions or [],
         action_intents=action_intents or [],
         requires_knowledge_composer=requires_knowledge_composer,
+        composer_stage=composer_stage,
         reason_code=reason_code,
     )
 

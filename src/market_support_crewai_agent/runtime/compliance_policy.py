@@ -32,7 +32,16 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "compliant_product_request",
         "合规产品/业务请求",
-        "Yanfu product/service requests, material/report requests, historical product data requests, and normal vague product questions.",
+        (
+            "Yanfu product/service requests are compliant when they ask for "
+            "objective product facts, strategy characteristics, public market "
+            "education, company scale/team information, material/report delivery, "
+            "historical product performance, net value, drawdown, win-rate, "
+            "exposure, holdings summaries, factor contribution, strategy frequency, "
+            "fee/performance-fee mechanics, subscription/redemption/open-day facts, "
+            "or normal vague product follow-up. Treat company size questions such "
+            "as staff count or investment team information as compliant."
+        ),
     ),
     ComplianceReasonSpec(
         "customer_service_request",
@@ -77,7 +86,12 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "proprietary_trading_or_core_strategy",
         "自营盘/核心策略收益",
-        "Proprietary account returns, self-operated account gains, or core-strategy profit questions must be refused.",
+        (
+            "Proprietary account returns, self-operated account gains, or internal "
+            "core-strategy profit questions must be refused. Do not use this for "
+            "ordinary questions about whether Yanfu has a core strategy, product "
+            "strategy characteristics, or historical product metrics."
+        ),
         "自营盘或内部收益信息我不展开。衍复各指数增强策略基于统一的 Alpha 多因子研究框架，对标不同指数获取超额。",
     ),
     ComplianceReasonSpec(
@@ -89,7 +103,13 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "restricted_internal_document",
         "内部敏感材料",
-        "Level-four valuation tables, performance attribution reports, or other sensitive internal documents must be refused unless an explicit adapter/evidence permission later allows them.",
+        (
+            "Level-four valuation tables, unpublished attribution reports, "
+            "contracts, restricted files, or other sensitive internal documents "
+            "must be refused unless an explicit adapter/evidence permission later "
+            "allows them. Do not use this merely because the user asks normal "
+            "product metrics or strategy characteristics."
+        ),
         "因合规要求，四级估值表、业绩归因报告等内部敏感材料我无法直接提供。",
     ),
     ComplianceReasonSpec(
@@ -107,7 +127,11 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "unrelated_request",
         "无关请求",
-        "Requests unrelated to Yanfu products, services, market education, or customer service must be refused.",
+        (
+            "Requests unrelated to Yanfu products, Yanfu company information, "
+            "Yanfu customer service, market education, quantitative private-fund "
+            "products, or public Yanfu educational content must be refused."
+        ),
         "这个问题与衍复产品或服务无关，我先不展开。",
     ),
     ComplianceReasonSpec(

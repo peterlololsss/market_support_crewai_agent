@@ -89,3 +89,17 @@ def test_canonicalize_does_not_confuse_a500_with_500():
 
     assert context.strategy_status == "resolved"
     assert context.selected_strategy == "中证A500"
+
+
+def test_canonicalize_resolves_representative_full_index_typo():
+    context = canonicalize_request(
+        make_request(
+            "介绍一下宗曾全子",
+            available_strategies=["中证全指", "中证500"],
+        )
+    )
+
+    assert context.strategy_status == "resolved"
+    assert context.selected_strategy == "中证全指"
+    assert context.entities[0].raw_text == "宗曾全子"
+    assert context.entities[0].source == "alias_table"

@@ -18,29 +18,6 @@ from market_support_crewai_agent.settings import Settings, get_settings
 _DOC_CAPABILITY = next(iter(read_capabilities_for_artifact("knowledge_answer")), "")
 _MCP_ACCEPT_HEADER = "application/json, text/event-stream"
 _MAX_CHARS_PER_DOCUMENT = 6000
-_KNOWLEDGE_TERMS = (
-    "公司",
-    "团队",
-    "股权",
-    "规模",
-    "地址",
-    "官网",
-    "公众号",
-    "指数",
-    "策略",
-    "因子",
-    "换手",
-    "容量",
-    "成分股",
-    "持仓",
-    "超额",
-    "分红",
-    "净值",
-    "开放",
-    "对冲",
-    "中性",
-)
-_COMPANY_TERMS = ("公司", "团队", "股权", "地址", "官网", "公众号", "衍复")
 _QUESTION_BLOCK_RE = re.compile(r"(?=Q[:：])")
 _LOCAL_LOCATOR_RE = re.compile(
     r"(?i)(file://\S+|/[Uu]sers/\S+|/[Hh]ome/\S+|[A-Za-z]:\\[^\s]+|"
@@ -93,16 +70,18 @@ class DocumentMcpClient:
         request: ReplyRequest,
         canonical_context: CanonicalContext,
         *,
+        evidence_query: str | None = None,
         max_documents: int = 2,
         max_chars_per_document: int = _MAX_CHARS_PER_DOCUMENT,
     ) -> list[DocumentEvidenceChunk]:
         if not self.base_url:
             return []
 
+        query_text = _retrieval_query(request, evidence_query)
         products = self._list_products()
         selected_products = _select_products(
             products,
-            request.message,
+            query_text,
             canonical_context,
             max_documents=max_documents,
         )
@@ -125,7 +104,7 @@ class DocumentMcpClient:
                     title=title,
                     text=_select_document_text(
                         content,
-                        request.message,
+                        query_text,
                         canonical_context,
                         max_chars=max_chars_per_document,
                     ),
@@ -138,6 +117,7 @@ class DocumentMcpClient:
         request: ReplyRequest,
         canonical_context: CanonicalContext,
         *,
+        evidence_query: str | None = None,
         max_documents: int = 2,
         max_chars_per_document: int = _MAX_CHARS_PER_DOCUMENT,
     ) -> list[DocumentEvidenceChunk]:
@@ -145,6 +125,7 @@ class DocumentMcpClient:
             self.fetch_context,
             request,
             canonical_context,
+            evidence_query=evidence_query,
             max_documents=max_documents,
             max_chars_per_document=max_chars_per_document,
         )
@@ -247,7 +228,11 @@ class DocumentMcpEvidenceService:
             ]
 
         try:
-            chunks = await self.client.fetch_context_async(request, canonical_context)
+            chunks = await self.client.fetch_context_async(
+                request,
+                canonical_context,
+                evidence_query=plan.evidence_query,
+            )
         except DocumentMcpError as exc:
             return [
                 _document_context_unavailable_fact(
@@ -434,15 +419,22 @@ def _is_document_instruction_line(line: str) -> bool:
     return any(pattern.search(normalized) for pattern in _PROMPT_INJECTION_PATTERNS)
 
 
+def _retrieval_query(request: ReplyRequest, evidence_query: str | None) -> str:
+    semantic_query = str(evidence_query or "").strip()
+    if semantic_query:
+        return semantic_query
+    return str(request.message or "").strip()
+
+
 def _select_products(
     products: list[dict],
-    message: str,
+    query_text: str,
     canonical_context: CanonicalContext,
     *,
     max_documents: int,
 ) -> list[dict]:
     scored = [
-        (_score_product(product, message, canonical_context), product)
+        (_score_product(product, query_text, canonical_context), product)
         for product in products
     ]
     selected = [
@@ -459,39 +451,46 @@ def _select_products(
 
 def _score_product(
     product: dict,
-    message: str,
+    query_text: str,
     canonical_context: CanonicalContext,
 ) -> int:
-    normalized_message = message.lower()
+    normalized_query = query_text.lower()
     searchable = _product_searchable_text(product)
-    score = 0
+    query_index_tokens = _index_tokens(
+        " ".join(
+            value
+            for value in (
+                normalized_query,
+                (canonical_context.selected_strategy or "").lower(),
+            )
+            if value
+        )
+    )
+    product_index_tokens = _index_tokens(searchable)
+    if (
+        query_index_tokens
+        and product_index_tokens
+        and not query_index_tokens.intersection(product_index_tokens)
+    ):
+        return 0
+
+    score = _text_similarity_score(normalized_query, searchable)
 
     strategy = (canonical_context.selected_strategy or "").lower()
     if strategy and strategy in searchable:
         score += 100
 
-    if any(term in normalized_message for term in _COMPANY_TERMS):
-        category = str(product.get("category") or "")
-        if category == "公司介绍":
-            score += 60
-        if category == "常见问答":
-            score += 20
-
     for keyword in product.get("keywords") or []:
         normalized_keyword = str(keyword).lower()
-        if normalized_keyword and normalized_keyword in normalized_message:
+        if normalized_keyword and normalized_keyword in normalized_query:
             score += 10
 
     product_name = str(product.get("name") or "").lower()
     product_title = str(product.get("title") or "").lower()
-    if product_name and product_name in normalized_message:
+    if product_name and product_name in normalized_query:
         score += 40
-    if product_title and product_title in normalized_message:
+    if product_title and product_title in normalized_query:
         score += 40
-
-    if score == 0 and str(product.get("category") or "") == "常见问答":
-        if any(term in normalized_message for term in _KNOWLEDGE_TERMS):
-            score += 5
 
     return score
 
@@ -506,6 +505,64 @@ def _product_searchable_text(product: dict) -> str:
         " ".join(str(keyword) for keyword in product.get("keywords") or []),
     ]
     return " ".join(str(value or "") for value in values).lower()
+
+
+def _index_tokens(text: str) -> set[str]:
+    normalized = str(text or "").lower()
+    tokens: set[str] = set()
+    if re.search(r"中证\s*a\s*500|(?<![0-9a-z])a\s*500(?![0-9a-z])", normalized):
+        tokens.add("a500")
+    if re.search(r"中证\s*1000|(?<![0-9a-z])1000(?![0-9a-z])", normalized):
+        tokens.add("1000")
+    if re.search(r"中证\s*500|(?<![0-9a-z])500(?![0-9a-z])", normalized):
+        tokens.add("500")
+    if re.search(r"沪深\s*300|(?<![0-9a-z])300(?![0-9a-z])", normalized):
+        tokens.add("300")
+    if "中证全指" in normalized or "全指" in normalized:
+        tokens.add("全指")
+    if "万得小市值" in normalized or "小市值" in normalized or "小盘" in normalized:
+        tokens.add("小市值")
+    if "灵活对冲" in normalized:
+        tokens.add("灵活对冲")
+    if "完全对冲" in normalized or "市场中性" in normalized or "中性" in normalized:
+        tokens.add("中性")
+    return tokens
+
+
+def _text_similarity_score(query: str, text: str) -> int:
+    query_terms = _semantic_terms(query)
+    if not query_terms:
+        return 0
+    score = 0
+    for term in query_terms:
+        if term in text:
+            score += min(30, max(2, len(term))) * 2
+    text_terms = _semantic_terms(text)
+    if not text_terms:
+        return score
+    score += len(query_terms & text_terms)
+    return score
+
+
+def _semantic_terms(text: str) -> set[str]:
+    normalized = str(text or "").lower()
+    terms = {
+        token
+        for token in re.split(r"[\s,，。；;:：/？?！!（）()、&|]+", normalized)
+        if len(token) >= 2
+    }
+    compact = re.sub(r"[\s,，。；;:：/？?！!（）()、&|]+", "", normalized)
+    if len(compact) >= 2:
+        terms.update(
+            compact[index : index + 2]
+            for index in range(0, len(compact) - 1)
+        )
+    if len(compact) >= 3:
+        terms.update(
+            compact[index : index + 3]
+            for index in range(0, len(compact) - 2)
+        )
+    return terms
 
 
 def _first_category(products: list[dict], category: str) -> dict | None:
@@ -555,24 +612,13 @@ def _select_document_text(
 
 def _score_text_block(
     block: str,
-    message: str,
+    query_text: str,
     canonical_context: CanonicalContext,
 ) -> int:
     normalized_block = block.lower()
-    normalized_message = message.lower()
     score = 0
     strategy = (canonical_context.selected_strategy or "").lower()
     if strategy and strategy in normalized_block:
         score += 20
-    for term in _KNOWLEDGE_TERMS:
-        if term in normalized_message and term in normalized_block:
-            score += 5
-    for token in _message_tokens(normalized_message):
-        if token in normalized_block:
-            score += 2
+    score += _text_similarity_score(query_text.lower(), normalized_block)
     return score
-
-
-def _message_tokens(normalized_message: str) -> list[str]:
-    raw_tokens = re.split(r"[\s,，。；;:：/？?！!（）()、]+", normalized_message)
-    return [token for token in raw_tokens if len(token) >= 2]

@@ -77,6 +77,8 @@ class AdapterPreflightService:
             resolve_types,
             resolve_strategies,
         )
+        if not resolve_requests:
+            return AdapterPreflightSnapshot.empty()
         try:
             await self.adapter_client.assert_ready_async()
             results = await self.adapter_client.resolve_many_async(resolve_requests)

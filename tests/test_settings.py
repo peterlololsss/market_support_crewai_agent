@@ -55,6 +55,16 @@ def test_llm_max_tokens_defaults_to_real_structured_output_budget(monkeypatch):
     assert settings.llm_max_tokens == 6000
 
 
+def test_llm_timeout_defaults_match_live_provider_budget(monkeypatch):
+    monkeypatch.delenv("YANFU_LLM_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("CREWAI_MAX_EXECUTION_TIME", raising=False)
+
+    settings = get_settings()
+
+    assert settings.llm_timeout_seconds == 90
+    assert settings.crewai_max_execution_time == 120
+
+
 def test_llm_max_tokens_reads_environment(monkeypatch):
     monkeypatch.setenv("YANFU_LLM_MAX_TOKENS", "2500")
 

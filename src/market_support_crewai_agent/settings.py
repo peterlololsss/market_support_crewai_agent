@@ -15,12 +15,12 @@ class Settings(BaseModel):
     llm_provider: str = "openai"
     llm_model: str = "deepseek-v4-pro"
     llm_api_key: str | None = None
-    llm_timeout_seconds: float = Field(default=30.0, gt=0)
+    llm_timeout_seconds: float = Field(default=90.0, gt=0)
     llm_temperature: float = Field(default=0.1, ge=0)
     llm_max_tokens: int = Field(default=6000, gt=0)
     crewai_verbose: bool = False
     crewai_max_iter: int = Field(default=5, gt=0)
-    crewai_max_execution_time: int = Field(default=60, gt=0)
+    crewai_max_execution_time: int = Field(default=120, gt=0)
     crewai_max_retry_limit: int = Field(default=2, ge=0)
     agent_input_max_message_chars: int | None = Field(default=None, gt=0)
     agent_conversation_ttl_seconds: int = Field(default=86400, gt=0)
@@ -43,12 +43,12 @@ def get_settings() -> Settings:
         llm_provider=os.getenv("YANFU_LLM_PROVIDER", "openai"),
         llm_model=os.getenv("YANFU_LLM_MODEL", "deepseek-v4-pro"),
         llm_api_key=os.getenv("YANFU_LLM_API_KEY") or None,
-        llm_timeout_seconds=_float_env("YANFU_LLM_TIMEOUT_SECONDS", 30.0),
+        llm_timeout_seconds=_float_env("YANFU_LLM_TIMEOUT_SECONDS", 90.0),
         llm_temperature=_float_env("YANFU_LLM_TEMPERATURE", 0.1),
         llm_max_tokens=_int_env("YANFU_LLM_MAX_TOKENS", 6000),
         crewai_verbose=_bool_env("CREWAI_VERBOSE", False),
         crewai_max_iter=_int_env("CREWAI_MAX_ITER", 5),
-        crewai_max_execution_time=_int_env("CREWAI_MAX_EXECUTION_TIME", 60),
+        crewai_max_execution_time=_int_env("CREWAI_MAX_EXECUTION_TIME", 120),
         crewai_max_retry_limit=_non_negative_int_env("CREWAI_MAX_RETRY_LIMIT", 2),
         agent_input_max_message_chars=_optional_int_env(
             "AGENT_INPUT_MAX_MESSAGE_CHARS"

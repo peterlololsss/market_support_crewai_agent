@@ -104,7 +104,13 @@ _ALIAS_SPECS: tuple[_AliasSpec, ...] = (
     ),
     _AliasSpec(
         "中证全指",
-        (_pattern(r"中证全指"), _pattern(r"全指")),
+        (
+            _pattern(r"中证全指"),
+            _pattern(r"全指"),
+            _pattern(r"宗曾全子"),
+            _pattern(r"宗证全指"),
+            _pattern(r"中正全指"),
+        ),
         ("中证全指", "全指"),
     ),
     _AliasSpec(

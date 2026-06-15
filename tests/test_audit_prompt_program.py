@@ -194,7 +194,7 @@ def test_knowledge_answer_records_planner_and_composer_programs():
             report_scope="none",
         )
     )
-    runtime._build_agent = lambda: FakeComposerAgent()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: FakeComposerAgent()  # type: ignore[method-assign]
 
     response = asyncio.run(runtime.reply(make_request("这个策略怎么样")))
 
