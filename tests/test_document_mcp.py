@@ -5,13 +5,15 @@ import asyncio
 from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.evidence.document_mcp import (
     DocumentEvidenceChunk,
+    DocumentMcpClient,
     DocumentMcpError,
     DocumentMcpEvidenceService,
+    DocumentProductSelection,
     _parse_mcp_message,
     _sanitize_document_text,
     _select_document_text,
-    _select_products,
 )
+from market_support_crewai_agent.runtime.evidence import document_mcp
 from market_support_crewai_agent.runtime.domain.planning import (
     ExecutionPlan,
     IntentFrame,
@@ -100,6 +102,38 @@ class OversizedDocumentClient:
                 title="Oversized Document",
                 text="Q：超大文档\nA：" + ("内容" * 4000),
             )
+        ]
+
+
+class FakeProductSelector:
+    def __init__(self, selection: DocumentProductSelection) -> None:
+        self.selection = selection
+        self.calls = []
+
+    async def select(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.selection
+
+
+class FakeMcpClient(DocumentMcpClient):
+    def __init__(self, products, documents, selector) -> None:
+        super().__init__(
+            Settings(doc_mcp_base_url="http://doc-mcp.local:23000"),
+            product_selector=selector,
+        )
+        self.products = products
+        self.documents = documents
+        self.requested_document_ids = []
+
+    def _list_products(self) -> list[dict]:
+        return self.products
+
+    def _get_documents(self, document_ids: list[str]) -> list[dict]:
+        self.requested_document_ids.append(tuple(document_ids))
+        return [
+            document
+            for document in self.documents
+            if str(document.get("id") or "") in document_ids
         ]
 
 
@@ -290,125 +324,111 @@ def test_parse_mcp_sse_message():
     assert _parse_mcp_message(payload)["result"] == {"ok": True}
 
 
-def test_select_products_routes_pinyin_company_question_to_company_intro():
-    request = make_request(message="yanfu是什么")
-    canonical_context = canonicalize_request(request)
-    products = [
-        {
-            "id": "faq",
-            "name": "常见问答",
-            "title": "常见Q&A",
-            "category": "常见问答",
-            "keywords": ["衍复"],
-        },
-        {
-            "id": "company",
-            "name": "衍复公司介绍",
-            "title": "衍复公司介绍(简介)",
-            "category": "公司介绍",
-            "keywords": ["衍复投资", "量化投资"],
-        },
-        {
-            "id": "strategy",
-            "name": "中证1000",
-            "title": "衍复中证1000指数增强策略",
-            "category": "指数增强策略",
-            "keywords": ["中证1000"],
-        },
-    ]
-
-    selected = _select_products(
-        products,
-        "衍复 公司介绍 基本信息",
-        canonical_context,
-        max_documents=2,
-    )
-
-    assert [product["id"] for product in selected] == ["company", "faq"]
 
 
-def test_select_products_routes_staff_count_question_to_company_intro():
-    request = make_request(message="衍复现在多少人")
-    canonical_context = canonicalize_request(request)
-    products = [
-        {"id": "faq", "category": "常见问答", "keywords": ["衍复"]},
-        {"id": "company", "category": "公司介绍", "keywords": ["衍复投资"]},
-    ]
-
-    selected = _select_products(
-        products,
-        "衍复 公司介绍 员工人数 团队",
-        canonical_context,
-        max_documents=1,
-    )
-
-    assert selected[0]["id"] == "company"
-
-
-def test_select_products_strictly_distinguishes_a500_from_500():
+def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
     request = make_request(
-        message="中证500指增介绍一下",
-        available_strategies=["中证500", "中证A500"],
+        message="最新规模情况",
+        available_strategies=[],
+        channel_type="non_bank",
     )
     canonical_context = canonicalize_request(request)
-    products = [
-        {
-            "id": "a500",
-            "name": "衍复中证A500指数增强策略",
-            "title": "中证A500指增",
-            "category": "指数增强策略",
-            "keywords": ["中证A500", "A500"],
-        },
-        {
-            "id": "500",
-            "name": "衍复中证500指数增强策略",
-            "title": "中证500指增",
-            "category": "指数增强策略",
-            "keywords": ["中证500", "500"],
-        },
-    ]
-
-    selected = _select_products(
-        products,
-        "中证500 指数增强 策略介绍",
-        canonical_context,
-        max_documents=2,
+    selector = FakeProductSelector(
+        DocumentProductSelection(
+            document_ids=("衍复公司介绍(简介)",),
+            confidence="high",
+            rationale="company-wide latest scale question",
+        )
+    )
+    client = FakeMcpClient(
+        products=[
+            {
+                "id": "衍复万得小市值指数增强策略",
+                "name": "万得小市值",
+                "title": "衍复万得小市值指数增强策略",
+                "category": "指数增强策略",
+                "summary": "小市值策略规模与容量。",
+            },
+            {
+                "id": "衍复公司介绍(简介)",
+                "name": "衍复公司介绍",
+                "title": "衍复公司介绍(简介)",
+                "category": "公司介绍",
+                "summary": "公司基本信息、管理规模和产品策略。",
+            },
+        ],
+        documents=[
+            {
+                "id": "衍复公司介绍(简介)",
+                "title": "衍复公司介绍(简介)",
+                "content": "Q：最新各条线管理总规模请发下\nA：【2026年一季度末规模】衍复整体规模约780亿人民币",
+            }
+        ],
+        selector=selector,
     )
 
-    assert [product["id"] for product in selected] == ["500"]
+    chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
+
+    assert selector.calls[0]["evidence_query"] == "最新规模情况"
+    assert selector.calls[0]["products"][0]["id"] == "衍复万得小市值指数增强策略"
+    assert client.requested_document_ids == [("衍复公司介绍(简介)",)]
+    assert [chunk.document_id for chunk in chunks] == ["衍复公司介绍(简介)"]
+    assert "2026年一季度末规模" in chunks[0].text
 
 
-def test_select_products_strictly_distinguishes_1000_from_500():
-    request = make_request(
-        message="1000指增因子贡献",
-        available_strategies=["中证1000", "中证500"],
-    )
+def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
+    request = make_request(message="最新规模情况", available_strategies=[])
     canonical_context = canonicalize_request(request)
-    products = [
-        {
-            "id": "500",
-            "name": "衍复中证500指数增强策略",
-            "title": "中证500指增",
-            "category": "指数增强策略",
-            "keywords": ["中证500", "500"],
-        },
-        {
-            "id": "1000",
-            "name": "衍复中证1000指数增强策略",
-            "title": "中证1000指增",
-            "category": "指数增强策略",
-            "keywords": ["中证1000", "1000"],
-        },
-    ]
-
-    selected = _select_products(
-        products,
-        "中证1000 指数增强 因子贡献",
-        canonical_context,
-        max_documents=2,
+    selector = FakeProductSelector(
+        DocumentProductSelection(
+            document_ids=("unknown", "company", "company"),
+            confidence="high",
+        )
+    )
+    client = FakeMcpClient(
+        products=[{"id": "company"}, {"id": "strategy"}],
+        documents=[
+            {"id": "company", "title": "Company", "content": "Q：规模\nA：公司规模"},
+            {"id": "strategy", "title": "Strategy", "content": "Q：策略\nA：策略说明"},
+        ],
+        selector=selector,
     )
 
-    assert [product["id"] for product in selected] == ["1000"]
+    chunks = asyncio.run(
+        client.fetch_context_async(request, canonical_context, max_documents=1)
+    )
+
+    assert client.requested_document_ids == [("company",)]
+    assert [chunk.document_id for chunk in chunks] == ["company"]
+
+
+def test_document_mcp_client_returns_no_context_when_selector_declines():
+    request = make_request(message="最新规模情况", available_strategies=[])
+    canonical_context = canonicalize_request(request)
+    selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
+    client = FakeMcpClient(
+        products=[{"id": "company"}],
+        documents=[{"id": "company", "title": "Company", "content": "Q：规模\nA：公司规模"}],
+        selector=selector,
+    )
+
+    chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
+
+    assert chunks == []
+    assert client.requested_document_ids == []
+
+
+def test_document_mcp_product_selection_no_active_lexical_helpers():
+    forbidden = (
+        "_select_products",
+        "_score_product",
+        "_product_searchable_text",
+        "_index_tokens",
+        "_first_category",
+    )
+
+    for name in forbidden:
+        assert not hasattr(document_mcp, name)
 
 
 def test_sanitize_document_text_redacts_locators_secrets_and_document_instructions():
