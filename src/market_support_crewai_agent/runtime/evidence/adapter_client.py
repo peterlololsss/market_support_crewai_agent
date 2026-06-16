@@ -10,6 +10,8 @@ from market_support_crewai_agent.runtime.domain.capabilities import adapter_reso
 from market_support_crewai_agent.schemas import (
     AdapterCapabilities,
     AdapterMetrics,
+    AdapterReportScopeRequest,
+    AdapterReportScopeResult,
     AdapterResolveBatchRequest,
     AdapterResolveBatchResult,
     AdapterResolveRequest,
@@ -36,6 +38,9 @@ REQUIRED_ENDPOINTS = {
     "metrics": "/adapter/metrics",
     "resolve": "/adapter/resolve",
     "batch_resolve": "/adapter/resolve/batch",
+}
+OPTIONAL_ENDPOINTS = {
+    "report_scope": "/adapter/report-scope",
 }
 REQUIRED_MIN_BATCH_REQUESTS = len(REQUIRED_RESOLVE_TYPES)
 
@@ -107,6 +112,16 @@ class AdapterResolveClient:
         except ValueError as exc:
             raise AdapterClientError("adapter batch resolve returned an invalid contract") from exc
 
+    def report_scope(self, request: AdapterReportScopeRequest) -> AdapterReportScopeResult:
+        raw = self._post_json(
+            "/adapter/report-scope",
+            request.model_dump(mode="json", exclude_none=True),
+        )
+        try:
+            return AdapterReportScopeResult.model_validate_json(raw)
+        except ValueError as exc:
+            raise AdapterClientError("adapter report-scope returned an invalid contract") from exc
+
     def _get_json(self, path: str) -> str:
         return self._request_json("GET", path)
 
@@ -148,6 +163,12 @@ class AdapterResolveClient:
     ) -> list[AdapterResolveResult]:
         return await asyncio.to_thread(self.resolve_many, requests)
 
+    async def report_scope_async(
+        self,
+        request: AdapterReportScopeRequest,
+    ) -> AdapterReportScopeResult:
+        return await asyncio.to_thread(self.report_scope, request)
+
     async def capabilities_async(self) -> AdapterCapabilities:
         return await asyncio.to_thread(self.capabilities)
 
@@ -171,6 +192,10 @@ def _adapter_capability_errors(capabilities: AdapterCapabilities) -> list[str]:
     for name, path in REQUIRED_ENDPOINTS.items():
         actual = getattr(capabilities.endpoints, name)
         if actual != path:
+            errors.append("endpoints.{}={}".format(name, actual))
+    for name, path in OPTIONAL_ENDPOINTS.items():
+        actual = getattr(capabilities.endpoints, name, None)
+        if actual is not None and actual != path:
             errors.append("endpoints.{}={}".format(name, actual))
     missing_types = sorted(REQUIRED_RESOLVE_TYPES - set(capabilities.resolve_types))
     if missing_types:

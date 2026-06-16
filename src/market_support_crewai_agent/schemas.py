@@ -27,6 +27,8 @@ AdapterResolveStatus = Literal[
     "forbidden",
     "temporarily_unavailable",
 ]
+AdapterReportScopeCommand = Literal["summary", "match", "list_products"]
+AdapterReportScopeMaterialType = Literal["weekly", "monthly"]
 ActionExecutionStatus = Literal["executed", "failed", "skipped"]
 ActionExecutionType = Literal[
     "send_material_pack",
@@ -81,6 +83,22 @@ class AdapterResolveRequest(StrictModel):
     strategy: str | None = None
 
 
+class ReportScopeSection(StrictModel):
+    name: str = Field(min_length=1)
+    expected_product_count: int = Field(default=0, ge=0)
+    generated_product_count: int = Field(default=0, ge=0)
+    missing_product_count: int = Field(default=0, ge=0)
+
+
+class ReportScopeProduct(StrictModel):
+    product_name: str = Field(min_length=1)
+    portfolio_type: str | None = None
+    report_section: str = Field(default="unknown", min_length=1)
+    source_pdf_status: Literal["found", "missing"]
+    final_report_status: Literal["generated", "not_generated"]
+    file_name: str | None = None
+
+
 class AdapterResolveResult(StrictModel):
     contract_version: Literal["adapter-resolve"]
     resolve_type: AdapterResolveType
@@ -97,9 +115,19 @@ class AdapterResolveResult(StrictModel):
     strategy: str | None = None
     period: str | None = None
     report_date: str | None = None
+    period_start: str | None = None
+    period_end: str | None = None
+    period_label: str | None = None
     contains_strategy: bool | None = None
     generated_strategies: list[str] = Field(default_factory=list)
     scope_status: Literal["included", "excluded", "unknown"] | None = None
+    report_scope_schema_version: str | None = None
+    source_trade_date: str | None = None
+    scope_complete: bool | None = None
+    expected_product_count: int | None = Field(default=None, ge=0)
+    generated_product_count: int | None = Field(default=None, ge=0)
+    missing_product_count: int | None = Field(default=None, ge=0)
+    report_sections: list[ReportScopeSection] = Field(default_factory=list, max_length=64)
 
     @field_validator("detail")
     @classmethod
@@ -129,12 +157,67 @@ class AdapterResolveBatchResult(StrictModel):
     results: list[AdapterResolveResult]
 
 
+class AdapterReportScopeRequest(StrictModel):
+    material_type: AdapterReportScopeMaterialType
+    dist_name: str = Field(min_length=1)
+    command: AdapterReportScopeCommand
+    period: str | None = None
+    query: str | None = None
+    page: int | None = Field(default=None, ge=1)
+    page_size: int | None = Field(default=None, ge=1, le=50)
+    section_name: str | None = None
+
+
+class AdapterReportScopeMatch(StrictModel):
+    status: Literal["matched", "not_found", "ambiguous"]
+    query: str = ""
+    match_type: Literal["section", "product"] | None = None
+    matched_section: str | None = None
+    candidate_count: int = Field(default=0, ge=0)
+    products: list[ReportScopeProduct] = Field(default_factory=list, max_length=50)
+    product_page: int = Field(default=1, ge=1)
+    product_page_size: int = Field(default=20, ge=1, le=50)
+
+
+class AdapterReportScopeResult(StrictModel):
+    contract_version: Literal["adapter-report-scope"]
+    material_type: AdapterReportScopeMaterialType
+    dist_name: str
+    period: str
+    status: AdapterResolveStatus
+    reason_code: str
+    report_date: str | None = None
+    period_start: str | None = None
+    period_end: str | None = None
+    period_label: str | None = None
+    detail: str | None = None
+    schema_version: str | None = None
+    source_trade_date: str | None = None
+    scope_complete: bool | None = None
+    expected_product_count: int | None = Field(default=None, ge=0)
+    generated_product_count: int | None = Field(default=None, ge=0)
+    missing_product_count: int | None = Field(default=None, ge=0)
+    report_sections: list[ReportScopeSection] = Field(default_factory=list, max_length=64)
+    match: AdapterReportScopeMatch | None = None
+    products: list[ReportScopeProduct] = Field(default_factory=list, max_length=50)
+    product_page: int | None = Field(default=None, ge=1)
+    product_page_size: int | None = Field(default=None, ge=1, le=50)
+    product_total_count: int | None = Field(default=None, ge=0)
+
+    @field_validator("detail")
+    @classmethod
+    def validate_detail_is_sanitized(cls, value: str | None) -> str | None:
+        _reject_raw_locator_text(value, "detail")
+        return value
+
+
 class AdapterCapabilityEndpoints(StrictModel):
     health: str
     capabilities: str
     metrics: str
     resolve: str
     batch_resolve: str
+    report_scope: str | None = None
 
 
 class AdapterCapabilityAuth(StrictModel):

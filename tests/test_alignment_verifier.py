@@ -47,3 +47,13 @@ def test_refetch_document_context_requires_refined_query():
             failure_code="missing_evidence",
             remediation="refetch_document_context",
         )
+
+
+def test_refetch_report_scope_requires_refined_query():
+    with pytest.raises(ValueError):
+        ReplyAlignmentVerdict(
+            aligned=False,
+            safe_to_return=False,
+            failure_code="missing_evidence",
+            remediation="refetch_report_scope",
+        )

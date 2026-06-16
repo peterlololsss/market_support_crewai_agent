@@ -23,6 +23,7 @@ ArtifactKind = Literal[
     "material_pack",
     "weekly_report",
     "monthly_report",
+    "multi_action",
     "knowledge_answer",
     "human_support",
     "refusal",

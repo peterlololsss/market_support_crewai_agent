@@ -119,7 +119,10 @@ def compile_policy(
         ) is not None and capability.resolve_type is not None
     )
     allowed_reply_modes = _DEFAULT_REPLY_MODES
-    if "document_context" in allowed_capabilities:
+    if "document_context" in allowed_capabilities or {
+        "weekly_report",
+        "monthly_report",
+    }.intersection(allowed_capabilities):
         allowed_reply_modes = allowed_reply_modes | frozenset({"knowledge_answer"})
 
     return PolicyManifest(

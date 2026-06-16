@@ -110,6 +110,7 @@ _REPORT_MISSING_TOKENS = (
     "{} does not show",
 )
 _IMAGE_MARKER_RE = re.compile(r"%%([\w\d_.-]+\.png)%%")
+_CLAIM_UNIT_SPLIT_RE = re.compile(r"((?:[。！？!?]\s*)|\n+)")
 
 
 class ReplyContractError(RuntimeError):
@@ -156,6 +157,25 @@ def validate_reply(
     issues.extend(_validate_sent_claims_grounded_by_ledger(response, business_facts))
     issues.extend(_validate_report_claims(response.reply.text, business_facts))
     return ValidationResult(valid=not issues, issues=tuple(issues))
+
+
+def remove_pre_execution_send_claims(text: str) -> str:
+    """Strip composer text that claims outbound actions already executed."""
+    if not _first_completed_send_claim_token(str(text or "").lower()):
+        return text
+
+    units = _text_units(text)
+    kept: list[str] = []
+    removed = False
+    for unit in units:
+        if _first_completed_send_claim_token(unit.lower()):
+            removed = True
+            continue
+        kept.append(unit)
+
+    if not removed:
+        return text
+    return re.sub(r"\n{3,}", "\n\n", "".join(kept)).strip()
 
 
 def _validate_policy_and_kind(
@@ -356,10 +376,23 @@ def _validate_actions(
         issues.extend(_validate_report_action(action, candidate, business_facts))
 
     if response.actions and response.reply.text.strip():
+        directive_text = directive.text.strip()
+        composer_text_allowed = (
+            directive.requires_knowledge_composer
+            and directive.composer_stage == "knowledge_composer"
+        )
+        unexpected_text = (
+            response.reply.text.strip() != directive_text
+            if directive_text
+            else not composer_text_allowed
+        )
+    else:
+        unexpected_text = False
+    if unexpected_text:
         issues.append(
             ValidationIssue(
                 code="outbound_action_reply_text_not_empty",
-                message="side-effect action responses must leave reply.text empty",
+                message="side-effect action reply.text must be empty unless supplied by the directive",
             )
         )
     if response.actions and response.reply.mentions:
@@ -481,16 +514,19 @@ def _validate_knowledge_grounding(
     directive: ResponseDirective,
     evidence_facts: list[EvidenceFact],
 ) -> list[ValidationIssue]:
-    if directive.mode != "knowledge_answer":
+    if (
+        directive.mode != "knowledge_answer"
+        and directive.composer_stage != "knowledge_composer"
+    ):
         return []
     if response.reply.kind != "answer" or not response.reply.text.strip():
         return []
-    if _has_document_context_evidence(evidence_facts):
+    if _has_knowledge_answer_evidence(evidence_facts):
         return []
     return [
         ValidationIssue(
             code="knowledge_answer_without_document_evidence",
-            message="knowledge answer requires document_context evidence",
+            message="knowledge answer requires document_context or report_scope evidence",
         )
     ]
 
@@ -657,11 +693,50 @@ def _has_document_context_evidence(evidence_facts: list[EvidenceFact]) -> bool:
     return any(_is_trusted_document_context(fact) for fact in evidence_facts)
 
 
+def _has_knowledge_answer_evidence(evidence_facts: list[EvidenceFact]) -> bool:
+    if _has_document_context_evidence(evidence_facts):
+        return True
+    return any(
+        (
+            (
+                fact.source_type == "adapter_report_scope"
+                and fact.fact_type
+                in {"report_scope_summary", "report_scope_match", "report_scope_products"}
+            )
+            or (
+                fact.source_type == "adapter_resolve"
+                and fact.fact_type == "report_period"
+            )
+        )
+        and bool(fact.value)
+        for fact in evidence_facts
+    )
+
+
 def _first_send_claim_token(normalized_text: str) -> str:
     for token in _COMPLETED_SEND_CLAIM_TOKENS + _RECENT_SEND_REFERENCE_TOKENS:
         if token.lower() in normalized_text:
             return token
     return ""
+
+
+def _first_completed_send_claim_token(normalized_text: str) -> str:
+    for token in _COMPLETED_SEND_CLAIM_TOKENS:
+        if token.lower() in normalized_text:
+            return token
+    return ""
+
+
+def _text_units(text: str) -> list[str]:
+    parts = _CLAIM_UNIT_SPLIT_RE.split(str(text or ""))
+    units: list[str] = []
+    for index in range(0, len(parts), 2):
+        unit = parts[index]
+        if index + 1 < len(parts):
+            unit += parts[index + 1]
+        if unit:
+            units.append(unit)
+    return units
 
 
 def _claimed_material_type(normalized_text: str) -> str | None:
