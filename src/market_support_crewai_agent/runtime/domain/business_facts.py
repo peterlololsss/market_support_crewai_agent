@@ -40,6 +40,14 @@ class ReportState(ResolvableState):
     strategy: str | None = None
     period: str | None = None
     report_date: str | None = None
+    period_start: str | None = None
+    period_end: str | None = None
+    period_label: str | None = None
+    scope_complete: bool | None = None
+    expected_product_count: int | None = None
+    generated_product_count: int | None = None
+    missing_product_count: int | None = None
+    report_sections: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -192,9 +200,16 @@ def _derive_report_state(
         "report_scope_status",
         resolve_type,
     )
+    period_fact = find_fact(
+        evidence_facts,
+        "report_period",
+        resolve_type,
+    )
     metadata = {}
     if base_fact is not None:
         metadata.update(base_fact.metadata)
+    if period_fact is not None:
+        metadata.update(period_fact.metadata)
     if contains_fact is not None:
         metadata.update(contains_fact.metadata)
     if scope_fact is not None:
@@ -215,6 +230,22 @@ def _derive_report_state(
         strategy=_optional_str(metadata.get("strategy")) or base_state.strategy,
         period=_optional_str(metadata.get("period")),
         report_date=_optional_str(metadata.get("report_date")),
+        period_start=_optional_str(metadata.get("period_start")),
+        period_end=_optional_str(metadata.get("period_end")),
+        period_label=_optional_str(metadata.get("period_label")),
+        scope_complete=(
+            bool(metadata.get("scope_complete"))
+            if metadata.get("scope_complete") is not None
+            else None
+        ),
+        expected_product_count=_optional_int(metadata.get("expected_product_count")),
+        generated_product_count=_optional_int(metadata.get("generated_product_count")),
+        missing_product_count=_optional_int(metadata.get("missing_product_count")),
+        report_sections=tuple(
+            section
+            for section in metadata.get("report_sections", [])
+            if isinstance(section, dict)
+        ),
     )
 
 
@@ -312,6 +343,16 @@ def _optional_str(value: object) -> str | None:
     return str(value)
 
 
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
 def _state_dict(state: ResolvableState) -> dict:
     payload = {
         "status": state.status,
@@ -330,6 +371,14 @@ def _state_dict(state: ResolvableState) -> dict:
                 "strategy": state.strategy,
                 "period": state.period,
                 "report_date": state.report_date,
+                "period_start": state.period_start,
+                "period_end": state.period_end,
+                "period_label": state.period_label,
+                "scope_complete": state.scope_complete,
+                "expected_product_count": state.expected_product_count,
+                "generated_product_count": state.generated_product_count,
+                "missing_product_count": state.missing_product_count,
+                "report_sections": list(state.report_sections),
             }
         )
     return payload

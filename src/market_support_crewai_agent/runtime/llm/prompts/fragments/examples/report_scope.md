@@ -8,6 +8,8 @@ Report scope examples:
 - "最近一个月衍复的超额怎么样" -> weekly_report, action_intent=send, report_scope=channel_all unless canonical context resolves a strategy.
 - "月报" -> monthly_report, action_intent=send, report_scope=channel_all, selected_strategy=null.
 - "发下月报" -> monthly_report, action_intent=send, report_scope=channel_all, selected_strategy=null.
+- "发我周报和月报" / "weekly and monthly reports please" -> artifact_kind=multi_action, action_intent=send, requested_capabilities=["weekly_report","monthly_report"], report_scope=channel_all, selected_strategy=null, ambiguity_slots=[].
+- "周报有哪些产品，然后发我个月报" / "which products are in the weekly report, and send me the monthly report" -> artifact_kind=multi_action, action_intent=send, work_items=[{"intent":"answer","capability":"weekly_report","evidence_query":"report_scope_products","report_scope":"none"},{"intent":"send","capability":"monthly_report","evidence_query":null,"report_scope":"channel_all"}], ambiguity_slots=[].
 - "中证500月报发一下" -> monthly_report, action_intent=send, report_scope=strategy, selected_strategy="中证500".
 - "11月表现怎么样" / "上个月表现怎么样" -> monthly_report, action_intent=send, report_scope=channel_all unless canonical context resolves a strategy.
 - "为什么月报里没有显示产品的年化收益率" -> knowledge_answer when document_context is allowed; this asks about report format, not a monthly report send.

@@ -70,11 +70,11 @@ def test_compile_policy_keeps_all_safe_reply_kinds_available():
             "handoff",
             "refusal",
             "unable",
+            "knowledge_answer",
             "smalltalk",
             "no_reply",
         }
     )
-    assert "knowledge_answer" not in policy.allowed_reply_modes
     assert policy.evidence_call_limit == 4
 
 

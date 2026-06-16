@@ -74,6 +74,110 @@ def test_compile_intent_frame_uses_registry_for_weekly_action():
     assert plan.action_intents[0].report_scope == "channel_all"
 
 
+def test_compile_intent_frame_builds_multiple_send_actions_from_capabilities():
+    request = make_request(message="\u53d1\u6211\u5468\u62a5\u548c\u6708\u62a5")
+    plan = compile_plan(
+        make_frame(
+            user_need="send weekly and monthly reports",
+            artifact_kind="multi_action",
+            action_intent="send",
+            requested_capabilities=["weekly_report", "monthly_report"],
+            report_scope="channel_all",
+        ),
+        request,
+    )
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.artifact_kind == "multi_action"
+    assert plan.response_mode == "action"
+    assert plan.capabilities == ["weekly_report", "monthly_report"]
+    assert [item.resolve_type for item in plan.adapter_resolves] == [
+        "weekly_report",
+        "monthly_report",
+        "sales_mention",
+    ]
+    assert [action.action_type for action in plan.action_intents] == [
+        "send_weekly_report",
+        "send_monthly_report",
+    ]
+    assert [action.report_scope for action in plan.action_intents] == [
+        "channel_all",
+        "channel_all",
+    ]
+
+
+def test_compile_intent_frame_treats_artifact_ambiguity_as_resolved_when_targets_are_explicit():
+    request = make_request(message="\u53d1\u6211\u5468\u62a5\u548c\u6708\u62a5")
+    plan = compile_plan(
+        make_frame(
+            user_need="send weekly and monthly reports",
+            artifact_kind="unclear",
+            action_intent="send",
+            requested_capabilities=["weekly_report", "monthly_report"],
+            report_scope="channel_all",
+            ambiguity_slots=["artifact"],
+        ),
+        request,
+    )
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.response_mode == "action"
+    assert plan.ambiguity_slots == []
+    assert [action.action_type for action in plan.action_intents] == [
+        "send_weekly_report",
+        "send_monthly_report",
+    ]
+
+
+def test_compile_intent_frame_builds_mixed_answer_and_send_from_work_items():
+    request = make_request(
+        message="\u5468\u62a5\u6709\u54ea\u4e9b\u4ea7\u54c1\uff0c\u7136\u540e\u53d1\u6211\u4e2a\u6708\u62a5"
+    )
+    plan = compile_plan(
+        make_frame(
+            user_need="answer weekly report products and send monthly report",
+            artifact_kind="multi_action",
+            action_intent="send",
+            requested_capabilities=[],
+            report_scope="channel_all",
+            work_items=[
+                {
+                    "intent": "answer",
+                    "capability": "weekly_report",
+                    "evidence_query": "report_scope_products",
+                    "report_scope": "none",
+                },
+                {
+                    "intent": "send",
+                    "capability": "monthly_report",
+                    "report_scope": "channel_all",
+                },
+            ],
+        ),
+        request,
+    )
+
+    result = validate_execution_plan(plan, compile_policy(request))
+
+    assert result.valid is True
+    assert plan.response_mode == "action"
+    assert plan.answer_capabilities == ["weekly_report"]
+    assert plan.evidence_query == "report_scope_products"
+    assert plan.capabilities == ["monthly_report", "weekly_report"]
+    assert [action.action_type for action in plan.action_intents] == [
+        "send_monthly_report",
+    ]
+    assert {item.resolve_type for item in plan.adapter_resolves} == {
+        "weekly_report",
+        "monthly_report",
+        "sales_mention",
+    }
+
+
 def test_compile_intent_frame_blocks_explicit_foreign_channel_report_send():
     request = make_request(
         message="发个银河证券的周报",
@@ -303,6 +407,58 @@ def test_compile_intent_frame_disables_document_answer_when_policy_disables_mcp(
     assert result.valid is True
     assert plan.response_mode == "unable"
     assert plan.capabilities == []
+
+
+def test_compile_intent_frame_uses_report_scope_evidence_for_report_knowledge_answer():
+    request = make_request(message="为什么本周周报没有A500")
+    policy = compile_policy(request)
+    plan = compile_intent_frame(
+        make_frame(
+            user_need="answer why weekly report lacks A500",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            evidence_query="A500",
+            report_scope="none",
+            requested_capabilities=["weekly_report"],
+        ),
+        request,
+        canonicalize_request(request),
+        policy,
+    )
+
+    result = validate_execution_plan(plan, policy)
+
+    assert result.valid is True
+    assert plan.response_mode == "knowledge_answer"
+    assert plan.capabilities == ["weekly_report"]
+    assert [spec.resolve_type for spec in plan.adapter_resolves] == ["weekly_report"]
+    assert plan.action_intents == []
+
+
+def test_compile_intent_frame_uses_report_resolve_for_period_knowledge_answer():
+    request = make_request(message="这个周报是什么时间段")
+    policy = compile_policy(request)
+    plan = compile_intent_frame(
+        make_frame(
+            user_need="answer weekly report period",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            evidence_query=None,
+            report_scope="none",
+            requested_capabilities=["weekly_report"],
+        ),
+        request,
+        canonicalize_request(request),
+        policy,
+    )
+
+    result = validate_execution_plan(plan, policy)
+
+    assert result.valid is True
+    assert plan.response_mode == "knowledge_answer"
+    assert plan.evidence_query is None
+    assert plan.capabilities == ["weekly_report"]
+    assert [spec.resolve_type for spec in plan.adapter_resolves] == ["weekly_report"]
 
 
 def test_compile_intent_frame_routes_smalltalk_to_no_action_composer():

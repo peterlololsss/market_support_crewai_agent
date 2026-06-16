@@ -145,7 +145,8 @@ def test_planner_prompt_uses_compact_schema_skeleton_not_full_schema_dump():
     _, program = route_and_select("发下这个渠道的周报")
 
     assert "IntentFrame compact schema:" in program.prompt_text
-    assert '"artifact_kind": "material_pack|weekly_report|monthly_report|knowledge_answer|human_support|refusal|unclear|smalltalk"' in program.prompt_text
+    assert '"artifact_kind": "material_pack|weekly_report|monthly_report|multi_action|knowledge_answer|human_support|refusal|unclear|smalltalk"' in program.prompt_text
+    assert '"work_items"' in program.prompt_text
     assert "Canonical JSON schema:" not in program.prompt_text
     assert '"$defs"' not in program.prompt_text
     assert '"properties"' not in program.prompt_text
@@ -166,6 +167,7 @@ def test_composer_prompt_uses_compact_no_action_skeleton_not_full_schema_dump():
 
     assert "ReplyResponse compact no-action schema:" in program.prompt_text
     assert '"actions": []' in program.prompt_text
+    assert "never say an action has already been sent" in program.prompt_text
     assert "Canonical JSON schema:" not in program.prompt_text
     assert '"$defs"' not in program.prompt_text
     assert '"properties"' not in program.prompt_text
