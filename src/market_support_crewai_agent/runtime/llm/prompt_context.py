@@ -233,9 +233,20 @@ def _compact_preflight(preflight: AdapterPreflightSnapshot) -> list[dict]:
                 "strategy": result.strategy,
                 "period": result.period,
                 "report_date": result.report_date,
+                "period_start": result.period_start,
+                "period_end": result.period_end,
+                "period_label": result.period_label,
                 "contains_strategy": result.contains_strategy,
                 "generated_strategies": result.generated_strategies,
                 "scope_status": result.scope_status,
+                "scope_complete": result.scope_complete,
+                "expected_product_count": result.expected_product_count,
+                "generated_product_count": result.generated_product_count,
+                "missing_product_count": result.missing_product_count,
+                "report_sections": [
+                    section.model_dump(mode="json", exclude_none=True)
+                    for section in result.report_sections
+                ],
             }
         )
     return items

@@ -23,6 +23,10 @@ from market_support_crewai_agent.runtime.evidence.document_mcp import (
     DocumentMcpEvidenceService,
     NoopDocumentMcpEvidenceService,
 )
+from market_support_crewai_agent.runtime.evidence.report_scope import (
+    NoopReportScopeEvidenceService,
+    ReportScopeEvidenceService,
+)
 from market_support_crewai_agent.runtime.evidence import (
     EvidenceFact,
     evidence_facts_from_action_history,
@@ -57,6 +61,9 @@ class EvidenceExecutor:
         approved_knowledge_service: (
             ApprovedKnowledgeEvidenceService | NoopApprovedKnowledgeEvidenceService | None
         ) = None,
+        report_scope_service: (
+            ReportScopeEvidenceService | NoopReportScopeEvidenceService | None
+        ) = None,
     ) -> None:
         self.preflight_service = preflight_service
         self.document_evidence_service = (
@@ -65,6 +72,7 @@ class EvidenceExecutor:
         self.approved_knowledge_service = (
             approved_knowledge_service or ApprovedKnowledgeEvidenceService()
         )
+        self.report_scope_service = report_scope_service or ReportScopeEvidenceService()
 
     async def execute(
         self,
@@ -89,6 +97,15 @@ class EvidenceExecutor:
                 canonical_context,
                 plan,
                 policy,
+            )
+        )
+        evidence_facts.extend(
+            await self.report_scope_service.collect(
+                request,
+                canonical_context,
+                plan,
+                policy,
+                preflight,
             )
         )
         evidence_facts.extend(

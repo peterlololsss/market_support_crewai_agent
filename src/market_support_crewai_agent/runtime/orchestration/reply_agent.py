@@ -32,6 +32,7 @@ from market_support_crewai_agent.runtime.state.conversation_store import (
     ConversationStore,
 )
 from market_support_crewai_agent.runtime.evidence.document_mcp import DocumentMcpEvidenceService
+from market_support_crewai_agent.runtime.evidence.report_scope import ReportScopeEvidenceService
 from market_support_crewai_agent.runtime.orchestration.decision import (
     DecisionEngine,
     ResponseDirective,
@@ -40,6 +41,7 @@ from market_support_crewai_agent.runtime.evidence.executor import EvidenceExecut
 from market_support_crewai_agent.runtime.validation.guardrails import (
     ReplyContractError,
     ValidationResult,
+    remove_pre_execution_send_claims,
     validate_reply,
 )
 from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
@@ -91,6 +93,7 @@ _DEFAULT_DOCUMENT_EVIDENCE_SERVICE = DocumentMcpEvidenceService(_DEFAULT_SETTING
 _DEFAULT_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE = ApprovedKnowledgeEvidenceService(
     settings=_DEFAULT_SETTINGS
 )
+_DEFAULT_REPORT_SCOPE_EVIDENCE_SERVICE = ReportScopeEvidenceService(_DEFAULT_SETTINGS)
 
 
 async def build_reply(
@@ -132,6 +135,9 @@ async def build_reply(
             _DEFAULT_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE
             if settings is None
             else ApprovedKnowledgeEvidenceService(settings=resolved_settings),
+            _DEFAULT_REPORT_SCOPE_EVIDENCE_SERVICE
+            if settings is None
+            else ReportScopeEvidenceService(settings=resolved_settings),
         ),
         audit_store or _DEFAULT_AUDIT_STORE,
         alignment_verifier,
@@ -176,6 +182,7 @@ class CrewAIReplyRuntime:
             self.preflight_service,
             DocumentMcpEvidenceService(settings),
             ApprovedKnowledgeEvidenceService(settings=settings),
+            ReportScopeEvidenceService(settings=settings),
         )
         self.audit_store = audit_store or get_audit_store()
         self.alignment_verifier = alignment_verifier
@@ -509,6 +516,22 @@ class CrewAIReplyRuntime:
         response = _coerce_agent_response(result)
         if response is None:
             raise AgentRuntimeError("CrewAI composer returned an invalid ReplyResponse contract")
+        if directive.mode == "action" and directive.action_intents:
+            reply_text = remove_pre_execution_send_claims(response.reply.text)
+            reply = response.reply.model_copy(update={"text": reply_text})
+            rendered = render_directive(
+                directive.model_copy(
+                    update={
+                        "text": reply_text,
+                        "requires_knowledge_composer": False,
+                        "composer_stage": None,
+                    }
+                ),
+                plan,
+                business_facts,
+                evidence_facts,
+            )
+            return ReplyResponse(reply=reply, actions=rendered.actions)
         return response
 
     def _validated_attempt(
@@ -635,6 +658,43 @@ class CrewAIReplyRuntime:
                     action_history=action_history,
                     prompt_programs=prompt_programs,
                     llm_executions=llm_executions,
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                )
+                if not candidate.reply_validation.valid:
+                    return candidate
+                continue
+
+            if (
+                _report_scope_refetch_requested(verdict, candidate.plan)
+                and refetch_count < self.settings.reply_alignment_max_evidence_refetches
+                and candidate.plan.response_mode == "knowledge_answer"
+                and _plan_can_refetch_report_scope(candidate.plan, policy)
+                and _report_scope_refetch_query(verdict)
+            ):
+                refetch_count += 1
+                total_remediations += 1
+                refined_query = _report_scope_refetch_query(verdict)
+                alignment_remediations.append(
+                    {
+                        "remediation": "refetch_report_scope",
+                        "failure_code": verdict.failure_code,
+                        "refined_evidence_query": refined_query,
+                    }
+                )
+                candidate = await self._build_candidate_from_plan(
+                    request=request,
+                    canonical_context=canonical_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    plan=candidate.plan.model_copy(
+                        update={"evidence_query": refined_query}
+                    ),
                     alignment_verdict=verdict,
                     alignment_attempt=len(alignment_verdicts),
                 )
@@ -1002,6 +1062,53 @@ class CrewAIReplyRuntime:
             inject_date=inject_date,
             date_format="%Y-%m-%d",
         )
+
+
+_REPORT_SCOPE_CAPABILITIES = {"weekly_report", "monthly_report"}
+_REPORT_SCOPE_SENTINELS = {"report_scope_products", "report_scope_summary"}
+
+
+def _report_scope_refetch_requested(
+        verdict: ReplyAlignmentVerdict,
+        plan: ExecutionPlan,
+) -> bool:
+    if verdict.remediation == "refetch_report_scope":
+        return True
+    return (
+        verdict.remediation == "refetch_document_context"
+        and bool(_REPORT_SCOPE_CAPABILITIES.intersection(plan.capabilities))
+        and "document_context" not in plan.capabilities
+    )
+
+
+def _plan_can_refetch_report_scope(
+        plan: ExecutionPlan,
+        policy: PolicyManifest,
+) -> bool:
+    return any(
+        capability in plan.capabilities and capability in policy.allowed_capabilities
+        for capability in _REPORT_SCOPE_CAPABILITIES
+    )
+
+
+def _report_scope_refetch_query(verdict: ReplyAlignmentVerdict) -> str:
+    query = str(verdict.refined_evidence_query or "").strip()
+    if not query:
+        return ""
+    if query in _REPORT_SCOPE_SENTINELS:
+        return query
+    lowered = query.casefold()
+    if any(
+        token in lowered
+        for token in ("product", "products", "portfolio", "list", "generated", "产品")
+    ):
+        return "report_scope_products"
+    if any(
+        token in lowered
+        for token in ("scope", "coverage", "section", "范围", "覆盖")
+    ):
+        return "report_scope_summary"
+    return query
 
 
 async def _run_crewai_kickoff(

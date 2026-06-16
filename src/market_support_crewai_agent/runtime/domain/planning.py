@@ -26,6 +26,7 @@ from market_support_crewai_agent.schemas import (
 )
 
 ActionIntent = Literal["send", "answer", "handoff", "refuse", "none"]
+WorkItemIntent = Literal["send", "answer", "handoff"]
 StrategyMentionSource = Literal["canonical_context", "message", "history", "unknown"]
 IntentReportScope = Literal["channel_all", "strategy", "ambiguous", "none"]
 ActionReportScope = Literal["channel_all", "strategy", "none"]
@@ -50,6 +51,7 @@ PlanValidationCode = Literal[
     "ambiguous_plan_not_clarification",
     "knowledge_answer_missing_capability",
 ]
+_KNOWLEDGE_REPORT_CAPABILITIES = ("weekly_report", "monthly_report")
 
 
 class ComplianceDecision(StrictModel):
@@ -70,6 +72,14 @@ class StrategyMention(StrictModel):
     source: StrategyMentionSource = "unknown"
 
 
+class IntentWorkItem(StrictModel):
+    intent: WorkItemIntent
+    capability: CapabilityName
+    evidence_query: str | None = Field(default=None, max_length=200)
+    selected_strategy: str | None = None
+    report_scope: IntentReportScope = "none"
+
+
 class IntentFrame(StrictModel):
     contract_version: Literal["intent-frame"] = "intent-frame"
     user_need: str = Field(min_length=1, max_length=500)
@@ -82,6 +92,7 @@ class IntentFrame(StrictModel):
     report_scope: IntentReportScope = "none"
     ambiguity_slots: list[AmbiguitySlot] = Field(default_factory=list)
     requested_capabilities: list[CapabilityName] = Field(default_factory=list, max_length=8)
+    work_items: list[IntentWorkItem] = Field(default_factory=list, max_length=6)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
@@ -105,6 +116,13 @@ class ActionIntentSpec(StrictModel):
     strategy: str | None = None
 
 
+@dataclass(frozen=True)
+class SendActionTarget:
+    capability_name: CapabilityName
+    selected_strategy: str | None = None
+    report_scope: IntentReportScope = "none"
+
+
 class ExecutionPlan(StrictModel):
     contract_version: Literal["execution-plan"] = "execution-plan"
     user_need: str = Field(min_length=1, max_length=500)
@@ -113,6 +131,7 @@ class ExecutionPlan(StrictModel):
     compliance: ComplianceDecision
     evidence_query: str | None = Field(default=None, max_length=200)
     capabilities: list[CapabilityName] = Field(default_factory=list, max_length=8)
+    answer_capabilities: list[CapabilityName] = Field(default_factory=list, max_length=4)
     adapter_resolves: list[AdapterResolveSpec] = Field(default_factory=list, max_length=8)
     action_intents: list[ActionIntentSpec] = Field(default_factory=list, max_length=4)
     selected_strategy: str | None = None
@@ -145,83 +164,106 @@ def compile_intent_frame(
     policy: PolicyManifest,
 ) -> ExecutionPlan:
     selected_strategy = _selected_strategy(frame, canonical_context)
-    if _send_scope_conflict(frame, request, canonical_context):
+    send_targets = _send_action_capabilities(frame)
+    knowledge_capabilities = _knowledge_capabilities(frame, policy)
+    knowledge_evidence_query = _knowledge_evidence_query(frame)
+    if _send_scope_conflict(frame, request, canonical_context, send_targets):
         return _plan(
             frame,
             response_mode="unable",
             capabilities=[],
+            answer_capabilities=[],
             adapter_resolves=[],
             action_intents=[],
             selected_strategy=selected_strategy,
         )
 
-    frame = _normalize_report_send_defaults(frame, request, canonical_context)
+    frame = _normalize_send_defaults(frame, request, canonical_context, send_targets)
     selected_strategy = _selected_strategy(frame, canonical_context)
+    send_targets = _send_action_capabilities(frame)
+    knowledge_capabilities = _knowledge_capabilities(frame, policy)
+    knowledge_evidence_query = _knowledge_evidence_query(frame)
 
     if frame.compliance.is_compliant is False:
         return _plan(
             frame,
             response_mode="refusal",
             capabilities=[],
+            answer_capabilities=[],
             adapter_resolves=[],
             action_intents=[],
             selected_strategy=selected_strategy,
         )
 
-    if frame.ambiguity_slots or frame.artifact_kind == "unclear":
+    ambiguity_slots = _effective_ambiguity_slots(frame, send_targets)
+    if ambiguity_slots or (
+        frame.artifact_kind == "unclear"
+        and not send_targets
+        and not knowledge_capabilities
+    ):
         return _plan(
             frame,
             response_mode="clarification",
             capabilities=_capabilities(frame.requested_capabilities),
+            answer_capabilities=[],
             adapter_resolves=[],
             action_intents=[],
             selected_strategy=selected_strategy,
-            ambiguity_slots=frame.ambiguity_slots or ["request_meaning"],
+            ambiguity_slots=ambiguity_slots or ["request_meaning"],
         )
 
-    if frame.compliance.is_compliant is not True and frame.action_intent == "send":
+    if frame.compliance.is_compliant is not True and _has_send_intent(frame):
         return _plan(
             frame,
             response_mode="unable",
             capabilities=[],
+            answer_capabilities=[],
             adapter_resolves=[],
             action_intents=[],
             selected_strategy=selected_strategy,
         )
 
-    if frame.artifact_kind == "material_pack" and frame.action_intent == "send":
-        return _action_plan(
+    if _has_send_intent(frame) and send_targets:
+        report_scope = _report_scope_for_send_targets(
             frame,
-            capability_name="material_pack",
-            selected_strategy=selected_strategy,
-            report_scope="none",
+            send_targets,
+            selected_strategy,
+            canonical_context,
         )
-
-    if frame.artifact_kind in {"weekly_report", "monthly_report"} and frame.action_intent == "send":
-        report_scope = _report_scope(frame, selected_strategy, canonical_context)
         if report_scope == "ambiguous":
             return _plan(
                 frame,
                 response_mode="clarification",
-                capabilities=_capabilities(frame.requested_capabilities, frame.artifact_kind),
+                capabilities=_capabilities(frame.requested_capabilities, *send_targets),
+                answer_capabilities=[],
                 adapter_resolves=[],
                 action_intents=[],
                 selected_strategy=selected_strategy,
                 ambiguity_slots=["strategy"],
             )
-        return _action_plan(
+        if knowledge_capabilities:
+            return _send_action_plan(
+                frame,
+                capability_names=send_targets,
+                selected_strategy=selected_strategy,
+                report_scope=report_scope,
+                answer_capabilities=knowledge_capabilities,
+                knowledge_evidence_query=knowledge_evidence_query,
+            )
+        return _send_action_plan(
             frame,
-            capability_name=frame.artifact_kind,
-            selected_strategy=selected_strategy if report_scope == "strategy" else None,
+            capability_names=send_targets,
+            selected_strategy=selected_strategy,
             report_scope=report_scope,
         )
 
     if frame.artifact_kind == "knowledge_answer" and frame.action_intent == "answer":
-        if "document_context" not in policy.allowed_capabilities:
+        if not knowledge_capabilities:
             return _plan(
                 frame,
                 response_mode="unable",
                 capabilities=[],
+                answer_capabilities=[],
                 adapter_resolves=[],
                 action_intents=[],
                 selected_strategy=selected_strategy,
@@ -229,10 +271,15 @@ def compile_intent_frame(
         return _plan(
             frame,
             response_mode="knowledge_answer",
-            capabilities=["document_context"],
-            adapter_resolves=[],
+            capabilities=knowledge_capabilities,
+            answer_capabilities=knowledge_capabilities,
+            adapter_resolves=_knowledge_adapter_resolves(
+                knowledge_capabilities,
+                selected_strategy,
+            ),
             action_intents=[],
             selected_strategy=selected_strategy,
+            evidence_query=knowledge_evidence_query,
         )
 
     if frame.artifact_kind == "human_support" or frame.action_intent == "handoff":
@@ -240,6 +287,7 @@ def compile_intent_frame(
             frame,
             response_mode="handoff",
             capabilities=["sales_mention"],
+            answer_capabilities=[],
             adapter_resolves=_adapter_resolves("sales_mention", None),
             action_intents=[],
             selected_strategy=selected_strategy,
@@ -250,6 +298,7 @@ def compile_intent_frame(
             frame,
             response_mode="smalltalk",
             capabilities=[],
+            answer_capabilities=[],
             adapter_resolves=[],
             action_intents=[],
             selected_strategy=selected_strategy,
@@ -260,6 +309,7 @@ def compile_intent_frame(
             frame,
             response_mode="refusal",
             capabilities=[],
+            answer_capabilities=[],
             adapter_resolves=[],
             action_intents=[],
             selected_strategy=selected_strategy,
@@ -269,6 +319,7 @@ def compile_intent_frame(
         frame,
         response_mode="unable",
         capabilities=[],
+        answer_capabilities=[],
         adapter_resolves=[],
         action_intents=[],
         selected_strategy=selected_strategy,
@@ -419,11 +470,15 @@ def validate_execution_plan(
                 )
             )
 
-    if plan.response_mode == "knowledge_answer" and "document_context" not in plan.capabilities:
+    if (
+        plan.response_mode == "knowledge_answer"
+        and "document_context" not in plan.capabilities
+        and not plan.adapter_resolves
+    ):
         issues.append(
             PlanValidationIssue(
                 code="knowledge_answer_missing_capability",
-                message="knowledge_answer mode requires document_context capability",
+                message="knowledge_answer mode requires document_context or report resolve evidence",
                 severity="fatal",
             )
         )
@@ -446,35 +501,69 @@ def invalid_intent_validation(
     )
 
 
-def _action_plan(
+def _send_action_plan(
     frame: IntentFrame,
     *,
-    capability_name: CapabilityName,
+    capability_names: list[CapabilityName],
     selected_strategy: str | None,
-    report_scope: ActionReportScope,
+    report_scope: IntentReportScope,
+    answer_capabilities: list[CapabilityName] | None = None,
+    knowledge_evidence_query: str | None = None,
 ) -> ExecutionPlan:
-    capability = capability_by_name(capability_name)
-    action_type = capability.side_effect_action_type if capability is not None else None
-    action_intents = []
-    if action_type is not None:
+    action_intents: list[ActionIntentSpec] = []
+    adapter_resolves: list[AdapterResolveSpec] = []
+    for target in _send_action_targets(
+        frame,
+        capability_names,
+        selected_strategy,
+        report_scope,
+    ):
+        capability = capability_by_name(target.capability_name)
+        if capability is None or capability.side_effect_action_type is None:
+            continue
+        action_report_scope = _action_report_scope(
+            target.capability_name,
+            target.report_scope,
+        )
+        action_strategy = _action_strategy(
+            target.capability_name,
+            target.selected_strategy,
+            action_report_scope,
+        )
         action_intents.append(
             ActionIntentSpec(
-                action_type=action_type,
-                capability=capability_name,
-                report_scope=report_scope,
-                strategy=selected_strategy,
+                action_type=capability.side_effect_action_type,
+                capability=target.capability_name,
+                report_scope=action_report_scope,
+                strategy=action_strategy,
             )
         )
+        adapter_resolves.extend(_adapter_resolves(target.capability_name, action_strategy))
+
+    answer_capabilities = _capabilities(answer_capabilities or [])
+    answer_resolves = _knowledge_adapter_resolves(
+        answer_capabilities,
+        selected_strategy,
+    )
+    response_mode: ResponseMode = "action"
+
     return _plan(
         frame,
-        response_mode="action",
-        capabilities=_capabilities(frame.requested_capabilities, capability_name),
+        response_mode=response_mode,
+        capabilities=_capabilities(
+            frame.requested_capabilities,
+            *capability_names,
+            *answer_capabilities,
+        ),
+        answer_capabilities=answer_capabilities,
         adapter_resolves=(
-            _adapter_resolves(capability_name, selected_strategy)
+            adapter_resolves
+            + answer_resolves
             + _adapter_resolves("sales_mention", None)
         ),
         action_intents=action_intents,
         selected_strategy=selected_strategy,
+        evidence_query=knowledge_evidence_query,
     )
 
 
@@ -483,18 +572,21 @@ def _plan(
     *,
     response_mode: ResponseMode,
     capabilities: list[CapabilityName],
+    answer_capabilities: list[CapabilityName],
     adapter_resolves: list[AdapterResolveSpec],
     action_intents: list[ActionIntentSpec],
     selected_strategy: str | None,
     ambiguity_slots: list[str] | None = None,
+    evidence_query: str | None = None,
 ) -> ExecutionPlan:
     return ExecutionPlan(
         user_need=frame.user_need,
         artifact_kind=frame.artifact_kind,
         response_mode=response_mode,
         compliance=frame.compliance,
-        evidence_query=frame.evidence_query,
+        evidence_query=frame.evidence_query if evidence_query is None else evidence_query,
         capabilities=_capabilities(capabilities),
+        answer_capabilities=_capabilities(answer_capabilities),
         adapter_resolves=_unique_adapter_resolves(adapter_resolves),
         action_intents=action_intents,
         selected_strategy=selected_strategy,
@@ -514,16 +606,140 @@ def _send_scope_conflict(
     frame: IntentFrame,
     request: ReplyRequest,
     canonical_context: CanonicalContext,
+    send_targets: list[CapabilityName],
 ) -> bool:
-    if frame.action_intent != "send":
+    if not _has_send_intent(frame):
         return False
-    return (
-        detect_send_scope_conflict(
+    for capability_name in send_targets or _send_action_capabilities(frame):
+        capability = capability_by_name(capability_name)
+        if capability is None:
+            continue
+        if (
+            detect_send_scope_conflict(
+                request,
+                canonical_context,
+                capability.artifact_kind,
+            )
+            is not None
+        ):
+            return True
+    return False
+
+
+def _normalize_send_defaults(
+    frame: IntentFrame,
+    request: ReplyRequest,
+    canonical_context: CanonicalContext,
+    send_targets: list[CapabilityName],
+) -> IntentFrame:
+    if not _has_send_intent(frame) or not send_targets:
+        return frame
+
+    updates: dict[str, object] = {}
+    ambiguity_slots = _effective_ambiguity_slots(frame, send_targets)
+
+    if _has_report_send_target(send_targets):
+        normalized_report = _normalize_report_send_defaults(
+            frame.model_copy(update={"ambiguity_slots": ambiguity_slots}),
             request,
             canonical_context,
-            frame.artifact_kind,
         )
-        is not None
+        updates["ambiguity_slots"] = normalized_report.ambiguity_slots
+        updates["report_scope"] = normalized_report.report_scope
+        if normalized_report.selected_strategy:
+            updates["selected_strategy"] = normalized_report.selected_strategy
+    elif ambiguity_slots != frame.ambiguity_slots:
+        updates["ambiguity_slots"] = ambiguity_slots
+
+    if not updates:
+        return frame
+    return frame.model_copy(update=updates)
+
+
+def _send_action_capabilities(frame: IntentFrame) -> list[CapabilityName]:
+    work_item_capabilities = [
+        item.capability
+        for item in frame.work_items
+        if item.intent == "send" and _is_side_effect_capability(item.capability)
+    ]
+    if work_item_capabilities:
+        return _capabilities(work_item_capabilities)
+
+    if frame.action_intent != "send":
+        return []
+
+    requested = [
+        capability_name
+        for capability_name in frame.requested_capabilities
+        if _is_side_effect_capability(capability_name)
+    ]
+    if requested:
+        return _capabilities(requested)
+
+    for capability_name in ("material_pack", "weekly_report", "monthly_report"):
+        capability = capability_by_name(capability_name)
+        if capability is not None and capability.artifact_kind == frame.artifact_kind:
+            return [capability_name]
+    return []
+
+
+def _has_send_intent(frame: IntentFrame) -> bool:
+    return frame.action_intent == "send" or any(
+        item.intent == "send" for item in frame.work_items
+    )
+
+
+def _is_side_effect_capability(capability_name: CapabilityName | str) -> bool:
+    capability = capability_by_name(capability_name)
+    return capability is not None and capability.side_effect_action_type is not None
+
+
+def _effective_ambiguity_slots(
+    frame: IntentFrame,
+    send_targets: list[CapabilityName],
+) -> list[str]:
+    slots = list(frame.ambiguity_slots)
+    if frame.work_items or (frame.action_intent == "send" and len(send_targets) > 1):
+        slots = [slot for slot in slots if slot != "artifact"]
+    return slots
+
+
+def _send_action_targets(
+    frame: IntentFrame,
+    capability_names: list[CapabilityName],
+    selected_strategy: str | None,
+    report_scope: IntentReportScope,
+) -> list[SendActionTarget]:
+    item_targets = [
+        SendActionTarget(
+            capability_name=item.capability,
+            selected_strategy=item.selected_strategy or selected_strategy,
+            report_scope=(
+                item.report_scope
+                if item.report_scope != "none"
+                else report_scope
+            ),
+        )
+        for item in frame.work_items
+        if item.intent == "send" and item.capability in capability_names
+    ]
+    if item_targets:
+        return item_targets
+    return [
+        SendActionTarget(
+            capability_name=capability_name,
+            selected_strategy=selected_strategy,
+            report_scope=report_scope,
+        )
+        for capability_name in capability_names
+    ]
+
+
+def _has_report_send_target(send_targets: list[CapabilityName]) -> bool:
+    return any(
+        (capability := capability_by_name(capability_name)) is not None
+        and capability.is_report
+        for capability_name in send_targets
     )
 
 
@@ -534,9 +750,7 @@ def _normalize_report_send_defaults(
 ) -> IntentFrame:
     if frame.compliance.is_compliant is False:
         return frame
-    if frame.artifact_kind not in {"weekly_report", "monthly_report"}:
-        return frame
-    if frame.action_intent != "send":
+    if not _has_send_intent(frame):
         return frame
     if not frame.ambiguity_slots and frame.report_scope != "ambiguous":
         return frame
@@ -616,6 +830,42 @@ def _report_scope(
     return "channel_all"
 
 
+def _report_scope_for_send_targets(
+    frame: IntentFrame,
+    send_targets: list[CapabilityName],
+    selected_strategy: str | None,
+    canonical_context: CanonicalContext,
+) -> IntentReportScope:
+    if not _has_report_send_target(send_targets):
+        return "none"
+    return _report_scope(frame, selected_strategy, canonical_context)
+
+
+def _action_report_scope(
+    capability_name: CapabilityName,
+    report_scope: IntentReportScope,
+) -> ActionReportScope:
+    capability = capability_by_name(capability_name)
+    if capability is None or not capability.is_report:
+        return "none"
+    if report_scope in {"channel_all", "strategy"}:
+        return report_scope
+    return "channel_all"
+
+
+def _action_strategy(
+    capability_name: CapabilityName,
+    selected_strategy: str | None,
+    report_scope: ActionReportScope,
+) -> str | None:
+    capability = capability_by_name(capability_name)
+    if capability is None:
+        return None
+    if capability.is_report:
+        return selected_strategy if report_scope == "strategy" else None
+    return selected_strategy
+
+
 def _adapter_resolves(
     capability_name: CapabilityName,
     strategy: str | None,
@@ -629,6 +879,59 @@ def _adapter_resolves(
             strategy=strategy,
         )
     ]
+
+
+def _knowledge_capabilities(
+    frame: IntentFrame,
+    policy: PolicyManifest,
+) -> list[CapabilityName]:
+    work_item_capabilities = [
+        item.capability
+        for item in frame.work_items
+        if item.intent == "answer"
+    ]
+    if work_item_capabilities:
+        return _allowed_knowledge_capabilities(work_item_capabilities, policy)
+
+    if frame.artifact_kind != "knowledge_answer" or frame.action_intent != "answer":
+        return []
+
+    return _allowed_knowledge_capabilities(frame.requested_capabilities, policy)
+
+
+def _allowed_knowledge_capabilities(
+    capability_names: list[CapabilityName],
+    policy: PolicyManifest,
+) -> list[CapabilityName]:
+    output: list[CapabilityName] = []
+    for capability_name in capability_names:
+        if capability_name == "document_context":
+            if capability_name in policy.allowed_capabilities:
+                output.append(capability_name)
+            continue
+        if capability_name in _KNOWLEDGE_REPORT_CAPABILITIES:
+            if capability_name in policy.allowed_capabilities:
+                output.append(capability_name)
+    return _capabilities(output)
+
+
+def _knowledge_evidence_query(frame: IntentFrame) -> str | None:
+    for item in frame.work_items:
+        if item.intent == "answer":
+            return item.evidence_query
+    return frame.evidence_query
+
+
+def _knowledge_adapter_resolves(
+    capabilities: list[CapabilityName],
+    selected_strategy: str | None,
+) -> list[AdapterResolveSpec]:
+    resolves: list[AdapterResolveSpec] = []
+    for capability_name in capabilities:
+        if capability_name not in _KNOWLEDGE_REPORT_CAPABILITIES:
+            continue
+        resolves.extend(_adapter_resolves(capability_name, selected_strategy))
+    return resolves
 
 
 def _capabilities(

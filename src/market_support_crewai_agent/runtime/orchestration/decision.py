@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import calendar
+import datetime as dt
 from typing import Literal
 
 from pydantic import Field
@@ -12,6 +14,7 @@ from market_support_crewai_agent.runtime.domain.business_facts import (
 from market_support_crewai_agent.runtime.domain.capabilities import (
     ResponseMode,
     capability_by_action_type,
+    capability_by_name,
     capability_by_resolve_type,
     resolve_type_for_action,
 )
@@ -79,13 +82,21 @@ class DecisionEngine:
             )
 
         if plan.response_mode == "knowledge_answer":
-            if _has_document_context_evidence(evidence_facts):
+            report_period_text = _report_period_answer(plan, business_facts)
+            if report_period_text:
+                return _directive(
+                    mode="knowledge_answer",
+                    reply_kind="answer",
+                    text=report_period_text,
+                    reason_code="report_period_metadata_available",
+                )
+            if _has_knowledge_answer_evidence(evidence_facts):
                 return _directive(
                     mode="knowledge_answer",
                     reply_kind="answer",
                     requires_knowledge_composer=True,
                     composer_stage="knowledge_composer",
-                    reason_code="document_context_available",
+                    reason_code="knowledge_evidence_available",
                 )
             return _directive(
                 mode="unable",
@@ -127,7 +138,7 @@ class DecisionEngine:
                 )
 
         if plan.response_mode == "action":
-            return _action_directive(plan, business_facts, request)
+            return _action_directive(plan, business_facts, evidence_facts, request)
 
         return _directive(
             mode="unable",
@@ -137,9 +148,79 @@ class DecisionEngine:
         )
 
 
+def _report_period_answer(
+    plan: ExecutionPlan,
+    business_facts: BusinessFacts,
+) -> str:
+    if plan.evidence_query:
+        return ""
+    answer_resolve_types = _answer_report_resolve_types(plan)
+    for resolve_type, label in (
+        ("weekly_report", "周报"),
+        ("monthly_report", "月报"),
+    ):
+        if answer_resolve_types and resolve_type not in answer_resolve_types:
+            continue
+        if resolve_type not in {item.resolve_type for item in plan.adapter_resolves}:
+            continue
+        report_state = business_facts.report_state(resolve_type)  # type: ignore[arg-type]
+        if report_state is None or not report_state.period:
+            continue
+        period_start, period_end = _report_period_range(resolve_type, report_state)
+        if period_start and period_end:
+            if resolve_type == "weekly_report":
+                report_date = report_state.report_date or period_end
+                return f"这份{label}覆盖{period_start}至{period_end}（报告日：{report_date}）"
+            return f"这份{label}覆盖{period_start}至{period_end}（期数：{report_state.period}）"
+        if report_state.period_label:
+            return f"这是{report_state.period_label}"
+        if report_state.report_date:
+            return f"这是{report_state.report_date}的{label}"
+    return ""
+
+
+def _answer_report_resolve_types(plan: ExecutionPlan) -> set[str]:
+    return {
+        str(capability.resolve_type)
+        for capability_name in plan.answer_capabilities
+        if (capability := capability_by_name(capability_name)) is not None
+        and capability.resolve_type in {"weekly_report", "monthly_report"}
+    }
+
+
+def _report_period_range(resolve_type: str, report_state: ReportState) -> tuple[str, str]:
+    if report_state.period_start and report_state.period_end:
+        return report_state.period_start, report_state.period_end
+
+    period = str(report_state.period or "").strip()
+    if resolve_type == "weekly_report":
+        report_date = report_state.report_date or _weekly_report_date(period)
+        if not report_date:
+            return "", ""
+        parsed = dt.datetime.strptime(report_date, "%Y-%m-%d")
+        period_start = (parsed - dt.timedelta(days=parsed.weekday())).strftime("%Y-%m-%d")
+        return period_start, report_date
+
+    if resolve_type == "monthly_report" and len(period) == 7 and period[4] == "-":
+        year = int(period[:4])
+        month = int(period[5:])
+        return (
+            f"{year:04d}-{month:02d}-01",
+            f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}",
+        )
+    return "", ""
+
+
+def _weekly_report_date(period: str) -> str:
+    if len(period) == 8 and period.isdigit():
+        return f"{period[:4]}-{period[4:6]}-{period[6:8]}"
+    return ""
+
+
 def _action_directive(
     plan: ExecutionPlan,
     business_facts: BusinessFacts,
+    evidence_facts: list[EvidenceFact],
     request: ReplyRequest,
 ) -> ResponseDirective:
     if not plan.action_intents:
@@ -198,6 +279,26 @@ def _action_directive(
                 reason="report action blocked by adapter evidence",
                 reason_code="report_action_blocked",
                 unable_text=report_block,
+            )
+
+    if plan.answer_capabilities:
+        report_period_text = _report_period_answer(plan, business_facts)
+        if report_period_text:
+            return _directive(
+                mode="action",
+                reply_kind="answer",
+                text=report_period_text,
+                action_intents=plan.action_intents,
+                reason_code="action_ready_with_deterministic_answer",
+            )
+        if _has_knowledge_answer_evidence(evidence_facts):
+            return _directive(
+                mode="action",
+                reply_kind="answer",
+                action_intents=plan.action_intents,
+                requires_knowledge_composer=True,
+                composer_stage="knowledge_composer",
+                reason_code="action_ready_with_knowledge_evidence",
             )
 
     return _directive(
@@ -318,8 +419,8 @@ def _directive(
     )
 
 
-def _has_document_context_evidence(evidence_facts: list[EvidenceFact]) -> bool:
-    return any(
+def _has_knowledge_answer_evidence(evidence_facts: list[EvidenceFact]) -> bool:
+    if any(
         fact.fact_type == "document_context"
         and bool(fact.value)
         and (
@@ -330,6 +431,22 @@ def _has_document_context_evidence(evidence_facts: list[EvidenceFact]) -> bool:
                 and fact.metadata.get("content_is_data_only") is True
             )
         )
+        for fact in evidence_facts
+    ):
+        return True
+    return any(
+        (
+            (
+                fact.source_type == "adapter_report_scope"
+                and fact.fact_type
+                in {"report_scope_summary", "report_scope_match", "report_scope_products"}
+            )
+            or (
+                fact.source_type == "adapter_resolve"
+                and fact.fact_type == "report_period"
+            )
+        )
+        and bool(fact.value)
         for fact in evidence_facts
     )
 

@@ -14,6 +14,7 @@ GET  /adapter/capabilities
 GET  /adapter/metrics
 POST /adapter/resolve
 POST /adapter/resolve/batch
+POST /adapter/report-scope
 POST /actions/feedback
 ```
 
@@ -68,6 +69,9 @@ scope_status
 strategy
 period
 report_date
+period_start
+period_end
+period_label
 ```
 
 Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `resolve_ref` and `material_id` are opaque adapter identifiers.
@@ -76,6 +80,18 @@ Raw send targets, URLs, filesystem paths, receiver identifiers, credentials, and
 
 Agent-returned send actions carry the adapter-safe `resolve_ref` needed for execution. Report actions also carry
 `resolve_type`, `report_scope`, `strategy` when scoped to one strategy, `period`, and `report_date`. The adapter must execute from `resolve_ref`; it must not re-select artifacts by guessing from strategy or free-form reply text.
+
+`POST /adapter/report-scope` is a bounded read command for report-scope evidence. It accepts `material_type`, `dist_name`, `command`, optional `period`, and command-specific fields:
+
+```text
+summary        compact counts and report sections only
+match          bounded exact/closed-set match result for one query
+list_products  explicit paginated products only
+```
+
+Default `/adapter/resolve` and report-scope `summary` payloads must not include full product lists. Product lists are returned only by `list_products` or bounded match results. Report-scope facts come from adapter-owned manifest/helper outputs, not markdown keyword scanning.
+
+Report period/date questions should be answerable from `/adapter/resolve` metadata alone. `period_start`, `period_end`, and `period_label` are optional public metadata fields for this purpose and must not require a report-scope product lookup.
 
 Removed locator fields such as `card_ref`, URLs, filesystem paths, and raw MCP locators are not accepted in agent-facing payloads.
 

@@ -15,8 +15,13 @@ EvidenceFactType = Literal[
     "weekly_report_resolvable",
     "monthly_report_resolvable",
     "sales_mention_resolvable",
+    "report_period",
     "report_contains_strategy",
     "report_scope_status",
+    "report_scope_summary",
+    "report_scope_match",
+    "report_scope_products",
+    "report_scope_unavailable",
     "recent_executed_action",
     "document_context",
     "document_context_unavailable",
@@ -30,6 +35,7 @@ class EvidenceFact:
     value: EvidenceFactValue
     source_type: Literal[
         "adapter_resolve",
+        "adapter_report_scope",
         "action_ledger",
         "document_mcp",
         "approved_static_knowledge",
@@ -74,6 +80,35 @@ def evidence_facts_from_preflight(
                         "report_date": (
                             result.report_date if result is not None else None
                         ),
+                        "period_start": (
+                            result.period_start if result is not None else None
+                        ),
+                        "period_end": (
+                            result.period_end if result is not None else None
+                        ),
+                        "period_label": (
+                            result.period_label if result is not None else None
+                        ),
+                        "scope_complete": (
+                            result.scope_complete if result is not None else None
+                        ),
+                        "expected_product_count": (
+                            result.expected_product_count if result is not None else None
+                        ),
+                        "generated_product_count": (
+                            result.generated_product_count if result is not None else None
+                        ),
+                        "missing_product_count": (
+                            result.missing_product_count if result is not None else None
+                        ),
+                        "report_sections": (
+                            [
+                                section.model_dump(mode="json", exclude_none=True)
+                                for section in result.report_sections
+                            ]
+                            if result is not None
+                            else []
+                        ),
                     },
                 )
             )
@@ -84,6 +119,23 @@ def evidence_facts_from_preflight(
         result = item.result
         capability = capability_by_resolve_type(result.resolve_type)
         if capability is not None and capability.is_report:
+            if result.period:
+                facts.append(
+                    EvidenceFact(
+                        fact_type="report_period",
+                        value=result.period,
+                        source_id=result.resolve_type,
+                        resolve_type=result.resolve_type,
+                        metadata={
+                            "status": result.status,
+                            "period": result.period,
+                            "report_date": result.report_date,
+                            "period_start": result.period_start,
+                            "period_end": result.period_end,
+                            "period_label": result.period_label,
+                        },
+                    )
+                )
             if result.contains_strategy is not None:
                 facts.append(
                     EvidenceFact(

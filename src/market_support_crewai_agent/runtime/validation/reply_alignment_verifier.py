@@ -31,6 +31,7 @@ AlignmentRemediation = Literal[
     "none",
     "replan",
     "refetch_document_context",
+    "refetch_report_scope",
     "recompose",
     "return_clarification",
     "return_unable",
@@ -58,11 +59,11 @@ class ReplyAlignmentVerdict(StrictModel):
                 raise ValueError(
                     "aligned verdicts must use failure_code=none and remediation=none"
                 )
-        if self.remediation == "refetch_document_context" and not (
+        if self.remediation in {"refetch_document_context", "refetch_report_scope"} and not (
             self.refined_evidence_query or ""
         ).strip():
             raise ValueError(
-                "refetch_document_context requires refined_evidence_query"
+                f"{self.remediation} requires refined_evidence_query"
             )
         return self
 

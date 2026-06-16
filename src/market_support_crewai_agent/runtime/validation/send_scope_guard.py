@@ -297,6 +297,8 @@ def _looks_like_scope_target(target: str) -> bool:
     normalized = _normalize(target)
     if not normalized:
         return False
+    if _contains_send_artifact_reference(target):
+        return False
     if normalized in {_normalize(value) for value in _GENERIC_MODIFIERS}:
         return False
     if _looks_temporal(normalized):
@@ -308,6 +310,18 @@ def _looks_like_scope_target(target: str) -> bool:
     if any(token in target for token in _NON_TARGET_PHRASE_TOKENS):
         return False
     return len(normalized) >= 2 and _has_cjk(normalized)
+
+
+def _contains_send_artifact_reference(target: str) -> bool:
+    normalized = _normalize(target)
+    if not normalized:
+        return False
+    for keywords in _ARTIFACT_KEYWORDS.values():
+        for keyword in keywords:
+            keyword_norm = _normalize(keyword)
+            if keyword_norm and keyword_norm in normalized:
+                return True
+    return False
 
 
 def _target_matches_current_scope(target: str, current_scope: str) -> bool:

@@ -221,6 +221,37 @@ class ResolvedMonthlyPreflight:
         )
 
 
+class ResolvedWeeklyMonthlyPreflight:
+    async def collect(
+        self,
+        request,
+        canonical_context=None,
+        resolve_types=None,
+        resolve_strategies=None,
+    ):
+        del request, canonical_context, resolve_types, resolve_strategies
+        return AdapterPreflightSnapshot(
+            items=[
+                resolved_item(
+                    "weekly_report",
+                    resolve_ref="weekly:ref",
+                    period="20260529",
+                    report_date="2026-05-29",
+                    scope_status="included",
+                    contains_strategy=True,
+                ),
+                resolved_item(
+                    "monthly_report",
+                    resolve_ref="monthly:ref",
+                    period="202605",
+                    report_date="2026-05-31",
+                    scope_status="included",
+                    contains_strategy=True,
+                ),
+            ]
+        )
+
+
 class CapturingResolvedWeeklyPreflight:
     def __init__(self):
         self.resolve_strategies = None
@@ -771,6 +802,173 @@ def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
     assert response.reply.kind == "answer"
     assert response.reply.text == ""
     assert response.actions[0].type == "send_monthly_report"
+    assert response.actions[0].resolve_ref == "monthly:ref"
+
+
+def test_runtime_sends_weekly_and_monthly_from_composite_intent():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyMonthlyPreflight(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="send weekly and monthly reports",
+            artifact_kind="multi_action",
+            action_intent="send",
+            requested_capabilities=["weekly_report", "monthly_report"],
+            report_scope="channel_all",
+            ambiguity_slots=[],
+        ),
+    )
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "\u53d1\u6211\u5468\u62a5\u548c\u6708\u62a5",
+                    dist_channel_name="\u5174\u4e1a\u94f6\u884c",
+                    available_materials=["material", "monthly", "weekly"],
+                )
+            )
+        )
+    )
+
+    assert response.reply.kind == "answer"
+    assert response.reply.text == ""
+    assert [action.type for action in response.actions] == [
+        "send_weekly_report",
+        "send_monthly_report",
+    ]
+    assert [action.resolve_ref for action in response.actions] == [
+        "weekly:ref",
+        "monthly:ref",
+    ]
+
+
+def test_runtime_answers_weekly_products_and_sends_only_monthly_from_work_items():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyMonthlyPreflight(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="answer weekly products and send monthly report",
+            artifact_kind="multi_action",
+            action_intent="send",
+            requested_capabilities=[],
+            report_scope="channel_all",
+            ambiguity_slots=[],
+            work_items=[
+                {
+                    "intent": "answer",
+                    "capability": "weekly_report",
+                    "evidence_query": "report_scope_products",
+                    "report_scope": "none",
+                },
+                {
+                    "intent": "send",
+                    "capability": "monthly_report",
+                    "report_scope": "channel_all",
+                },
+            ],
+        ),
+    )
+
+    class FakeEvidenceExecutor:
+        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.evidence import EvidenceFact
+
+            del canonical_context, policy, action_history
+            facts = [
+                EvidenceFact(
+                    fact_type="monthly_report_resolvable",
+                    value=True,
+                    source_type="adapter_resolve",
+                    source_id="monthly_report",
+                    resolve_type="monthly_report",
+                    metadata={
+                        "status": "resolved",
+                        "resolve_ref": "monthly:ref",
+                        "period": "2026-05",
+                        "report_date": "2026-05-31",
+                    },
+                ),
+                EvidenceFact(
+                    fact_type="weekly_report_resolvable",
+                    value=True,
+                    source_type="adapter_resolve",
+                    source_id="weekly_report",
+                    resolve_type="weekly_report",
+                    metadata={
+                        "status": "resolved",
+                        "resolve_ref": "weekly:ref",
+                        "period": "20260605",
+                        "report_date": "2026-06-05",
+                    },
+                ),
+                EvidenceFact(
+                    fact_type="report_scope_products",
+                    value=True,
+                    source_type="adapter_report_scope",
+                    source_id="weekly_report",
+                    resolve_type="weekly_report",
+                    metadata={
+                        "period": "20260605",
+                        "products": [
+                            {"product_name": "Product1"},
+                            {"product_name": "Product2"},
+                        ],
+                        "product_total_count": 2,
+                    },
+                ),
+            ]
+            return SimpleNamespace(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=facts,
+                business_facts=derive_business_facts(facts, request),
+            )
+
+    class FakeComposer:
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            assert "Product1" in prompt
+            return SimpleNamespace(
+                pydantic=ReplyResponse(
+                    reply=PrimaryReply(
+                        kind="answer",
+                        text=(
+                            "weekly report products: Product1, Product2\n\n"
+                            "月报已发送，请查收。"
+                        ),
+                    ),
+                    actions=[],
+                ),
+                raw="",
+            )
+
+    runtime.evidence_executor = FakeEvidenceExecutor()
+    runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "\u5468\u62a5\u6709\u54ea\u4e9b\u4ea7\u54c1\uff0c\u7136\u540e\u53d1\u6211\u4e2a\u6708\u62a5",
+                    dist_channel_name="\u5174\u4e1a\u94f6\u884c",
+                    available_materials=["material", "monthly", "weekly"],
+                )
+            )
+        )
+    )
+
+    assert response.reply.kind == "answer"
+    assert response.reply.text == "weekly report products: Product1, Product2"
+    assert [action.type for action in response.actions] == ["send_monthly_report"]
     assert response.actions[0].resolve_ref == "monthly:ref"
 
 
@@ -1338,6 +1536,137 @@ def test_alignment_verifier_refetches_document_context_with_refined_query():
     assert queries == ["年化收益率", "月报 年化收益率 展示规则"]
     assert response.reply.text == "月报采用区间收益展示，不展示年化收益率。"
     assert response.actions == []
+
+
+def test_alignment_verifier_refetches_report_scope_products_from_legacy_refetch():
+    runtime = CrewAIReplyRuntime(
+        Settings(llm_api_key="test-key"),
+        conversation_store=ConversationStore(),
+        preflight_service=EmptyPreflightService(),
+    )
+    install_fake_planner(
+        runtime,
+        make_intent_frame(
+            user_need="answer weekly report product list",
+            artifact_kind="knowledge_answer",
+            action_intent="answer",
+            requested_capabilities=["weekly_report"],
+            evidence_query=None,
+            report_scope="none",
+            ambiguity_slots=[],
+        ),
+    )
+    queries: list[str | None] = []
+
+    class ReportScopeEvidenceExecutor:
+        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.evidence import EvidenceFact
+
+            del canonical_context, policy, action_history
+            queries.append(plan.evidence_query)
+            facts = [
+                EvidenceFact(
+                    fact_type="weekly_report_resolvable",
+                    value=True,
+                    source_type="adapter_resolve",
+                    source_id="weekly_report",
+                    resolve_type="weekly_report",
+                    metadata={
+                        "status": "resolved",
+                        "resolve_ref": "weekly:ref",
+                        "period": "20260605",
+                        "report_date": "2026-06-05",
+                        "period_start": "2026-06-02",
+                        "period_end": "2026-06-05",
+                    },
+                ),
+                EvidenceFact(
+                    fact_type="report_period",
+                    value="20260605",
+                    source_type="adapter_resolve",
+                    source_id="weekly_report",
+                    resolve_type="weekly_report",
+                    metadata={
+                        "period": "20260605",
+                        "report_date": "2026-06-05",
+                        "period_start": "2026-06-02",
+                        "period_end": "2026-06-05",
+                    },
+                ),
+            ]
+            if plan.evidence_query == "report_scope_products":
+                facts.append(
+                    EvidenceFact(
+                        fact_type="report_scope_products",
+                        value=True,
+                        source_type="adapter_report_scope",
+                        source_id="weekly_report",
+                        resolve_type="weekly_report",
+                        metadata={
+                            "period": "20260605",
+                            "products": [
+                                {
+                                    "product_name": "Product1",
+                                    "report_section": "IndexPlus",
+                                    "source_pdf_status": "found",
+                                    "final_report_status": "generated",
+                                },
+                                {
+                                    "product_name": "Product2",
+                                    "report_section": "IndexPlus",
+                                    "source_pdf_status": "found",
+                                    "final_report_status": "generated",
+                                },
+                            ],
+                            "product_total_count": 2,
+                        },
+                    )
+                )
+            return SimpleNamespace(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=facts,
+                business_facts=derive_business_facts(facts, request),
+            )
+
+    class FakeComposer:
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            text = (
+                "weekly report products: Product1, Product2"
+                if "Product1" in prompt
+                else "weekly report product scope unavailable"
+            )
+            return SimpleNamespace(
+                pydantic=ReplyResponse(reply=PrimaryReply(kind="answer", text=text), actions=[]),
+                raw="",
+            )
+
+    class LegacyRefetchThenPassVerifier:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return ReplyAlignmentVerdict(
+                    aligned=False,
+                    safe_to_return=False,
+                    failure_code="missing_answer",
+                    remediation="refetch_document_context",
+                    refined_evidence_query="weekly report product list scope",
+                )
+            return ReplyAlignmentVerdict(aligned=True, safe_to_return=True, confidence=0.9)
+
+    verifier = LegacyRefetchThenPassVerifier()
+    runtime.evidence_executor = ReportScopeEvidenceExecutor()
+    runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
+    runtime.alignment_verifier = verifier
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("weekly report products?").payload()))
+
+    assert queries == [None, "report_scope_products"]
+    assert response.reply.text == "weekly report products: Product1, Product2"
 
 
 def test_alignment_verifier_failure_does_not_return_action():

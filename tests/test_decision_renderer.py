@@ -137,6 +137,88 @@ def test_decision_requires_knowledge_composer_only_with_document_context():
     assert "文档证据" in missing.text
 
 
+
+def test_decision_allows_knowledge_composer_with_report_scope_evidence():
+    request = make_request(message="why is A500 missing from this weekly report")
+    policy = compile_policy(request)
+    plan = make_plan(
+        request,
+        user_need="answer report scope question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["weekly_report"],
+    )
+    report_fact = EvidenceFact(
+        fact_type="report_scope_summary",
+        value=True,
+        source_type="adapter_report_scope",
+        source_id="weekly_report",
+        resolve_type="weekly_report",
+        metadata={"period": "20260612", "expected_product_count": 12},
+    )
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts([report_fact], request),
+        [report_fact],
+        request,
+        policy,
+    )
+
+    assert directive.mode == "knowledge_answer"
+    assert directive.requires_knowledge_composer is True
+
+
+def test_decision_renders_report_period_duration_without_composer():
+    request = make_request(message="这个周报是什么时间段")
+    policy = compile_policy(request)
+    plan = make_plan(
+        request,
+        user_need="answer report period question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["weekly_report"],
+    )
+    report_fact = EvidenceFact(
+        fact_type="report_period",
+        value="20260612",
+        source_type="adapter_resolve",
+        source_id="weekly_report",
+        resolve_type="weekly_report",
+        metadata={
+            "period": "20260612",
+            "report_date": "2026-06-12",
+            "period_start": "2026-06-08",
+            "period_end": "2026-06-12",
+        },
+    )
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts([report_fact], request),
+        [report_fact],
+        request,
+        policy,
+    )
+
+    assert directive.mode == "knowledge_answer"
+    assert directive.requires_knowledge_composer is False
+    assert "2026-06-08" in directive.text
+    assert "2026-06-12" in directive.text
+
+    response = render_directive(
+        directive,
+        plan,
+        derive_business_facts([report_fact], request),
+        [report_fact],
+    )
+    assert response.reply.kind == "answer"
+    assert "2026-06-08" in response.reply.text
+    assert "2026-06-12" in response.reply.text
+
+
 def test_decision_hands_off_unavailable_action_when_sales_resolves():
     request = make_request()
     plan = make_plan(request)

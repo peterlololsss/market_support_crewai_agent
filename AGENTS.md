@@ -69,6 +69,10 @@ A transition bridge requires a published external boundary, a test proving an ac
 
 Validators come before autonomy. Build deterministic models, policy, evidence facts, reply/action validators, refusal, and audit traces before MCP tools, broad RAG, or multi-agent expansion.
 
+Do not implement keyword, substring, regex, fuzzy, or n-gram matching as product, document, strategy, or report-scope selectors. Use canonical structured fields, generated manifests, adapter-provided facts, validated schemas, or bounded closed-set LLM selectors over explicit candidates. Exact equality on canonical structured fields is allowed.
+
+Long product, document, or report-scope lists must stay out of default prompts. Return compact summaries, exact-match results, or explicit pagination; fetch full lists only through bounded evidence commands when the current task needs them.
+
 ## Prompt and documentation hygiene
 
 Use allowlists and canonical schema descriptions in active instructions. Keep rejected field names, obsolete designs, and historical anti-patterns out of `AGENTS.md` and routine coding-session prompts. Store historical decisions in ADRs or tests where they are needed for traceability.

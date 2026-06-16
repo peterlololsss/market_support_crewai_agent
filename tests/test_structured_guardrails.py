@@ -5,7 +5,10 @@ from market_support_crewai_agent.runtime.domain.canonicalization import canonica
 from market_support_crewai_agent.runtime.domain.compliance_policy import refusal_text_for_reason
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.runtime.validation.guardrails import validate_reply
+from market_support_crewai_agent.runtime.validation.guardrails import (
+    remove_pre_execution_send_claims,
+    validate_reply,
+)
 from market_support_crewai_agent.runtime.domain.planning import (
     IntentFrame,
     compile_intent_frame,
@@ -252,6 +255,22 @@ def test_validate_reply_blocks_pre_execution_success_claim():
     assert any(issue.code == "sent_claim_without_ledger_evidence" for issue in result.issues)
 
 
+def test_remove_pre_execution_send_claims_keeps_answer_text():
+    text = (
+        "本周报覆盖以下2只产品：\n\n"
+        "Product1\n"
+        "Product2\n\n"
+        "月报已发送，请查收。"
+    )
+
+    cleaned = remove_pre_execution_send_claims(text)
+
+    assert "Product1" in cleaned
+    assert "Product2" in cleaned
+    assert "已发送" not in cleaned
+    assert "请查收" not in cleaned
+
+
 def test_validate_reply_blocks_action_reply_text():
     request = make_request(message="请发周报")
     plan = make_plan()
@@ -276,6 +295,67 @@ def test_validate_reply_blocks_action_reply_text():
         issue.code == "outbound_action_reply_text_not_empty"
         for issue in result.issues
     )
+
+
+def test_validate_reply_allows_action_reply_text_when_supplied_by_directive():
+    request = make_request(message="è¯·å‘å‘¨æŠ¥ï¼Œå†è¯´ä¸€ä¸‹æ—¶é—´æ®µ")
+    plan = make_plan()
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="æ—¶é—´æ®µæ˜¯2026-05-26è‡³2026-05-29ã€‚"),
+        actions=[weekly_action()],
+    )
+    facts = [resolved_fact("weekly_report", "weekly:ref")]
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            text="æ—¶é—´æ®µæ˜¯2026-05-26è‡³2026-05-29ã€‚",
+        ),
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request),
+    )
+
+    assert result.valid is True
+
+
+def test_validate_reply_allows_action_reply_text_from_knowledge_composer_with_evidence():
+    request = make_request(message="weekly products, then send monthly")
+    plan = make_plan()
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="weekly report products: Product1"),
+        actions=[weekly_action()],
+    )
+    facts = [
+        resolved_fact("weekly_report", "weekly:ref"),
+        EvidenceFact(
+            fact_type="report_scope_products",
+            value=True,
+            source_type="adapter_report_scope",
+            source_id="weekly_report",
+            resolve_type="weekly_report",
+            metadata={"products": [{"product_name": "Product1"}]},
+        ),
+    ]
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            requires_knowledge_composer=True,
+            composer_stage="knowledge_composer",
+        ),
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request),
+    )
+
+    assert result.valid is True
 
 
 def test_validate_reply_blocks_report_action_when_evidence_excludes_strategy():
@@ -398,6 +478,106 @@ def test_validate_reply_requires_document_evidence_for_knowledge_answer():
 
     assert result.valid is False
     assert result.issues[0].code == "knowledge_answer_without_document_evidence"
+
+
+
+def test_validate_reply_allows_report_scope_evidence_for_knowledge_answer():
+    request = make_request(message="why is A500 missing from this weekly report")
+    plan = make_plan(
+        request,
+        user_need="answer report scope question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["weekly_report"],
+        compliance={
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal report question",
+        },
+    )
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="The weekly report scope evidence says A500 was not matched."),
+        actions=[],
+    )
+    report_fact = EvidenceFact(
+        fact_type="report_scope_match",
+        value="not_found",
+        source_type="adapter_report_scope",
+        source_id="weekly_report",
+        resolve_type="weekly_report",
+        metadata={"period": "20260612", "match": {"status": "not_found"}},
+    )
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            mode="knowledge_answer",
+            reply_kind="answer",
+            requires_knowledge_composer=True,
+            action_intents=[],
+        ),
+        plan,
+        derive_business_facts([report_fact], request),
+        [report_fact],
+        compile_policy(request),
+    )
+
+    assert result.valid is True
+
+
+def test_validate_reply_allows_report_period_evidence_for_knowledge_answer():
+    request = make_request(message="这个周报是什么时间段")
+    plan = make_plan(
+        request,
+        user_need="answer report period question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        report_scope="none",
+        requested_capabilities=["weekly_report"],
+        compliance={
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal report question",
+        },
+    )
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="最新周报时间段为2026-06-08至2026-06-12。"),
+        actions=[],
+    )
+    report_fact = EvidenceFact(
+        fact_type="report_period",
+        value="20260612",
+        source_type="adapter_resolve",
+        source_id="weekly_report",
+        resolve_type="weekly_report",
+        metadata={
+            "period": "20260612",
+            "report_date": "2026-06-12",
+            "period_start": "2026-06-08",
+            "period_end": "2026-06-12",
+        },
+    )
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            mode="knowledge_answer",
+            reply_kind="answer",
+            requires_knowledge_composer=True,
+            action_intents=[],
+        ),
+        plan,
+        derive_business_facts([report_fact], request),
+        [report_fact],
+        compile_policy(request),
+    )
+
+    assert result.valid is True
 
 
 def test_validate_reply_allows_knowledge_composer_to_downgrade_to_unable():
