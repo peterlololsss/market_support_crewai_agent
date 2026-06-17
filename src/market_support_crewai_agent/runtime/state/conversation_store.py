@@ -5,6 +5,10 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Callable, Literal
 
+from market_support_crewai_agent.runtime.domain.sources.metadata import (
+    SourceMetadata,
+    source_metadata_for_conversation_message,
+)
 from market_support_crewai_agent.settings import Settings
 
 
@@ -16,6 +20,7 @@ class ConversationMessage:
     role: ConversationRole
     content: str
     created_at: datetime
+    source_metadata: SourceMetadata | None = None
 
 
 @dataclass
@@ -99,8 +104,26 @@ class ConversationStore:
 
             session.messages.extend(
                 [
-                    ConversationMessage("user", user_content, now),
-                    ConversationMessage("assistant", assistant_content, now),
+                    ConversationMessage(
+                        "user",
+                        user_content,
+                        now,
+                        source_metadata_for_conversation_message(
+                            conversation_key=conversation_key,
+                            role="user",
+                            created_at=now,
+                        ),
+                    ),
+                    ConversationMessage(
+                        "assistant",
+                        assistant_content,
+                        now,
+                        source_metadata_for_conversation_message(
+                            conversation_key=conversation_key,
+                            role="assistant",
+                            created_at=now,
+                        ),
+                    ),
                 ]
             )
             if len(session.messages) > self._max_messages:

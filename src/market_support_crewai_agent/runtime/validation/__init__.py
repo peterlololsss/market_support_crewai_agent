@@ -1,1 +1,1 @@
-"""Input, reply/action, and semantic alignment validators."""
+"""Phase-specific request, plan, evidence, output, and reply validators."""

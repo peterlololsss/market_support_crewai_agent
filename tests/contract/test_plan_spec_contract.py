@@ -1,0 +1,319 @@
+from __future__ import annotations
+
+from market_support_crewai_agent.runtime.domain.capabilities.adapters import (
+    planner_capability_cards,
+)
+from market_support_crewai_agent.runtime.domain.capabilities.registry import (
+    CapabilityManifest,
+    CapabilityRegistry,
+    EvidenceContract,
+)
+from market_support_crewai_agent.runtime.domain.ontology import ArtifactScope
+from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
+from market_support_crewai_agent.runtime.evidence import EvidenceFact
+from market_support_crewai_agent.runtime.validation.plan_spec_verifier import (
+    verify_plan_spec,
+)
+
+
+def reply_payload(kind: str = "answer", text: str = "grounded answer") -> dict:
+    return {"reply": {"kind": kind, "text": text}, "actions": []}
+
+
+def output_schema() -> dict:
+    return {
+        "type": "object",
+        "required": ["reply"],
+        "properties": {
+            "reply": {
+                "type": "object",
+                "required": ["kind", "text"],
+                "properties": {
+                    "kind": {"type": "string"},
+                    "text": {"type": "string"},
+                },
+            },
+            "actions": {"type": "array"},
+        },
+    }
+
+
+def dummy_manifest(**overrides) -> CapabilityManifest:
+    payload = {
+        "id": "dummy.echo",
+        "version": "test.1",
+        "display_name": "Dummy echo",
+        "description": "Dummy capability for generic PlanSpec verification.",
+        "capability_type": "answer",
+        "domain_entities": ["channel", "artifact"],
+        "required_inputs": [],
+        "optional_inputs": [],
+        "required_artifacts": ["adapter_context"],
+        "allowed_artifacts": ["adapter_context"],
+        "forbidden_artifacts": ["weekly_report"],
+        "required_tools": ["dummy.echo"],
+        "output_schema": output_schema(),
+        "evidence_contract": {
+            "required_evidence_types": ["dummy_fact"],
+            "allowed_source_types": ["adapter_resolve"],
+            "allowed_artifact_types": ["adapter_context"],
+            "minimum_evidence_count": 1,
+            "required_scope_match": ["channel_id"],
+        },
+        "abstention_policy": {
+            "requires_abstention_when_evidence_missing": True,
+            "abstention_reply_kinds": ["unable_to_answer", "clarification"],
+        },
+        "planner_guidance": "Use only when explicitly selected.",
+        "agent_guidance": "Answer only from dummy evidence.",
+        "verifier_checks": [
+            "output_schema",
+            "required_evidence_present",
+            "evidence_artifact_type_allowed",
+            "forbidden_source_not_used",
+            "abstention_correctness",
+        ],
+        "examples_positive": ["dummy"],
+        "examples_negative": ["weekly report"],
+    }
+    payload.update(overrides)
+    return CapabilityManifest.model_validate(payload)
+
+
+def plan_spec(**overrides) -> PlanSpec:
+    payload = {
+        "plan_id": "plan-test",
+        "selected_capability_id": "dummy.echo",
+        "user_intent_summary": "answer from dummy evidence",
+        "domain_scope": {
+            "channel_id": "channel-1",
+            "channel_kind": "bank",
+            "product_ids": [],
+        },
+        "required_artifacts": ["adapter_context"],
+        "allowed_artifacts": ["adapter_context"],
+        "forbidden_artifacts": ["weekly_report"],
+        "required_tools": ["dummy.echo"],
+        "answerability_policy": "answer",
+        "output_schema_ref": "dummy.echo:output_schema",
+        "evidence_contract_ref": "dummy.echo:evidence_contract",
+        "steps": [
+            {
+                "step_id": "step-1",
+                "description": "answer from dummy evidence",
+                "uses_artifacts": ["adapter_context"],
+                "required_artifacts": ["adapter_context"],
+                "allowed_artifacts": ["adapter_context"],
+                "forbidden_artifacts": ["weekly_report"],
+                "required_tools": ["dummy.echo"],
+            }
+        ],
+        "acceptance_criteria": ["dummy evidence is present"],
+        "abstention_cases": ["missing dummy evidence"],
+        "risk_flags": [],
+    }
+    payload.update(overrides)
+    return PlanSpec.model_validate(payload)
+
+
+def fact(
+    fact_type: str = "dummy_fact",
+    *,
+    source_type: str = "adapter_resolve",
+    source_id: str = "source-1",
+    artifact_type: str = "adapter_context",
+    channel_id: str = "channel-1",
+    strategy_id: str | None = None,
+    value=True,
+    metadata: dict | None = None,
+) -> EvidenceFact:
+    return EvidenceFact(
+        fact_type=fact_type,  # type: ignore[arg-type]
+        value=value,
+        source_type=source_type,  # type: ignore[arg-type]
+        source_id=source_id,
+        metadata=metadata or {},
+        artifact_type=artifact_type,  # type: ignore[arg-type]
+        scope=ArtifactScope(
+            channel_id=channel_id,
+            strategy_id=strategy_id,
+            provenance=source_type,
+            source_id=source_id,
+        ),
+    )
+
+
+def test_dummy_manifest_plan_spec_is_generic_planner_and_verifier_contract():
+    registry = CapabilityRegistry([dummy_manifest()])
+
+    cards = planner_capability_cards(
+        None,
+        {"allowed_capability_ids": ["dummy.echo"]},
+        registry=registry,
+    )
+    result = verify_plan_spec(
+        plan_spec(),
+        registry=registry,
+        output_payload=reply_payload(),
+        evidence_facts=[fact()],
+    )
+
+    assert [card["id"] for card in cards] == ["dummy.echo"]
+    assert result.valid is True
+
+
+def test_plan_spec_requiring_material_pack_fails_when_only_weekly_report_exists():
+    spec = plan_spec(
+        selected_capability_id="material_pack.product_list",
+        required_artifacts=["material_pack"],
+        allowed_artifacts=["material_pack"],
+        forbidden_artifacts=["weekly_report"],
+        required_tools=["adapter_material_pack_content.products"],
+        output_schema_ref="material_pack.product_list:output_schema",
+        evidence_contract_ref="material_pack.product_list:evidence_contract",
+        steps=[
+            {
+                "step_id": "step-1",
+                "description": "answer material products",
+                "uses_artifacts": ["material_pack"],
+                "required_artifacts": ["material_pack"],
+                "allowed_artifacts": ["material_pack"],
+                "forbidden_artifacts": ["weekly_report"],
+                "required_tools": ["adapter_material_pack_content.products"],
+            }
+        ],
+    )
+
+    result = verify_plan_spec(
+        spec,
+        output_payload=reply_payload(),
+        evidence_facts=[
+            fact(
+                "weekly_report_resolvable",
+                artifact_type="weekly_report",
+                source_id="weekly",
+            )
+        ],
+    )
+
+    assert result.valid is False
+    assert "required_artifact_missing" in {issue.code for issue in result.issues}
+
+
+def test_plan_spec_allow_history_false_fails_when_using_history_evidence():
+    registry = CapabilityRegistry(
+        [
+            dummy_manifest(
+                evidence_contract=EvidenceContract(
+                    required_evidence_types=["recent_executed_action"],
+                    allowed_source_types=["action_ledger"],
+                    allowed_artifact_types=["history"],
+                    minimum_evidence_count=1,
+                    allow_history=False,
+                ),
+                required_artifacts=["history"],
+                allowed_artifacts=["history"],
+                forbidden_artifacts=[],
+            )
+        ]
+    )
+    spec = plan_spec(
+        required_artifacts=["history"],
+        allowed_artifacts=["history"],
+        forbidden_artifacts=[],
+        steps=[
+            {
+                "step_id": "step-1",
+                "description": "answer from history",
+                "uses_artifacts": ["history"],
+                "required_artifacts": ["history"],
+                "allowed_artifacts": ["history"],
+                "forbidden_artifacts": [],
+                "required_tools": ["dummy.echo"],
+            }
+        ],
+    )
+
+    result = verify_plan_spec(
+        spec,
+        registry=registry,
+        output_payload=reply_payload(),
+        evidence_facts=[
+            fact(
+                "recent_executed_action",
+                source_type="action_ledger",
+                artifact_type="history",
+                source_id="ledger-1",
+            )
+        ],
+        cited_evidence_ids=["ledger-1"],
+    )
+
+    assert result.valid is False
+    assert "history_evidence_not_allowed" in {issue.code for issue in result.issues}
+
+
+def test_plan_spec_rejects_output_with_evidence_from_wrong_strategy():
+    spec = plan_spec(
+        domain_scope={
+            "channel_id": "channel-1",
+            "channel_kind": "bank",
+            "strategy_id": "strategy-a",
+            "product_ids": [],
+        },
+        evidence_contract=EvidenceContract(
+            required_evidence_types=["dummy_fact"],
+            allowed_source_types=["adapter_resolve"],
+            allowed_artifact_types=["adapter_context"],
+            required_scope_match=["strategy_id"],
+            minimum_evidence_count=1,
+        ),
+        evidence_contract_ref=None,
+    )
+
+    result = verify_plan_spec(
+        spec,
+        registry=CapabilityRegistry([dummy_manifest()]),
+        output_payload=reply_payload(),
+        evidence_facts=[fact(strategy_id="strategy-b")],
+        cited_evidence_ids=["source-1"],
+    )
+
+    assert result.valid is False
+    assert "evidence_scope_mismatch" in {issue.code for issue in result.issues}
+
+
+def test_plan_spec_accepts_abstention_when_required_artifacts_are_missing():
+    spec = plan_spec(
+        selected_capability_id="material_pack.product_list",
+        required_artifacts=["material_pack"],
+        allowed_artifacts=["material_pack"],
+        forbidden_artifacts=["weekly_report"],
+        required_tools=["adapter_material_pack_content.products"],
+        answerability_policy="abstain",
+        output_schema_ref="material_pack.product_list:output_schema",
+        evidence_contract_ref="material_pack.product_list:evidence_contract",
+        steps=[
+            {
+                "step_id": "step-1",
+                "description": "abstain on missing material evidence",
+                "uses_artifacts": [],
+                "required_artifacts": ["material_pack"],
+                "allowed_artifacts": ["material_pack"],
+                "forbidden_artifacts": ["weekly_report"],
+                "required_tools": ["adapter_material_pack_content.products"],
+            }
+        ],
+    )
+
+    result = verify_plan_spec(
+        spec,
+        output_payload=reply_payload(
+            kind="unable_to_answer",
+            text="当前没有足够证据安全回复。",
+        ),
+        evidence_facts=[],
+        abstained=True,
+    )
+
+    assert result.valid is True

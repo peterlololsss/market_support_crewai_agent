@@ -8,10 +8,23 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import Adapt
 from market_support_crewai_agent.runtime.domain.capabilities import (
     capability_by_resolve_type,
 )
+from market_support_crewai_agent.runtime.domain.ontology import (
+    ArtifactScope,
+    ArtifactType,
+    artifact_scope_for_evidence,
+    normalize_artifact_type,
+)
+from market_support_crewai_agent.runtime.domain.sources.metadata import (
+    SourceMetadata,
+    source_metadata_for_evidence,
+    source_metadata_from_mapping,
+)
 from market_support_crewai_agent.schemas import AdapterResolveType
 
 EvidenceFactType = Literal[
     "material_pack_resolvable",
+    "material_pack_product_list",
+    "material_pack_open_calendar",
     "weekly_report_resolvable",
     "monthly_report_resolvable",
     "sales_mention_resolvable",
@@ -27,22 +40,80 @@ EvidenceFactType = Literal[
     "document_context_unavailable",
 ]
 EvidenceFactValue = bool | str | None
+EvidenceSourceType = Literal[
+    "adapter_resolve",
+    "adapter_report_scope",
+    "adapter_material_pack_content",
+    "action_ledger",
+    "document_mcp",
+    "approved_static_knowledge",
+    "conversation_history",
+    "user_upload",
+    "current_artifact",
+    "adapter_context",
+    "user_message",
+    "assistant_message",
+    "history_summary",
+    "retrieved_doc",
+    "tool_result",
+]
 
 
 @dataclass(frozen=True)
 class EvidenceFact:
     fact_type: EvidenceFactType
     value: EvidenceFactValue
-    source_type: Literal[
-        "adapter_resolve",
-        "adapter_report_scope",
-        "action_ledger",
-        "document_mcp",
-        "approved_static_knowledge",
-    ] = "adapter_resolve"
+    source_type: EvidenceSourceType = "adapter_resolve"
     source_id: str = ""
     resolve_type: AdapterResolveType | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    artifact_type: ArtifactType = "unknown"
+    scope: ArtifactScope = field(default_factory=lambda: ArtifactScope(channel_id="unknown"))
+    source_metadata: SourceMetadata | dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        artifact_type = normalize_artifact_type(
+            self.artifact_type,
+            resolve_type=self.resolve_type,
+            source_type=self.source_type,
+            fact_type=self.fact_type,
+        )
+        if artifact_type != self.artifact_type:
+            object.__setattr__(self, "artifact_type", artifact_type)
+        if self.scope.channel_id == "unknown" and artifact_type != "unknown":
+            object.__setattr__(
+                self,
+                "scope",
+                artifact_scope_for_evidence(
+                    channel_id="unknown",
+                    artifact_type=artifact_type,
+                    resolve_type=self.resolve_type,
+                    source_id=self.source_id,
+                    source_type=self.source_type,
+                    metadata=self.metadata,
+                ),
+            )
+        if isinstance(self.source_metadata, SourceMetadata):
+            return
+        if isinstance(self.source_metadata, dict):
+            object.__setattr__(
+                self,
+                "source_metadata",
+                source_metadata_from_mapping(self.source_metadata),
+            )
+            return
+        object.__setattr__(
+            self,
+            "source_metadata",
+            source_metadata_for_evidence(
+                fact_source_type=self.source_type,
+                source_id=self.source_id,
+                artifact_type=self.artifact_type,
+                fact_type=self.fact_type,
+                metadata=self.metadata,
+                scope=self.scope,
+            ),
+        )
 
 
 def evidence_facts_from_preflight(
@@ -55,7 +126,7 @@ def evidence_facts_from_preflight(
         if fact_type is not None:
             result = item.result
             facts.append(
-                EvidenceFact(
+                _fact(
                     fact_type=fact_type,  # type: ignore[arg-type]
                     value=item.status == "resolved",
                     source_id=item.resolve_type,
@@ -110,6 +181,7 @@ def evidence_facts_from_preflight(
                             else []
                         ),
                     },
+                    result=result,
                 )
             )
 
@@ -121,7 +193,7 @@ def evidence_facts_from_preflight(
         if capability is not None and capability.is_report:
             if result.period:
                 facts.append(
-                    EvidenceFact(
+                    _fact(
                         fact_type="report_period",
                         value=result.period,
                         source_id=result.resolve_type,
@@ -134,11 +206,12 @@ def evidence_facts_from_preflight(
                             "period_end": result.period_end,
                             "period_label": result.period_label,
                         },
+                        result=result,
                     )
                 )
             if result.contains_strategy is not None:
                 facts.append(
-                    EvidenceFact(
+                    _fact(
                         fact_type="report_contains_strategy",
                         value=result.contains_strategy,
                         source_id=result.resolve_type,
@@ -148,11 +221,12 @@ def evidence_facts_from_preflight(
                             "period": result.period,
                             "report_date": result.report_date,
                         },
+                        result=result,
                     )
                 )
             if result.scope_status is not None:
                 facts.append(
-                    EvidenceFact(
+                    _fact(
                         fact_type="report_scope_status",
                         value=result.scope_status,
                         source_id=result.resolve_type,
@@ -162,6 +236,7 @@ def evidence_facts_from_preflight(
                             "period": result.period,
                             "report_date": result.report_date,
                         },
+                        result=result,
                     )
                 )
     return facts
@@ -176,7 +251,7 @@ def evidence_facts_from_action_history(
         if execution.status != "executed":
             continue
         facts.append(
-            EvidenceFact(
+            _fact(
                 fact_type="recent_executed_action",
                 value=True,
                 source_type="action_ledger",
@@ -194,6 +269,7 @@ def evidence_facts_from_action_history(
                     "material_ref_available": bool(execution.material_id),
                     "received_at": record.received_at.isoformat(),
                 },
+                artifact_type="history",
             )
         )
     return facts
@@ -222,3 +298,50 @@ def find_fact(
             continue
         return fact
     return None
+
+
+def _fact(
+        *,
+        fact_type: EvidenceFactType,
+        value: EvidenceFactValue,
+        source_type: EvidenceSourceType = "adapter_resolve",
+        source_id: str = "",
+        resolve_type: AdapterResolveType | None = None,
+        metadata: dict[str, Any] | None = None,
+        result=None,
+        artifact_type: ArtifactType | None = None,
+) -> EvidenceFact:
+    metadata = metadata or {}
+    resolved_artifact_type = artifact_type or normalize_artifact_type(
+        resolve_type=resolve_type,
+        source_type=source_type,
+        fact_type=fact_type,
+    )
+    scope = artifact_scope_for_evidence(
+        channel_id=_channel_scope_id(result),
+        artifact_type=resolved_artifact_type,
+        resolve_type=resolve_type,
+        source_id=source_id,
+        source_type=source_type,
+        metadata=metadata,
+    )
+    return EvidenceFact(
+        fact_type=fact_type,
+        value=value,
+        source_type=source_type,
+        source_id=source_id,
+        resolve_type=resolve_type,
+        metadata=metadata,
+        artifact_type=resolved_artifact_type,
+        scope=scope,
+    )
+
+
+def _channel_scope_id(result) -> str:
+    if result is None:
+        return "unknown"
+    display_name = str(getattr(result, "display_name", "") or "").strip()
+    channel_type = str(getattr(result, "channel_type", "") or "unknown").strip()
+    if not display_name:
+        return "unknown"
+    return f"adapter_channel:{channel_type}:{display_name}"

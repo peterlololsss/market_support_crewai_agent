@@ -14,4 +14,4 @@ ReplyAlignmentVerdict compact schema:
 
 For aligned=true: safe_to_return=true, failure_code="none", remediation="none".
 For refetch_document_context: refined_evidence_query must be non-empty.
-For refetch_report_scope: refined_evidence_query must be non-empty and should be one of report_scope_products, report_scope_summary, or one exact product/section name.
+For refetch_report_scope: refined_evidence_query must be exactly "report_scope_products" or "report_scope_summary".
