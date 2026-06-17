@@ -11,10 +11,16 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
     read_capabilities_for_artifact,
 )
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
+from market_support_crewai_agent.runtime.domain.ontology import artifact_scope_for_evidence
+from market_support_crewai_agent.runtime.domain.sources.metadata import SourceMetadata
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.schemas import ReplyRequest, StrictModel
+from market_support_crewai_agent.runtime.llm.prompting.assembler import (
+    assembleCanonicalizationPrompt,
+)
+from market_support_crewai_agent.runtime.llm.prompting.registry import prompt_agent_spec_by_id
 from market_support_crewai_agent.settings import Settings, get_settings
 
 _DOC_CAPABILITY = next(iter(read_capabilities_for_artifact("knowledge_answer")), "")
@@ -235,6 +241,21 @@ class ApprovedKnowledgeEvidenceService:
                         },
                         "content_is_data_only": True,
                     },
+                    artifact_type="document_context",
+                    scope=artifact_scope_for_evidence(
+                        channel_id="unknown",
+                        artifact_type="document_context",
+                        source_id=entry.entry_id,
+                        source_type="approved_static_knowledge",
+                        metadata={"title": entry.title},
+                    ),
+                    source_metadata=SourceMetadata(
+                        source_id=entry.entry_id,
+                        source_type="retrieved_doc",
+                        artifact_type="document_context",
+                        provenance="approved_static_knowledge",
+                        evidence_allowed_by_default=True,
+                    ),
                 )
             )
         return facts
@@ -380,19 +401,15 @@ def _selector_prompt(
             for candidate in catalog_manifest
         ],
     }
-    return (
-        "You are the approved static knowledge semantic selector for a deterministic "
-        "support reply harness.\n\n"
-        "Select approved knowledge entries only from the provided candidate IDs.\n"
-        "Select image assets only from the provided asset IDs that belong to selected entries.\n"
-        "Do not create new IDs, filenames, image markers, facts, actions, or final reply text.\n"
-        "Return confidence='none' and no IDs if the catalog does not directly answer "
-        "the current user request.\n"
-        "Use the natural-language fields as semantic context only. Do not perform "
-        "or describe keyword, substring, regex, fuzzy, or n-gram matching.\n"
-        "Return only ApprovedKnowledgeSelection matching the response schema.\n\n"
-        "Selector input JSON:\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}"
+    return assembleCanonicalizationPrompt(
+        "canonicalization.approved_knowledge_selector",
+        stage="approved_knowledge_selector",
+        selector_input_json=json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
     )
 
 
@@ -404,13 +421,11 @@ async def _run_crewai_selector(
 ) -> ApprovedKnowledgeSelection:
     from crewai import Agent, LLM
 
+    spec = prompt_agent_spec_by_id("agent.approved_knowledge_selector")
     agent = Agent(
-        role="Approved Static Knowledge Semantic Selector",
-        goal="Select only closed-set approved knowledge IDs for the harness.",
-        backstory=(
-            "You choose from a small vetted catalog. You do not compose replies, "
-            "invent IDs, or call tools."
-        ),
+        role=spec.role,
+        goal=spec.goal,
+        backstory=spec.backstory,
         llm=LLM(
             model=settings.llm_model,
             provider=settings.llm_provider,

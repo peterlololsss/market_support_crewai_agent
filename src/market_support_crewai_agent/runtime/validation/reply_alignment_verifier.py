@@ -6,9 +6,13 @@ from pydantic import Field, model_validator
 
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
+from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
+from market_support_crewai_agent.runtime.validation.guardrail_types import (
+    GuardrailDecision,
+)
 from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse, StrictModel
 
 AlignmentFailureCode = Literal[
@@ -36,6 +40,10 @@ AlignmentRemediation = Literal[
     "return_clarification",
     "return_unable",
 ]
+ReportScopeRefetchQuery = Literal["report_scope_products", "report_scope_summary"]
+_REPORT_SCOPE_REFETCH_QUERIES: frozenset[str] = frozenset(
+    ("report_scope_products", "report_scope_summary")
+)
 
 
 class ReplyAlignmentVerdict(StrictModel):
@@ -65,6 +73,14 @@ class ReplyAlignmentVerdict(StrictModel):
             raise ValueError(
                 f"{self.remediation} requires refined_evidence_query"
             )
+        if (
+            self.remediation == "refetch_report_scope"
+            and self.refined_evidence_query not in _REPORT_SCOPE_REFETCH_QUERIES
+        ):
+            raise ValueError(
+                "refetch_report_scope requires refined_evidence_query to be "
+                "report_scope_products or report_scope_summary"
+            )
         return self
 
 
@@ -74,11 +90,13 @@ class ReplyAlignmentVerifier(Protocol):
         *,
         request: ReplyRequest,
         canonical_context: CanonicalContext,
+        domain_context: DomainContext,
         plan: ExecutionPlan,
         directive: ResponseDirective,
         evidence_facts: list[EvidenceFact],
         business_facts: BusinessFacts,
         response: ReplyResponse,
+        guardrail_decisions: list[GuardrailDecision] | None = None,
         attempt: int = 0,
     ) -> ReplyAlignmentVerdict: ...
 
@@ -89,21 +107,25 @@ class NoopReplyAlignmentVerifier:
         *,
         request: ReplyRequest,
         canonical_context: CanonicalContext,
+        domain_context: DomainContext,
         plan: ExecutionPlan,
         directive: ResponseDirective,
         evidence_facts: list[EvidenceFact],
         business_facts: BusinessFacts,
         response: ReplyResponse,
+        guardrail_decisions: list[GuardrailDecision] | None = None,
         attempt: int = 0,
     ) -> ReplyAlignmentVerdict:
         del (
             request,
             canonical_context,
+            domain_context,
             plan,
             directive,
             evidence_facts,
             business_facts,
             response,
+            guardrail_decisions,
             attempt,
         )
         return ReplyAlignmentVerdict(

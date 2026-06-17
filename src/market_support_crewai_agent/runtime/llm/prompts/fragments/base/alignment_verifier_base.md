@@ -20,7 +20,7 @@ Return aligned=true only when all applicable checks pass:
 When not aligned, choose exactly one remediation:
 - replan: use when the ExecutionPlan/artifact/action/strategy/scope is wrong for the user request. Include concise planner_feedback.
 - refetch_document_context: use only for knowledge_answer when the plan is right, the needed source is document_context, and document evidence is missing or retrieval query is off. Include refined_evidence_query.
-- refetch_report_scope: use only for knowledge_answer when the plan is right, the needed source is weekly_report/monthly_report scope evidence, and report product/section/scope evidence is missing or query is off. For "which products are in/generated this report" use refined_evidence_query="report_scope_products"; for general section/count scope use "report_scope_summary"; for one named product/section use that exact name.
+- refetch_report_scope: use only for knowledge_answer when the plan is right, the needed source is weekly_report/monthly_report scope evidence, and report product/section/scope evidence is missing or query is off. refined_evidence_query must be exactly "report_scope_products" for product-list scope or exactly "report_scope_summary" for general section/count scope. Do not emit arbitrary text for report-scope refetch.
 - recompose: use when the plan and evidence are right but the Candidate ReplyResponse text does not answer, drifts, or adds unsupported wording. Include concise composer_feedback.
 - return_clarification: use when the user request is genuinely ambiguous and asking a short clarification is safer than retrying.
 - return_unable: use when policy/evidence prevents a safe answer/action and retrying will not help.

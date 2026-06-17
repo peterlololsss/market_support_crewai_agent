@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import threading
+import time
 from dataclasses import dataclass
 from typing import Literal, Protocol
 from urllib.error import HTTPError, URLError
@@ -12,16 +14,25 @@ from pydantic import Field
 
 from market_support_crewai_agent.runtime.domain.capabilities import read_capabilities_for_artifact
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
+from market_support_crewai_agent.runtime.domain.ontology import artifact_scope_for_evidence
+from market_support_crewai_agent.runtime.domain.sources.metadata import (
+    source_metadata_from_mapping,
+)
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.schemas import ReplyRequest, StrictModel
+from market_support_crewai_agent.runtime.llm.prompting.assembler import (
+    assembleCanonicalizationPrompt,
+)
+from market_support_crewai_agent.runtime.llm.prompting.registry import prompt_agent_spec_by_id
 from market_support_crewai_agent.settings import Settings, get_settings
 
 _DOC_CAPABILITY = next(iter(read_capabilities_for_artifact("knowledge_answer")), "")
 _MCP_ACCEPT_HEADER = "application/json, text/event-stream"
-_MAX_CHARS_PER_DOCUMENT = 6000
-_QUESTION_BLOCK_RE = re.compile(r"(?=Q[:：])")
+# Fallback ceiling for helpers invoked without an explicit budget. Production
+# callers thread Settings.doc_mcp_max_chars_per_document through instead.
+_DEFAULT_MAX_CHARS_PER_DOCUMENT = 16000
 _LOCAL_LOCATOR_RE = re.compile(
     r"(?i)(file://\S+|/[Uu]sers/\S+|/[Hh]ome/\S+|[A-Za-z]:\\[^\s]+|"
     r"wecom-adapter:[^\s]+|mcp://\S+)"
@@ -45,11 +56,51 @@ _REDACTED_SECRET = "[REDACTED_SECRET]"
 _REMOVED_DOCUMENT_INSTRUCTION = "[REMOVED_DOCUMENT_INSTRUCTION]"
 
 
+class _TtlCache:
+    """Process-wide, thread-safe TTL cache for static Document MCP payloads.
+
+    The client is rebuilt per request, so the cache lives at module scope. The
+    MCP serves a small, static corpus; caching the manifest and document content
+    avoids a network round-trip on every knowledge query without coupling the
+    cache lifetime to any one client instance.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._store: dict[str, tuple[float, object]] = {}
+
+    def get(self, key: str) -> object | None:
+        now = time.monotonic()
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if expires_at <= now:
+                self._store.pop(key, None)
+                return None
+            return value
+
+    def set(self, key: str, value: object, ttl_seconds: float) -> None:
+        if ttl_seconds <= 0:
+            return
+        with self._lock:
+            self._store[key] = (time.monotonic() + ttl_seconds, value)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+
+_DOCUMENT_CACHE = _TtlCache()
+
+
 @dataclass(frozen=True)
 class DocumentEvidenceChunk:
     document_id: str
     title: str
     text: str
+    metadata: dict[str, object] | None = None
 
 
 class DocumentMcpError(RuntimeError):
@@ -146,6 +197,9 @@ class DocumentMcpClient:
         self.settings = settings or get_settings()
         self.base_url = (self.settings.doc_mcp_base_url or "").rstrip("/")
         self.timeout = self.settings.doc_mcp_timeout_seconds
+        self.max_chars_per_document = self.settings.doc_mcp_max_chars_per_document
+        self.cache_ttl_seconds = self.settings.doc_mcp_cache_ttl_seconds
+        self.baseline_categories = self.settings.doc_mcp_baseline_categories
         self.product_selector = product_selector or CrewAIDocumentProductSelector(
             self.settings
         )
@@ -157,7 +211,7 @@ class DocumentMcpClient:
         *,
         evidence_query: str | None = None,
         max_documents: int = 3,
-        max_chars_per_document: int = _MAX_CHARS_PER_DOCUMENT,
+        max_chars_per_document: int | None = None,
     ) -> list[DocumentEvidenceChunk]:
         try:
             asyncio.get_running_loop()
@@ -182,11 +236,16 @@ class DocumentMcpClient:
         *,
         evidence_query: str | None = None,
         max_documents: int = 3,
-        max_chars_per_document: int = _MAX_CHARS_PER_DOCUMENT,
+        max_chars_per_document: int | None = None,
     ) -> list[DocumentEvidenceChunk]:
         if not self.base_url:
             return []
 
+        effective_max_chars = (
+            max_chars_per_document
+            if max_chars_per_document is not None
+            else self.max_chars_per_document or _DEFAULT_MAX_CHARS_PER_DOCUMENT
+        )
         query_text = _retrieval_query(request, evidence_query)
         products = await asyncio.to_thread(self._list_products)
         try:
@@ -204,6 +263,16 @@ class DocumentMcpClient:
             products,
             max_documents=max_documents,
         )
+        if not document_ids:
+            # The closed-set selector declined. A general FAQ rarely advertises
+            # every topic it covers, so fall back to the catch-all baseline
+            # document(s) instead of returning no evidence at all. Downstream
+            # composition and the alignment verifier still gate correctness.
+            document_ids = _baseline_document_ids(
+                products,
+                self.baseline_categories,
+                max_documents=max_documents,
+            )
         if not document_ids:
             return []
 
@@ -223,26 +292,54 @@ class DocumentMcpClient:
                         content,
                         query_text,
                         canonical_context,
-                        max_chars=max_chars_per_document,
+                        max_chars=effective_max_chars,
                     ),
+                    metadata=_document_artifact_metadata(document),
                 )
             )
         return chunks
 
     def _list_products(self) -> list[dict]:
+        cache_key = f"{self.base_url}|list_products"
+        cached = _DOCUMENT_CACHE.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
         result = self._call_tool("list_products", {})
         payload = _tool_text_json(result)
         products = payload.get("products")
-        return products if isinstance(products, list) else []
+        products = products if isinstance(products, list) else []
+        _DOCUMENT_CACHE.set(cache_key, products, self.cache_ttl_seconds)
+        return list(products)
 
     def _get_documents(self, document_ids: list[str]) -> list[dict]:
-        result = self._call_tool(
-            "get_documents",
-            {"documentIds": [document_id for document_id in document_ids if document_id]},
-        )
-        payload = _tool_text_json(result)
-        documents = payload.get("documents")
-        return documents if isinstance(documents, list) else []
+        ordered_ids = [document_id for document_id in document_ids if document_id]
+        resolved: dict[str, dict] = {}
+        missing: list[str] = []
+        for document_id in ordered_ids:
+            if document_id in resolved or document_id in missing:
+                continue
+            cached = _DOCUMENT_CACHE.get(f"{self.base_url}|document|{document_id}")
+            if isinstance(cached, dict):
+                resolved[document_id] = cached
+            else:
+                missing.append(document_id)
+        if missing:
+            result = self._call_tool("get_documents", {"documentIds": missing})
+            payload = _tool_text_json(result)
+            documents = payload.get("documents")
+            for document in documents if isinstance(documents, list) else []:
+                if not isinstance(document, dict):
+                    continue
+                document_id = str(document.get("id") or "")
+                if not document_id:
+                    continue
+                _DOCUMENT_CACHE.set(
+                    f"{self.base_url}|document|{document_id}",
+                    document,
+                    self.cache_ttl_seconds,
+                )
+                resolved.setdefault(document_id, document)
+        return [resolved[document_id] for document_id in ordered_ids if document_id in resolved]
 
     def _call_tool(self, name: str, arguments: dict) -> dict:
         return self._post_json_rpc(
@@ -351,7 +448,10 @@ class DocumentMcpEvidenceService:
             sanitized = _sanitize_document_text(chunk.text)
             if not sanitized.text.strip():
                 continue
-            evidence_text, metadata = _bound_sanitized_document_text(sanitized)
+            evidence_text, metadata = _bound_sanitized_document_text(
+                sanitized,
+                max_chars=self.settings.doc_mcp_max_chars_per_document,
+            )
             facts.append(
                 EvidenceFact(
                     fact_type="document_context",
@@ -361,8 +461,30 @@ class DocumentMcpEvidenceService:
                     metadata={
                         "title": chunk.title,
                         "content_is_data_only": True,
+                        "original_artifact_metadata": dict(chunk.metadata or {}),
                         **metadata,
                     },
+                    artifact_type="document_context",
+                    scope=artifact_scope_for_evidence(
+                        channel_id="unknown",
+                        artifact_type="document_context",
+                        source_id=chunk.document_id,
+                        source_type="document_mcp",
+                        metadata={"title": chunk.title, **dict(chunk.metadata or {})},
+                    ),
+                    source_metadata=source_metadata_from_mapping(
+                        {
+                            **dict(chunk.metadata or {}),
+                            "source_id": chunk.document_id,
+                            "source_type": "retrieved_doc",
+                            "artifact_type": "document_context",
+                            "provenance": (
+                                (chunk.metadata or {}).get("provenance")
+                                or "document_mcp"
+                            ),
+                            "evidence_allowed_by_default": True,
+                        }
+                    ),
                 )
             )
         if not facts:
@@ -431,6 +553,26 @@ def _tool_text_json(result: dict) -> dict:
     return {}
 
 
+def _document_artifact_metadata(document: dict) -> dict[str, object]:
+    metadata = document.get("metadata")
+    output = dict(metadata) if isinstance(metadata, dict) else {}
+    for key in (
+        "artifact_type",
+        "channel_id",
+        "strategy_id",
+        "product_ids",
+        "time_range",
+        "created_at",
+        "observed_at",
+        "provenance",
+    ):
+        if key not in output and key in document:
+            output[key] = document[key]
+    return output
+
+
+
+
 def _product_manifest(products: list[dict]) -> tuple[DocumentProductCandidate, ...]:
     candidates: list[DocumentProductCandidate] = []
     for product in products:
@@ -485,6 +627,29 @@ def _validated_selected_document_ids(
     return output
 
 
+def _baseline_document_ids(
+    products: list[dict],
+    baseline_categories: tuple[str, ...],
+    *,
+    max_documents: int,
+) -> list[str]:
+    wanted = {category.strip() for category in baseline_categories if category.strip()}
+    if not wanted:
+        return []
+    output: list[str] = []
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        product_id = str(product.get("id") or "").strip()
+        category = str(product.get("category") or "").strip()
+        if not product_id or category not in wanted or product_id in output:
+            continue
+        output.append(product_id)
+        if len(output) >= max_documents:
+            break
+    return output
+
+
 def _document_product_selector_prompt(
     *,
     request: ReplyRequest,
@@ -503,34 +668,15 @@ def _document_product_selector_prompt(
             for candidate in candidates
         ],
     }
-    return (
-        "You are the closed-set Document MCP document selector for a deterministic "
-        "support reply harness.\n\n"
-        "Your only job is to choose which candidate document IDs should be fetched "
-        "as evidence for the current user question.\n"
-        "Select IDs only from candidate_documents[].id. Do not invent IDs, document "
-        "titles, facts, answer text, actions, or image markers.\n"
-        "Use the candidate metadata semantically: id, name, title, category, "
-        "keywords, and summary. Do not perform or describe keyword scoring, "
-        "substring ranking, regex matching, fuzzy matching, or n-gram matching.\n"
-        "Prefer one precise document. Select multiple documents only when the "
-        "question truly combines company information with a specifically named "
-        "product/strategy or FAQ topic. Never return more than max_documents IDs.\n"
-        "For company-wide questions about Yanfu/衍复 facts, team, address, overall "
-        "or latest scale/AUM, or product line, choose the company-introduction "
-        "candidate rather than a single strategy document unless the user clearly "
-        "names that strategy.\n"
-        "For a specifically named index or strategy, choose only the exact matching "
-        "strategy document. Strictly distinguish 中证A500 from 中证500, 中证1000 "
-        "from 中证500, and 沪深300 from 中证500.\n"
-        "For hedge, market-neutral, or absolute-return strategy questions, choose "
-        "the matching hedge-strategy candidate. For operational FAQ questions, "
-        "choose the FAQ candidate.\n"
-        "If the candidates do not contain a directly relevant document, return "
-        "confidence='none' and document_ids=[].\n"
-        "Return only DocumentProductSelection matching the response schema.\n\n"
-        "Selector input JSON:\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}"
+    return assembleCanonicalizationPrompt(
+        "canonicalization.document_product_selector",
+        stage="document_product_selector",
+        selector_input_json=json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
     )
 
 
@@ -542,13 +688,11 @@ async def _run_crewai_document_product_selector(
 ) -> DocumentProductSelection:
     from crewai import Agent, LLM
 
+    spec = prompt_agent_spec_by_id("agent.document_product_selector")
     agent = Agent(
-        role="Closed-set Document MCP Selector",
-        goal="Select only valid candidate document IDs for evidence retrieval.",
-        backstory=(
-            "You specialize in choosing evidence sources from a fixed catalog. "
-            "You never compose customer replies, invent IDs, or call tools."
-        ),
+        role=spec.role,
+        goal=spec.goal,
+        backstory=spec.backstory,
         llm=LLM(
             model=settings.llm_model,
             provider=settings.llm_provider,
@@ -601,6 +745,14 @@ def _document_context_unavailable_fact(
         source_type="document_mcp",
         source_id="document_mcp",
         metadata=metadata,
+        artifact_type="document_context",
+        scope=artifact_scope_for_evidence(
+            channel_id="unknown",
+            artifact_type="document_context",
+            source_id=document_id or "document_mcp",
+            source_type="document_mcp",
+            metadata=metadata,
+        ),
     )
 
 
@@ -639,7 +791,7 @@ def _sanitize_document_text(text: str) -> SanitizedDocumentText:
 def _bound_sanitized_document_text(
     sanitized: SanitizedDocumentText,
     *,
-    max_chars: int = _MAX_CHARS_PER_DOCUMENT,
+    max_chars: int = _DEFAULT_MAX_CHARS_PER_DOCUMENT,
 ) -> tuple[str, dict[str, object]]:
     text = sanitized.text
     metadata = dict(sanitized.metadata)
@@ -668,42 +820,6 @@ def _retrieval_query(request: ReplyRequest, evidence_query: str | None) -> str:
     return str(request.message or "").strip()
 
 
-def _text_similarity_score(query: str, text: str) -> int:
-    query_terms = _semantic_terms(query)
-    if not query_terms:
-        return 0
-    score = 0
-    for term in query_terms:
-        if term in text:
-            score += min(30, max(2, len(term))) * 2
-    text_terms = _semantic_terms(text)
-    if not text_terms:
-        return score
-    score += len(query_terms & text_terms)
-    return score
-
-
-def _semantic_terms(text: str) -> set[str]:
-    normalized = str(text or "").lower()
-    terms = {
-        token
-        for token in re.split(r"[\s,，。；;:：/？?！!（）()、&|]+", normalized)
-        if len(token) >= 2
-    }
-    compact = re.sub(r"[\s,，。；;:：/？?！!（）()、&|]+", "", normalized)
-    if len(compact) >= 2:
-        terms.update(
-            compact[index : index + 2]
-            for index in range(0, len(compact) - 1)
-        )
-    if len(compact) >= 3:
-        terms.update(
-            compact[index : index + 3]
-            for index in range(0, len(compact) - 2)
-        )
-    return terms
-
-
 def _select_document_text(
     content: str,
     message: str,
@@ -711,46 +827,7 @@ def _select_document_text(
     *,
     max_chars: int,
 ) -> str:
+    del message, canonical_context
     if len(content) <= max_chars:
         return content
-
-    blocks = [block.strip() for block in _QUESTION_BLOCK_RE.split(content) if block.strip()]
-    if not blocks:
-        return content[:max_chars]
-
-    scored_blocks = [
-        (_score_text_block(block, message, canonical_context), block)
-        for block in blocks
-    ]
-    selected = [
-        block
-        for score, block in sorted(scored_blocks, key=lambda item: item[0], reverse=True)
-        if score > 0
-    ]
-    if not selected:
-        selected = blocks[:1]
-
-    output: list[str] = []
-    current_len = 0
-    for block in selected:
-        if current_len >= max_chars:
-            break
-        remaining = max_chars - current_len
-        piece = block[:remaining]
-        output.append(piece)
-        current_len += len(piece) + 2
-    return "\n\n".join(output)
-
-
-def _score_text_block(
-    block: str,
-    query_text: str,
-    canonical_context: CanonicalContext,
-) -> int:
-    normalized_block = block.lower()
-    score = 0
-    strategy = (canonical_context.selected_strategy or "").lower()
-    if strategy and strategy in normalized_block:
-        score += 20
-    score += _text_similarity_score(query_text.lower(), normalized_block)
-    return score
+    return content[:max_chars].rstrip()

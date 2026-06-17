@@ -34,14 +34,41 @@ Run the Python test suite:
 uv run --extra dev python -m pytest -q
 ```
 
+Run a focused category:
+
+```bash
+uv run --extra dev python -m pytest -q -m unit
+uv run --extra dev python -m pytest -q -m integration
+uv run --extra dev python -m pytest -q -m contract
+```
+
+Run prompt registry lint:
+
+```bash
+uv run python scripts/check_prompt_registry.py
+```
+
+Run the semantic keyword-matching guard:
+
+```bash
+uv run python scripts/check_no_semantic_keyword_matching.py
+```
+
 Run the core acceptance check suite:
 
 ```bash
-uv run python scripts/check_reply_acceptance.py
+uv run --extra dev python scripts/check_reply_acceptance.py
 ```
 
-This default suite uses fake external dependencies. Add `--include-real-llm` when provider credentials and network
-access are available. Add `--include-live-adapter` only after starting the xiaoyan adapter fixture.
+This default suite uses fake external dependencies and includes the deterministic agent behavior golden evals. Add
+`--include-real-llm` when provider credentials and network access are available. Add `--include-live-adapter` only after
+starting the xiaoyan adapter fixture.
+
+Run only the capability/evidence/domain correctness evals:
+
+```bash
+uv run --extra dev python -m pytest -q tests/unit/domain/test_agent_behavior_eval_golden.py tests/integration/runtime/test_agent_behavior_eval_suite.py
+```
 
 Run the harness pipeline without external LLM or adapter credentials:
 
@@ -119,6 +146,20 @@ AGENT_CONVERSATION_MAX_SESSIONS=5000
 AGENT_CONVERSATION_CLEANUP_INTERVAL_SECONDS=300
 ```
 
+## Context projection configuration
+
+Before each planner/composer/verifier model call, runtime state is projected into a bounded `ModelVisibleContext`.
+
+```bash
+AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT=4
+AGENT_CONTEXT_MAX_HISTORY_MESSAGE_CHARS_INLINE=1200
+AGENT_CONTEXT_MAX_EVIDENCE_CHARS_INLINE=6000
+AGENT_CONTEXT_LARGE_RESULT_PREVIEW_CHARS=1200
+AGENT_CONTEXT_TOKEN_BUDGET=24000
+AGENT_CONTEXT_WARNING_THRESHOLD=0.75
+AGENT_CONTEXT_HARD_THRESHOLD=0.92
+```
+
 ## Adapter resolve/preflight configuration
 
 ```bash
@@ -175,6 +216,11 @@ action proposals after its own validation.
 ## Documentation map
 
 - `AGENTS.md`: short operational contract for coding agents.
+- `docs/agent-architecture.md`: current agent architecture, capability registry, DomainContext, PlanSpec, EvidenceContract, guardrails, answerability, and prompt layers.
+- `docs/add-a-capability.md`: manifest-first capability extension guide with a full example.
+- `docs/domain-model.md`: 渠道/策略/产品/材料包/周报/月报 hierarchy, artifact distinctions, and source precedence.
+- `docs/guardrails.md`: input, retrieval/evidence, execution/tool, output, SendScope, and audit reason-code guidance.
+- `docs/keyword-matching-cleanup.md`: banned semantic matching patterns and CI enforcement.
 - `docs/support_reply_harness/README.md`: harness doc index and active source-of-truth map.
 - `docs/support_reply_harness/adr/0001-support-reply-harness.md`: architecture decision record.
 - `docs/support_reply_harness/architecture.md`: runtime shape, source hierarchy, and internal concepts.
@@ -184,6 +230,8 @@ action proposals after its own validation.
 - `docs/support_reply_harness/next_session.md`: immediate coding-session handoff.
 - `docs/support_reply_harness/reference/agent_prompt_hygiene.md`: prompt/context hygiene for Codex-style coding agents.
 - `docs/adapter/xiaoyan_adapter_contract.md`: xiaoyan WeCom adapter contract and live eval commands.
+- `docs/capability-registry.md`: manifest schema and extension path for planner/verifier capability metadata.
+- `docs/prompts.md`: prompt registry, layer, snapshot, and extension rules.
 
 ## Current module ownership
 

@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-14.
 
-The `xiaoyan_wecom` backend provides adapter preflight/resolve for `market-support-crewai-agent`. Contract models live in `src/market_support_crewai_agent/schemas.py`. Cross-repo acceptance lives in `tests/test_xiaoyan_adapter_live_contract.py`.
+The `xiaoyan_wecom` backend provides adapter preflight/resolve for `market-support-crewai-agent`. Contract models live in `src/market_support_crewai_agent/schemas.py`. Cross-repo acceptance lives in `tests/live/test_xiaoyan_adapter_live_contract.py`.
 
 This document describes the single current adapter contract. Older adapter payload shapes are removed and are not accepted by the agent runtime. The adapter must return current capabilities, current resolve results, current batch resolve results, and current action feedback.
 
@@ -118,7 +118,7 @@ Run live contract tests from this repo:
 
 ```bash
 cd /Users/ivan/PycharmProjects/market_support_crewai_agent
-MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:8011 uv run --extra dev python -m pytest -q tests/test_xiaoyan_adapter_live_contract.py
+MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:8011 uv run --extra dev python -m pytest -q tests/live/test_xiaoyan_adapter_live_contract.py
 ```
 
 To test a real channel's current sendability:

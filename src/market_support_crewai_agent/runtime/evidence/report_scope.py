@@ -9,9 +9,14 @@ from pydantic import Field
 
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.capabilities import capability_by_name
+from market_support_crewai_agent.runtime.domain.ontology import artifact_scope_for_evidence
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
+from market_support_crewai_agent.runtime.llm.prompting.assembler import (
+    assembleCanonicalizationPrompt,
+)
+from market_support_crewai_agent.runtime.llm.prompting.registry import prompt_agent_spec_by_id
 from market_support_crewai_agent.runtime.evidence.adapter_client import (
     AdapterClientError,
     AdapterResolveClient,
@@ -334,13 +339,16 @@ def _summary_fact(
     resolve_type: AdapterResolveType,
     result: AdapterReportScopeResult,
 ) -> EvidenceFact:
+    metadata = _result_metadata(result)
     return EvidenceFact(
         fact_type="report_scope_summary",
         value=result.status == "resolved",
         source_type="adapter_report_scope",
         source_id=resolve_type,
         resolve_type=resolve_type,
-        metadata=_result_metadata(result),
+        metadata=metadata,
+        artifact_type=resolve_type,
+        scope=_scope(resolve_type, metadata),
     )
 
 
@@ -366,6 +374,8 @@ def _match_fact(
         source_id=resolve_type,
         resolve_type=resolve_type,
         metadata=metadata,
+        artifact_type=resolve_type,
+        scope=_scope(resolve_type, metadata),
     )
 
 
@@ -395,6 +405,8 @@ def _products_fact(
         source_id=resolve_type,
         resolve_type=resolve_type,
         metadata=metadata,
+        artifact_type=resolve_type,
+        scope=_scope(resolve_type, metadata),
     )
 
 
@@ -414,6 +426,8 @@ def _unavailable_fact(
         source_id=resolve_type,
         resolve_type=resolve_type,
         metadata=metadata,
+        artifact_type=resolve_type,
+        scope=_scope(resolve_type, metadata),
     )
 
 
@@ -438,6 +452,17 @@ def _result_metadata(result: AdapterReportScopeResult) -> dict:
         "products_are_paginated": True,
         "full_product_list_in_prompt": False,
     }
+
+
+def _scope(resolve_type: AdapterResolveType, metadata: dict) -> object:
+    return artifact_scope_for_evidence(
+        channel_id="unknown",
+        artifact_type=resolve_type,
+        resolve_type=resolve_type,
+        source_id=resolve_type,
+        source_type="adapter_report_scope",
+        metadata=metadata,
+    )
 
 
 def _scope_query(plan: ExecutionPlan, strategy: str | None) -> str:
@@ -485,17 +510,15 @@ def _selector_prompt(
             for product in products
         ],
     }
-    return (
-        "You are a closed-set report-scope selector for a deterministic support "
-        "reply harness.\n\n"
-        "Choose one candidate section name or product_name only if it is the "
-        "semantic target of the user question. Return selected_name exactly as "
-        "it appears in the candidates. Do not compose an answer, invent names, "
-        "call tools, or describe keyword scoring, substring matching, regex, "
-        "fuzzy matching, or n-gram matching. If no candidate directly matches, "
-        "return selected_type='none', confidence='none', selected_name=''.\n\n"
-        "Selector input JSON:\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}"
+    return assembleCanonicalizationPrompt(
+        "canonicalization.report_scope_selector",
+        stage="report_scope_selector",
+        selector_input_json=json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ),
     )
 
 
@@ -507,13 +530,11 @@ async def _run_selector_llm(
 ) -> ReportScopeSelection:
     from crewai import Agent, LLM
 
+    spec = prompt_agent_spec_by_id("agent.report_scope_selector")
     agent = Agent(
-        role="Closed-set Report Scope Selector",
-        goal="Select only a valid candidate report section or product name.",
-        backstory=(
-            "You select evidence targets from a fixed report-scope manifest. "
-            "You never compose customer replies or invent candidate names."
-        ),
+        role=spec.role,
+        goal=spec.goal,
+        backstory=spec.backstory,
         llm=LLM(
             model=settings.llm_model,
             provider=settings.llm_provider,

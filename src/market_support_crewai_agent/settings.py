@@ -34,11 +34,35 @@ class Settings(BaseModel):
     doc_mcp_timeout_seconds: float = Field(default=5.0, gt=0)
     doc_mcp_enabled: bool = False
     doc_mcp_allowed_channel_types: tuple[ChannelType, ...] = _ALL_CHANNEL_TYPES
+    # Per-document evidence ceiling. Set above the largest real document so a
+    # selected document is delivered whole ("locate precisely, then expand to
+    # read"); it only fails safe on a pathologically oversized document.
+    doc_mcp_max_chars_per_document: int = Field(default=16000, gt=0)
+    # Process-wide TTL for the static product manifest and document content.
+    # 0 disables caching and re-fetches from the MCP on every query.
+    doc_mcp_cache_ttl_seconds: float = Field(default=300.0, ge=0)
+    # Catch-all document categories used as deterministic baseline evidence when
+    # the closed-set selector declines (confidence=none). A general FAQ rarely
+    # advertises every topic it covers in its summary, so a topic-miss should
+    # fall back to the FAQ rather than hard-failing with no evidence. Empty
+    # disables the fallback.
+    doc_mcp_baseline_categories: tuple[str, ...] = ("常见问答",)
     reply_alignment_verifier_enabled: bool = True
     reply_alignment_max_replans: int = Field(default=1, ge=0)
     reply_alignment_max_evidence_refetches: int = Field(default=1, ge=0)
     reply_alignment_max_recomposes: int = Field(default=1, ge=0)
     reply_alignment_max_total_remediations: int = Field(default=2, ge=0)
+    agent_context_recent_turns_verbatim_count: int = Field(default=4, ge=0)
+    agent_context_max_history_message_chars_inline: int = Field(default=1200, gt=0)
+    agent_context_max_evidence_chars_inline: int = Field(default=6000, gt=0)
+    # Answer-bearing evidence (selected knowledge documents) inline budget. Keep
+    # >= doc_mcp_max_chars_per_document so a selected document reaches the
+    # composer whole instead of being previewed.
+    agent_context_max_answer_evidence_chars_inline: int = Field(default=16000, gt=0)
+    agent_context_large_result_preview_chars: int = Field(default=1200, gt=0)
+    agent_context_token_budget: int = Field(default=24000, gt=0)
+    agent_context_warning_threshold: float = Field(default=0.75, gt=0)
+    agent_context_hard_threshold: float = Field(default=0.92, gt=0)
 
 
 def get_settings() -> Settings:
@@ -82,6 +106,15 @@ def get_settings() -> Settings:
             "MARKET_AGENT_DOC_MCP_ALLOWED_CHANNEL_TYPES",
             _ALL_CHANNEL_TYPES,
         ),
+        doc_mcp_max_chars_per_document=_int_env(
+            "MARKET_AGENT_DOC_MCP_MAX_CHARS_PER_DOCUMENT", 16000
+        ),
+        doc_mcp_cache_ttl_seconds=_float_env(
+            "MARKET_AGENT_DOC_MCP_CACHE_TTL_SECONDS", 300.0
+        ),
+        doc_mcp_baseline_categories=_str_tuple_env(
+            "MARKET_AGENT_DOC_MCP_BASELINE_CATEGORIES", ("常见问答",)
+        ),
         reply_alignment_verifier_enabled=_bool_env(
             "MARKET_AGENT_REPLY_ALIGNMENT_VERIFIER_ENABLED", True
         ),
@@ -96,6 +129,30 @@ def get_settings() -> Settings:
         ),
         reply_alignment_max_total_remediations=_non_negative_int_env(
             "MARKET_AGENT_REPLY_ALIGNMENT_MAX_TOTAL_REMEDIATIONS", 2
+        ),
+        agent_context_recent_turns_verbatim_count=_non_negative_int_env(
+            "AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT", 4
+        ),
+        agent_context_max_history_message_chars_inline=_int_env(
+            "AGENT_CONTEXT_MAX_HISTORY_MESSAGE_CHARS_INLINE", 1200
+        ),
+        agent_context_max_evidence_chars_inline=_int_env(
+            "AGENT_CONTEXT_MAX_EVIDENCE_CHARS_INLINE", 6000
+        ),
+        agent_context_max_answer_evidence_chars_inline=_int_env(
+            "AGENT_CONTEXT_MAX_ANSWER_EVIDENCE_CHARS_INLINE", 16000
+        ),
+        agent_context_large_result_preview_chars=_int_env(
+            "AGENT_CONTEXT_LARGE_RESULT_PREVIEW_CHARS", 1200
+        ),
+        agent_context_token_budget=_int_env(
+            "AGENT_CONTEXT_TOKEN_BUDGET", 24000
+        ),
+        agent_context_warning_threshold=_float_env(
+            "AGENT_CONTEXT_WARNING_THRESHOLD", 0.75
+        ),
+        agent_context_hard_threshold=_float_env(
+            "AGENT_CONTEXT_HARD_THRESHOLD", 0.92
         ),
     )
 
@@ -131,6 +188,13 @@ def _optional_int_env(name: str) -> int | None:
     except ValueError:
         return None
     return parsed if parsed > 0 else None
+
+
+def _str_tuple_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
 def _bool_env(name: str, default: bool) -> bool:
