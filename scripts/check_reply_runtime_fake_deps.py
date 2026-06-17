@@ -5,6 +5,10 @@ import json
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+from market_support_crewai_agent.runtime.domain.capabilities import (
+    CAPABILITY_MANIFEST_REGISTRY,
+)
+from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
 from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
 from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightItem,
@@ -12,7 +16,6 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
 )
 from market_support_crewai_agent.runtime.state.audit import AuditStore
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
-from market_support_crewai_agent.runtime.domain.planning import IntentFrame
 from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
 from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
     ReplyAlignmentVerdict,
@@ -30,7 +33,7 @@ from market_support_crewai_agent.settings import Settings
 class RuntimeScenario:
     name: str
     request: ReplyRequest
-    intent_frame: IntentFrame
+    plan_spec: PlanSpec
 
 
 class FakeCrewAgent:
@@ -152,7 +155,7 @@ def _request(message: str, **overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def _intent_frame(**overrides) -> IntentFrame:
+def _plan_spec(request: ReplyRequest, **overrides) -> PlanSpec:
     payload = {
         "user_need": "runtime check",
         "artifact_kind": "unclear",
@@ -167,7 +170,71 @@ def _intent_frame(**overrides) -> IntentFrame:
         "confidence": 0.8,
     }
     payload.update(overrides)
-    return IntentFrame.model_validate(payload)
+    capability_id = _capability_id_from_payload(payload)
+    manifest = CAPABILITY_MANIFEST_REGISTRY.get(capability_id)
+    strategy = payload.get("selected_strategy")
+    if (
+        manifest.runtime_capability == "material_pack"
+        and request.channel_type == "bank"
+        and strategy is None
+        and len(request.available_strategies) == 1
+    ):
+        strategy = request.available_strategies[0]
+    step = {
+        "step_id": "step-1",
+        "description": payload["user_need"],
+        "uses_artifacts": list(manifest.required_artifacts),
+        "required_artifacts": list(manifest.required_artifacts),
+        "allowed_artifacts": list(manifest.allowed_artifacts),
+        "forbidden_artifacts": list(manifest.forbidden_artifacts),
+        "required_tools": list(manifest.required_tools),
+        "evidence_query": payload.get("evidence_query"),
+    }
+    return PlanSpec.model_validate(
+        {
+            "plan_id": f"plan-{capability_id}",
+            "selected_capability_id": capability_id,
+            "user_intent_summary": payload["user_need"],
+            "domain_scope": {
+                "channel_id": request.group_id or request.conversation_key,
+                "channel_kind": request.channel_type,
+                "strategy_id": strategy,
+                "strategy_name": strategy,
+                "product_ids": [],
+            },
+            "required_artifacts": list(manifest.required_artifacts),
+            "allowed_artifacts": list(manifest.allowed_artifacts),
+            "forbidden_artifacts": list(manifest.forbidden_artifacts),
+            "required_tools": list(manifest.required_tools),
+            "answerability_policy": "send"
+            if capability_id.endswith(".send")
+            else "clarify",
+            "output_schema_ref": f"{manifest.id}:output_schema",
+            "evidence_contract_ref": f"{manifest.id}:evidence_contract",
+            "evidence_contract": manifest.evidence_contract,
+            "steps": [step],
+            "acceptance_criteria": ["satisfy selected capability contract"],
+            "abstention_cases": [manifest.abstention_policy.guidance]
+            if manifest.abstention_policy.guidance
+            else [],
+            "risk_flags": list(payload.get("ambiguity_slots") or []),
+        }
+    )
+
+
+def _capability_id_from_payload(payload: dict) -> str:
+    artifact_kind = payload.get("artifact_kind", "unclear")
+    action_intent = payload.get("action_intent", "none")
+    if payload.get("ambiguity_slots") or payload.get("report_scope") == "ambiguous":
+        return "general.clarification"
+    if action_intent == "send":
+        if artifact_kind == "material_pack":
+            return "material_pack.send"
+        if artifact_kind == "weekly_report":
+            return "weekly_report.send"
+        if artifact_kind == "monthly_report":
+            return "monthly_report.send"
+    return "general.clarification"
 
 
 def _weekly_scenario() -> RuntimeScenario:
@@ -175,7 +242,8 @@ def _weekly_scenario() -> RuntimeScenario:
     return RuntimeScenario(
         name="weekly_report_action",
         request=request,
-        intent_frame=_intent_frame(
+        plan_spec=_plan_spec(
+            request,
             user_need="send weekly report",
             artifact_kind="weekly_report",
             action_intent="send",
@@ -191,7 +259,8 @@ def _bank_material_clarification_scenario() -> RuntimeScenario:
     return RuntimeScenario(
         name="bank_material_strategy_clarification",
         request=request,
-        intent_frame=_intent_frame(
+        plan_spec=_plan_spec(
+            request,
             user_need="send material pack but strategy is unclear",
             artifact_kind="material_pack",
             action_intent="send",
@@ -211,7 +280,7 @@ async def _run_scenario(scenario: RuntimeScenario) -> dict:
         audit_store=AuditStore(),
         alignment_verifier=PassingAlignmentVerifier(),
     )
-    runtime._build_planner_agent = lambda: FakeCrewAgent(scenario.intent_frame)  # type: ignore[method-assign]
+    runtime._build_planner_agent = lambda: FakeCrewAgent(scenario.plan_spec)  # type: ignore[method-assign]
     runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
 
     response = await runtime.reply(scenario.request)

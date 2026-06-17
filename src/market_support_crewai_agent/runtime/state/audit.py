@@ -15,9 +15,18 @@ from market_support_crewai_agent.runtime.domain.canonicalization import (
     CanonicalContext,
     canonicalize_request,
 )
+from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.runtime.validation.guardrails import ValidationResult
+from market_support_crewai_agent.runtime.domain.sources.metadata import (
+    SourceMetadata,
+    source_metadata_prompt_dict,
+)
+from market_support_crewai_agent.runtime.validation.reply_validator import ValidationResult
+from market_support_crewai_agent.runtime.validation.guardrail_types import GuardrailDecision
+from market_support_crewai_agent.runtime.validation.answerability import (
+    AnswerabilityAssessment,
+)
 from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
     ReplyAlignmentVerdict,
 )
@@ -27,8 +36,8 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
     capability_registry_hash,
     resolve_type_for_action,
 )
-from market_support_crewai_agent.runtime.llm.prompt_assembler import PromptProgram
-from market_support_crewai_agent.runtime.llm.prompt_context import IntentGateResult
+from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
+from market_support_crewai_agent.runtime.llm.prompting.context import IntentGateResult
 from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse
 from market_support_crewai_agent.settings import Settings
 
@@ -61,6 +70,7 @@ class AuditTrace:
     policy_hash: str
     policy: dict
     canonical_entities: dict
+    domain_context: dict
     planner_output: dict
     response_directive: dict
     plan_validation: dict
@@ -68,8 +78,10 @@ class AuditTrace:
     adapter_preflight: list[dict]
     evidence_facts: list[dict]
     business_facts: dict
+    answerability_assessment: dict
     reply_output: dict
     reply_validation: dict | None
+    guardrail_decisions: list[dict]
     alignment_verdicts: list[dict]
     alignment_remediations: list[dict]
     final_actions: list[dict]
@@ -163,12 +175,15 @@ def build_audit_trace(
         business_facts: BusinessFacts,
         response: ReplyResponse,
         reply_validation: ValidationResult | None,
+        guardrail_decisions: list[GuardrailDecision] | None = None,
         canonical_context: CanonicalContext | None = None,
+        domain_context: DomainContext | None = None,
         intent_gate: IntentGateResult | None = None,
         prompt_programs: list[PromptProgram] | None = None,
         llm_executions: list[dict] | None = None,
         alignment_verdicts: list[ReplyAlignmentVerdict] | None = None,
         alignment_remediations: list[dict] | None = None,
+        answerability_assessment: AnswerabilityAssessment | None = None,
 ) -> AuditTrace:
     policy_payload = _compact_policy(policy)
     canonical_payload = _compact_canonical_context(
@@ -203,6 +218,11 @@ def build_audit_trace(
         policy_hash=_stable_hash(policy_payload),
         policy=policy_payload,
         canonical_entities=canonical_payload,
+        domain_context=(
+            domain_context.to_prompt_dict()
+            if domain_context is not None
+            else {}
+        ),
         planner_output=plan.model_dump(mode="json", exclude_none=True),
         response_directive=_compact_response_directive(directive),
         plan_validation=_compact_plan_validation(plan_validation),
@@ -216,8 +236,17 @@ def build_audit_trace(
             for fact in evidence_facts
         ],
         business_facts=business_facts.to_prompt_dict(),
+        answerability_assessment=(
+            answerability_assessment.model_dump(mode="json", exclude_none=True)
+            if answerability_assessment is not None
+            else {}
+        ),
         reply_output=_compact_response(response),
         reply_validation=reply_validation_payload,
+        guardrail_decisions=[
+            _compact_guardrail_decision(decision)
+            for decision in guardrail_decisions or []
+        ],
         alignment_verdicts=[
             _compact_alignment_verdict(verdict)
             for verdict in alignment_verdicts or []
@@ -295,14 +324,25 @@ def _compact_model(settings: Settings) -> dict:
 
 
 def _compact_prompt_program(program: PromptProgram) -> dict:
-    return {
+    payload = {
         "stage": program.profile.stage,
         "profile_id": program.profile.id,
         "model_family": program.profile.model_family,
         "fragment_ids": list(program.fragment_ids),
+        "layers": list(program.layers),
         "prompt_hash": program.prompt_hash,
         "fragment_hashes": dict(program.fragment_hashes),
     }
+    if program.projection_id:
+        payload.update(
+            {
+                "projection_id": program.projection_id,
+                "projection_pressure": program.projection_pressure,
+                "projection_decision_count": program.projection_decision_count,
+                "model_visible_context_hash": program.model_visible_context_hash,
+            }
+        )
+    return payload
 
 
 def _compact_canonical_context(canonical_context: CanonicalContext) -> dict:
@@ -353,6 +393,15 @@ def _compact_reply_validation(validation: ValidationResult) -> dict:
     }
 
 
+def _compact_guardrail_decision(decision: GuardrailDecision) -> dict:
+    payload = decision.model_dump(mode="json", exclude_none=True)
+    metadata = dict(payload.get("metadata") or {})
+    if "resolve_ref" in metadata:
+        metadata["resolve_ref_available"] = bool(metadata.pop("resolve_ref"))
+    payload["metadata"] = metadata
+    return payload
+
+
 def _compact_alignment_verdict(verdict: ReplyAlignmentVerdict) -> dict:
     return verdict.model_dump(mode="json", exclude_none=True)
 
@@ -392,6 +441,16 @@ def _compact_action_record(record: ActionLedgerRecord) -> dict:
         "strategy": execution.strategy,
         "version": execution.version,
         "received_at": record.received_at.isoformat(),
+        "source_metadata": SourceMetadata(
+            source_id=record.response_id or record.context_id or execution.action_id,
+            source_type="tool_result",
+            artifact_type="history",
+            channel_id=record.group_id,
+            created_at=record.received_at,
+            observed_at=record.received_at,
+            provenance="adapter_action_ledger",
+            evidence_allowed_by_default=False,
+        ).to_prompt_dict(),
     }
 
 
@@ -502,14 +561,44 @@ def _compact_evidence_fact(fact: EvidenceFact) -> dict:
     metadata = dict(fact.metadata)
     if "resolve_ref" in metadata:
         metadata["resolve_ref_available"] = bool(metadata.pop("resolve_ref"))
+    metadata = {
+        key: _compact_large_audit_value(value)
+        for key, value in metadata.items()
+    }
     return {
+        "evidence_id": ":".join(
+            item
+            for item in (fact.source_type, fact.source_id, fact.fact_type)
+            if item
+        ),
         "fact_type": fact.fact_type,
-        "value": fact.value,
+        "value": _compact_large_audit_value(fact.value),
         "source_type": fact.source_type,
         "source_id": fact.source_id,
         "resolve_type": fact.resolve_type,
+        "artifact_type": fact.artifact_type,
+        "scope": fact.scope.to_prompt_dict(),
+        "source_metadata": source_metadata_prompt_dict(fact.source_metadata),
         "metadata": metadata,
     }
+
+
+def _compact_large_audit_value(value):
+    if isinstance(value, str) and len(value) > 1000:
+        return {
+            "preview": value[:200],
+            "original_char_count": len(value),
+            "truncated_for_audit": True,
+        }
+    if isinstance(value, dict):
+        return {
+            str(key): _compact_large_audit_value(item)
+            for key, item in value.items()
+            if not str(key).lower().endswith(("secret", "token", "api_key"))
+        }
+    if isinstance(value, list):
+        return [_compact_large_audit_value(item) for item in value[:50]]
+    return value
 
 def _stable_hash(payload: dict) -> str:
     serialized = json.dumps(

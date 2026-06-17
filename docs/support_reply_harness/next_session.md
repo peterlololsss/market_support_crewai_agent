@@ -9,7 +9,7 @@ This file is the practical starting point for the next coding agent session.
 The harness now has the first production-shaped runtime path:
 
 ```text
-Planner LLM -> IntentFrame -> validated ExecutionPlan -> EvidenceExecutor -> EvidenceFacts
+Planner LLM -> PlanSpec -> validated ExecutionPlan -> EvidenceExecutor -> EvidenceFacts
 -> BusinessFacts -> ResponseDirective -> deterministic renderer or knowledge composer
 -> reply/action postcondition validator -> error-on-invalid
 ```
@@ -19,7 +19,9 @@ Implemented:
 ```text
 ReplyResponse public boundary
 PolicyManifest
+PlanSpec and EvidenceContract planner/verifier boundary
 ExecutionPlan and plan validation
+generic PlanSpec verifier
 adapter resolve/preflight wrapper
 document MCP evidence wrapper, controlled by settings feature flags
 EvidenceFact and BusinessFacts
@@ -30,6 +32,7 @@ deterministic response renderer
 conversation history
 adapter execution feedback ledger
 audit trace with compact CrewAI stage usage metadata
+ContextProjectionManager and ModelVisibleContext before planner/composer/verifier prompts
 configurable input message length guardrail
 CrewAI planner/composer timeout budget
 configurable CrewAI retry budget
@@ -56,6 +59,7 @@ Add runtime-only modules as needed:
 ```text
 src/market_support_crewai_agent/runtime/domain/
 src/market_support_crewai_agent/runtime/evidence/
+src/market_support_crewai_agent/runtime/context/
 src/market_support_crewai_agent/runtime/knowledge/
 src/market_support_crewai_agent/runtime/llm/
 src/market_support_crewai_agent/runtime/orchestration/
@@ -66,14 +70,14 @@ src/market_support_crewai_agent/runtime/validation/
 Likely tests:
 
 ```text
-tests/test_policy.py
-tests/test_planning_guardrails.py
-tests/test_structured_guardrails.py
-tests/test_evidence_executor.py
-tests/test_document_mcp.py
-tests/test_action_ledger.py
-tests/test_weekly_scope.py
-tests/test_prompt_injection.py
+tests/unit/domain/test_policy.py
+tests/unit/validation/test_planning_guardrails.py
+tests/unit/validation/test_structured_guardrails.py
+tests/unit/evidence/test_evidence_executor.py
+tests/unit/evidence/test_document_mcp.py
+tests/unit/state/test_action_feedback.py
+tests/unit/evidence/test_report_scope_evidence.py
+tests/integration/runtime/test_reply_contract.py
 ```
 
 ## Minimal first implementation shape
@@ -137,11 +141,13 @@ reply.mentions=[]
 actions=[]
 ```
 
-## Planner timing
+## Planner boundary
 
-Add planner after validators are in place.
-
-Planner outputs `IntentFrame`, not `ReplyResponse` or `ExecutionPlan`. It proposes user need, artifact kind, action intent, compliance, strategy mentions, selected strategy, report scope, ambiguity slots, requested capabilities, and confidence. It does not call tools, invent capabilities, bypass policy, produce final reply text, output adapter resolves, output response mode, or claim final business facts.
+Planner outputs `PlanSpec`, not `ReplyResponse`, `ResponseDirective`, `BusinessFacts`, or final adapter evidence. `PlanSpec`
+selects one capability manifest, declares domain scope, required/allowed/forbidden artifacts, required tools,
+answerability policy, output schema ref, evidence contract ref or inline contract, steps, acceptance criteria,
+abstention cases, and risk flags. The runtime compiles it to `ExecutionPlan` and the verifier validates it generically
+through `PlanSpec` plus `EvidenceContract`.
 
 ## Evidence executor timing
 
@@ -168,3 +174,25 @@ Ledger facts now feed evidence/business state before composition. The runtime co
 - Deterministic renderer exists.
 - Audit trace or structured validation result is available for debugging.
 - `knowledge_answer` reply text requires document MCP evidence when that response mode is used.
+
+## Context Is A Projection
+
+Production prompt assembly now expects `PromptAssemblyContext(model_visible_context=...)`.
+When adding source, evidence, or runtime state, project it through
+`ContextProjectionManager` first instead of appending direct prompt text.
+
+`ModelVisibleContext` separates:
+
+```text
+recent_verbatim / compacted_summary   conversation context only
+large_result_preview                  stable preview + reload_handle
+allowed_evidence                      current-plan accepted evidence
+context_only                          ledger/history/app state
+disallowed_evidence                   rejected source, content redacted
+app_state/current_task/ephemeral      runtime state, current user task, retry state
+```
+
+Conversation history is not claim evidence unless an evidence contract allows
+history and guardrails accept it. Context pressure and projection decisions are
+recorded in prompt-program audit metadata; full prompt text and large payloads
+stay out of audit.

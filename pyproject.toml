@@ -29,3 +29,9 @@ packages = ["src/market_support_crewai_agent"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "unit: deterministic tests for isolated modules and pure validation/domain behavior",
+    "integration: in-process runtime/API tests that exercise multiple layers together",
+    "contract: schema and adapter boundary contract tests",
+    "live: tests that require an externally running service",
+]

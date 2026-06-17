@@ -1,17 +1,25 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Literal
 
+from market_support_crewai_agent.runtime.domain.entity_resolution import (
+    CandidateSource,
+    CanonicalEntityResolver,
+    EntityResolution,
+    EntityResolutionMetrics,
+    EntityResolutionResult,
+    EntityType,
+    EvidenceSnippet,
+)
+from market_support_crewai_agent.runtime.domain.ontology import (
+    DomainContext,
+    DomainContextBuilder,
+)
 from market_support_crewai_agent.schemas import ReplyRequest
 
-CanonicalEntityType = Literal["strategy"]
-CanonicalEntitySource = Literal[
-    "request_catalog",
-    "request_catalog_default",
-    "alias_table",
-]
+CanonicalEntityType = EntityType
+CanonicalEntitySource = CandidateSource
 CanonicalStatus = Literal["resolved", "ambiguous", "unknown"]
 
 
@@ -22,14 +30,22 @@ class CanonicalEntity:
     canonical_name: str
     source: CanonicalEntitySource
     confidence: float = 1.0
+    canonical_id: str | None = None
+    resolver_stage: str = "disambiguation"
+    rationale: str = ""
+    evidence: dict[str, object] = field(default_factory=dict)
 
     def to_prompt_dict(self) -> dict:
         return {
             "type": self.type,
             "raw_text": self.raw_text,
             "canonical_name": self.canonical_name,
+            "canonical_id": self.canonical_id,
             "source": self.source,
             "confidence": self.confidence,
+            "resolver_stage": self.resolver_stage,
+            "rationale": self.rationale,
+            "evidence": dict(self.evidence),
         }
 
 
@@ -40,6 +56,10 @@ class CanonicalContext:
     strategy_candidates: tuple[str, ...] = ()
     entities: tuple[CanonicalEntity, ...] = ()
     ambiguities: tuple[str, ...] = ()
+    resolutions: tuple[EntityResolution, ...] = ()
+    resolution_metrics: EntityResolutionMetrics = field(
+        default_factory=EntityResolutionMetrics
+    )
 
     def to_prompt_dict(self) -> dict:
         return {
@@ -48,274 +68,154 @@ class CanonicalContext:
             "strategy_candidates": list(self.strategy_candidates),
             "entities": [entity.to_prompt_dict() for entity in self.entities],
             "ambiguities": list(self.ambiguities),
+            "resolution_metrics": self.resolution_metrics.to_prompt_dict(),
+            "resolutions": [
+                _compact_resolution(resolution)
+                for resolution in self.resolutions
+            ],
         }
 
 
-@dataclass(frozen=True)
-class _Match:
-    raw_text: str
-    canonical_name: str
-    source: CanonicalEntitySource
+class CanonicalContextProjector:
+    """Projects typed entity resolutions into the runtime CanonicalContext."""
 
-
-@dataclass(frozen=True)
-class _AliasSpec:
-    target: str
-    patterns: tuple[re.Pattern[str], ...]
-    keys: tuple[str, ...] = field(default_factory=tuple)
-
-
-def _pattern(pattern: str) -> re.Pattern[str]:
-    return re.compile(pattern, re.IGNORECASE)
-
-
-_ALIAS_SPECS: tuple[_AliasSpec, ...] = (
-    _AliasSpec(
-        "中证A500",
-        (
-            _pattern(r"中证\s*a\s*500"),
-            _pattern(r"(?<![0-9a-z])a\s*500(?![0-9a-z])"),
-        ),
-        ("a500",),
-    ),
-    _AliasSpec(
-        "中证1000",
-        (
-            _pattern(r"中证\s*1000"),
-            _pattern(r"(?<![0-9a-z])1000(?![0-9a-z])"),
-        ),
-        ("中证1000", "1000"),
-    ),
-    _AliasSpec(
-        "中证500",
-        (
-            _pattern(r"中证\s*500"),
-            _pattern(r"(?<![0-9a-z])500(?![0-9a-z])"),
-        ),
-        ("中证500", "500"),
-    ),
-    _AliasSpec(
-        "沪深300",
-        (
-            _pattern(r"沪深\s*300"),
-            _pattern(r"(?<![0-9a-z])300(?![0-9a-z])"),
-        ),
-        ("沪深300", "300"),
-    ),
-    _AliasSpec(
-        "中证全指",
-        (
-            _pattern(r"中证全指"),
-            _pattern(r"全指"),
-            _pattern(r"宗曾全子"),
-            _pattern(r"宗证全指"),
-            _pattern(r"中正全指"),
-        ),
-        ("中证全指", "全指"),
-    ),
-    _AliasSpec(
-        "万得小市值",
-        (_pattern(r"万得小市值"), _pattern(r"小市值")),
-        ("万得小市值", "小市值"),
-    ),
-    _AliasSpec("灵活对冲", (_pattern(r"灵活对冲"),), ("灵活对冲",)),
-    _AliasSpec("完全对冲", (_pattern(r"完全对冲"),), ("完全对冲",)),
-    _AliasSpec("中性", (_pattern(r"中性"),), ("中性",)),
-)
-
-
-def canonicalize_request(request: ReplyRequest) -> CanonicalContext:
-    available_strategies = _clean_available_strategies(request.available_strategies)
-    matches = _find_strategy_matches(request.message, available_strategies)
-
-    if not matches and len(available_strategies) == 1:
-        strategy = available_strategies[0]
-        entity = CanonicalEntity(
-            type="strategy",
-            raw_text="",
-            canonical_name=strategy,
-            source="request_catalog_default",
-            confidence=0.8,
+    def to_context(
+        self,
+        result: EntityResolutionResult,
+        request: ReplyRequest,
+    ) -> CanonicalContext:
+        strategy_resolutions = result.by_type("strategy")
+        strategy_entities = tuple(
+            _canonical_entity_from_resolution(resolution)
+            for resolution in strategy_resolutions
+            if resolution.status == "resolved"
         )
+        strategy_candidates = _strategy_candidates(strategy_resolutions)
+        selected_strategy = _selected_strategy(strategy_resolutions)
+        strategy_status = _strategy_status(strategy_resolutions, selected_strategy)
+        ambiguities = (
+            ("multiple_strategy_candidates",)
+            if strategy_status == "ambiguous"
+            else ()
+        )
+        if strategy_status == "unknown":
+            strategy_candidates = _clean_available_strategies(request.available_strategies)
         return CanonicalContext(
-            strategy_status="resolved",
-            selected_strategy=strategy,
-            strategy_candidates=(strategy,),
-            entities=(entity,),
+            strategy_status=strategy_status,
+            selected_strategy=selected_strategy,
+            strategy_candidates=strategy_candidates,
+            entities=strategy_entities,
+            ambiguities=ambiguities,
+            resolutions=result.resolutions,
+            resolution_metrics=result.metrics,
         )
 
-    entities = tuple(
-        CanonicalEntity(
-            type="strategy",
-            raw_text=match.raw_text,
-            canonical_name=match.canonical_name,
-            source=match.source,
-        )
-        for match in matches
+
+def canonicalize_request(
+    request: ReplyRequest,
+    *,
+    domain_context: DomainContext | None = None,
+    evidence_snippets: tuple[EvidenceSnippet, ...] = (),
+    resolver: CanonicalEntityResolver | None = None,
+) -> CanonicalContext:
+    domain_context = domain_context or DomainContextBuilder().build(request)
+    result = (resolver or CanonicalEntityResolver()).resolve_request(
+        request,
+        domain_context=domain_context,
+        evidence_snippets=evidence_snippets,
     )
-    candidates = _unique(match.canonical_name for match in matches)
-    if len(candidates) == 1:
-        return CanonicalContext(
-            strategy_status="resolved",
-            selected_strategy=candidates[0],
-            strategy_candidates=tuple(candidates),
-            entities=entities,
-        )
-    if len(candidates) > 1:
-        return CanonicalContext(
-            strategy_status="ambiguous",
-            selected_strategy=None,
-            strategy_candidates=tuple(candidates),
-            entities=entities,
-            ambiguities=("multiple_strategy_candidates",),
-        )
+    return CanonicalContextProjector().to_context(result, request)
 
-    return CanonicalContext(
-        strategy_status="unknown",
-        selected_strategy=None,
-        strategy_candidates=available_strategies,
+
+def _canonical_entity_from_resolution(resolution: EntityResolution) -> CanonicalEntity:
+    top = resolution.candidates[0] if resolution.candidates else None
+    source: CanonicalEntitySource = (
+        top.candidate_sources[0]
+        if top is not None and top.candidate_sources
+        else "semantic_provider"
+    )
+    return CanonicalEntity(
+        type=resolution.type,
+        raw_text=resolution.mention.raw_text,
+        canonical_name=resolution.canonical_name or "",
+        source=source,
+        confidence=resolution.confidence,
+        canonical_id=resolution.entity_id,
+        resolver_stage=resolution.resolver_stage,
+        rationale=resolution.rationale,
+        evidence=resolution.evidence,
     )
 
 
-def _find_strategy_matches(
-    message: str,
-    available_strategies: tuple[str, ...],
-) -> list[_Match]:
-    matches: list[_Match] = []
-    normalized_message = _normalize(message)
-
-    for strategy in available_strategies:
-        if _normalize(strategy) and _normalize(strategy) in normalized_message:
-            matches.append(
-                _Match(
-                    raw_text=strategy,
-                    canonical_name=strategy,
-                    source="request_catalog",
-                )
-            )
-
-    for spec in _ALIAS_SPECS:
-        raw_text = _first_pattern_match(message, spec.patterns)
-        if not raw_text:
-            continue
-        for strategy in _resolve_alias_target(spec, available_strategies):
-            matches.append(
-                _Match(
-                    raw_text=raw_text,
-                    canonical_name=strategy,
-                    source="alias_table",
-                )
-            )
-
-    if not matches and "指增" in normalized_message:
-        for strategy in _generic_index_enhancement_candidates(available_strategies):
-            matches.append(
-                _Match(
-                    raw_text="指增",
-                    canonical_name=strategy,
-                    source="alias_table",
-                )
-            )
-
-    return _dedupe_matches(matches, message)
+def _compact_resolution(resolution: EntityResolution) -> dict:
+    return {
+        "status": resolution.status,
+        "type": resolution.type,
+        "mention": {
+            "raw_text": resolution.mention.raw_text,
+            "source": resolution.mention.source,
+            "extraction_source": resolution.mention.extraction_source,
+        },
+        "entity_id": resolution.entity_id,
+        "canonical_name": resolution.canonical_name,
+        "confidence": round(resolution.confidence, 4),
+        "resolver_stage": resolution.resolver_stage,
+        "rationale": resolution.rationale,
+        "candidates": [
+            {
+                "entity_id": candidate.entity_id,
+                "canonical_name": candidate.canonical_name,
+                "confidence": round(candidate.confidence, 4),
+                "candidate_sources": list(candidate.candidate_sources),
+            }
+            for candidate in resolution.candidates[:3]
+        ],
+    }
 
 
-def _resolve_alias_target(
-    spec: _AliasSpec,
-    available_strategies: tuple[str, ...],
-) -> tuple[str, ...]:
-    if not available_strategies:
-        return (spec.target,)
-
-    keys = tuple(_normalize(key) for key in (spec.keys or (spec.target,)))
-    candidates = []
-    for strategy in available_strategies:
-        normalized_strategy = _normalize(strategy)
-        if not normalized_strategy:
-            continue
-        if _normalize(spec.target) == normalized_strategy:
-            candidates.append(strategy)
-            continue
-        if _normalize(spec.target) in normalized_strategy:
-            candidates.append(strategy)
-            continue
-        if _target_key_matches_strategy(keys, normalized_strategy):
-            candidates.append(strategy)
-    return tuple(_unique(candidates))
-
-
-def _target_key_matches_strategy(keys: tuple[str, ...], normalized_strategy: str) -> bool:
-    for key in keys:
-        if key == "500" and "a500" in normalized_strategy:
-            continue
-        if key and key in normalized_strategy:
-            return True
-    return False
-
-
-def _generic_index_enhancement_candidates(
-    available_strategies: tuple[str, ...],
-) -> tuple[str, ...]:
-    candidates = [
-        strategy
-        for strategy in available_strategies
-        if _looks_like_index_enhancement_strategy(strategy)
-    ]
-    return tuple(_unique(candidates))
-
-
-def _looks_like_index_enhancement_strategy(strategy: str) -> bool:
-    normalized = _normalize(strategy)
-    return any(
-        token in normalized
-        for token in (
-            "指增",
-            "指数增强",
-            "中证",
-            "沪深",
-            "小市值",
-            "a500",
-            "300",
-            "500",
-            "1000",
-            "全指",
-        )
+def _strategy_status(
+    resolutions: tuple[EntityResolution, ...],
+    selected_strategy: str | None,
+) -> CanonicalStatus:
+    if any(resolution.status == "ambiguous" for resolution in resolutions):
+        return "ambiguous"
+    resolved_names = _unique(
+        resolution.canonical_name or ""
+        for resolution in resolutions
+        if resolution.status == "resolved"
     )
+    if len(resolved_names) > 1:
+        return "ambiguous"
+    if selected_strategy:
+        return "resolved"
+    return "unknown"
 
 
-def _first_pattern_match(
-    message: str,
-    patterns: tuple[re.Pattern[str], ...],
-) -> str:
-    for pattern in patterns:
-        match = pattern.search(message)
-        if match:
-            return match.group(0)
-    return ""
+def _selected_strategy(resolutions: tuple[EntityResolution, ...]) -> str | None:
+    resolved_names = _unique(
+        resolution.canonical_name or ""
+        for resolution in resolutions
+        if resolution.status == "resolved"
+    )
+    return resolved_names[0] if len(resolved_names) == 1 else None
 
 
-def _dedupe_matches(matches: list[_Match], message: str) -> list[_Match]:
-    seen = set()
-    result = []
-    for match in matches:
-        key = (match.raw_text, match.canonical_name, match.source)
-        if key in seen:
+def _strategy_candidates(resolutions: tuple[EntityResolution, ...]) -> tuple[str, ...]:
+    candidates: list[str] = []
+    for resolution in resolutions:
+        if resolution.status == "resolved" and resolution.canonical_name:
+            candidates.append(resolution.canonical_name)
             continue
-        seen.add(key)
-        result.append(match)
-    result.sort(key=lambda match: _message_position(message, match.raw_text))
-    return result
-
-
-def _message_position(message: str, raw_text: str) -> int:
-    index = message.find(raw_text)
-    if index < 0:
-        return len(message)
-    return index
+        candidates.extend(
+            candidate.canonical_name
+            for candidate in resolution.candidates
+            if candidate.canonical_name
+        )
+    return _unique(candidates)
 
 
 def _clean_available_strategies(strategies: list[str]) -> tuple[str, ...]:
-    return tuple(_unique(strategy.strip() for strategy in strategies if strategy.strip()))
+    return _unique(strategy.strip() for strategy in strategies if strategy.strip())
 
 
 def _unique(values) -> tuple[str, ...]:
@@ -329,7 +229,3 @@ def _unique(values) -> tuple[str, ...]:
         seen.add(value)
         result.append(value)
     return tuple(result)
-
-
-def _normalize(value: str) -> str:
-    return re.sub(r"[\s_\-—–]+", "", value.strip().lower())

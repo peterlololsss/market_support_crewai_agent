@@ -22,7 +22,7 @@ The LLM interprets messy Chinese sales/support language, proposes evidence needs
 Use one orchestrated runtime with two bounded LLM stages when planner/composer separation is needed:
 
 ```text
-Planner LLM -> IntentFrame -> validated ExecutionPlan
+Planner LLM -> PlanSpec -> validated ExecutionPlan
 Reply Composer LLM -> validated ReplyResponse
 ```
 
@@ -93,7 +93,7 @@ Do not turn every past mistake into an active prompt token. For recurring failur
 2. Public `ReplyResponse` models for `reply.kind`, `reply.mentions`, and canonical typed actions.
 3. `AdapterResolveResult` and lightweight `EvidenceFact`.
 4. `compile_policy(request, ledger_summary=None)`.
-5. `validate_reply(response, directive, plan, business_facts, evidence_facts, policy)`.
+5. `PlanSpec`/`EvidenceContract` plus generic plan/reply validation.
 6. Deterministic decision engine and response renderer.
 7. Wire directive rendering/composer gating and reply validation in `reply_agent.py`.
 8. Tests that monkeypatch unsafe planner/composer/renderer outputs and verify error-on-invalid plus audit.
@@ -103,7 +103,7 @@ Do not turn every past mistake into an active prompt token. For recurring failur
 Run the narrowest relevant tests plus existing contract tests. For harness changes, include:
 
 ```bash
-uv run --extra dev python -m pytest -q tests/test_reply_contract.py tests/test_adapter_preflight.py tests/test_structured_guardrails.py tests/test_action_feedback.py
+uv run --extra dev python -m pytest -q tests/integration/runtime/test_reply_contract.py tests/contract/test_adapter_preflight.py tests/unit/validation/test_structured_guardrails.py tests/unit/state/test_action_feedback.py
 ```
 
 Add focused tests for every new validator, policy branch, evidence wrapper, ledger behavior, and adapter contract branch.

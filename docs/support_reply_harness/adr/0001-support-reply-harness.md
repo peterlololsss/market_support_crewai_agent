@@ -34,7 +34,7 @@ Use deterministic runtime layers for:
 Use LLM stages only for bounded language work:
 
 ```text
-Planner LLM -> IntentFrame -> validated ExecutionPlan
+Planner LLM -> PlanSpec -> validated ExecutionPlan
 Reply Composer LLM -> validated ReplyResponse
 ```
 

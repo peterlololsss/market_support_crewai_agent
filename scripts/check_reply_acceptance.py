@@ -26,8 +26,27 @@ def _check_commands(
 ) -> list[CheckCommand]:
     commands = [
         CheckCommand(
+            name="semantic_keyword_guard",
+            command=(sys.executable, "scripts/check_no_semantic_keyword_matching.py"),
+        ),
+        CheckCommand(
+            name="prompt_registry",
+            command=(sys.executable, "scripts/check_prompt_registry.py"),
+        ),
+        CheckCommand(
             name="runtime_fake_deps",
             command=(sys.executable, "scripts/check_reply_runtime_fake_deps.py"),
+        ),
+        CheckCommand(
+            name="agent_behavior_golden_evals",
+            command=(
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/unit/domain/test_agent_behavior_eval_golden.py",
+                "tests/integration/runtime/test_agent_behavior_eval_suite.py",
+            ),
         ),
     ]
     if include_real_llm:

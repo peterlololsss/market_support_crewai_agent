@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 MaterialType = Literal["material", "weekly", "monthly"]
-ChannelType = Literal["bank", "non_bank"]
+ChannelType = Literal["bank", "non_bank", "unknown"]
 AdapterResolveType = Literal[
     "material_pack",
     "weekly_report",
@@ -106,7 +106,7 @@ class AdapterResolveResult(StrictModel):
     display_name: str
     reason_code: str
     candidates: list[str] = Field(default_factory=list)
-    channel_type: ChannelType = "non_bank"
+    channel_type: ChannelType = "unknown"
     available_materials: list[MaterialType] = Field(default_factory=list)
     available_strategies: list[str] = Field(default_factory=list)
     resolved_at: int

@@ -140,9 +140,9 @@ BusinessFacts include material/report resolvability, sales mention resolvability
 
 Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, canonical entities, policy manifest, and available materials/strategies.
 
-Planner output is `IntentFrame`: user need, artifact kind, action intent, compliance, strategy mentions, selected strategy, report scope, ambiguity slots, requested capabilities, and confidence.
+Planner output is `PlanSpec`: selected capability, domain scope, required artifacts/tools, answerability policy, output schema reference, evidence contract, and execution steps.
 
-The deterministic compiler turns `IntentFrame` into `ExecutionPlan`; the model does not output execution details, final reply text, or response mode.
+The deterministic compiler turns `PlanSpec` into `ExecutionPlan`; the model does not output final reply text or unchecked adapter execution details.
 
 Planner output is validated and cannot be treated as factual authority.
 

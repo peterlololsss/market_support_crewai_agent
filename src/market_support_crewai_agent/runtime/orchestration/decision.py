@@ -18,14 +18,14 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
     capability_by_resolve_type,
     resolve_type_for_action,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
+from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.compliance_policy import refusal_text_for_reason
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.planning import ActionIntentSpec, ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
-from market_support_crewai_agent.runtime.validation.send_scope_guard import (
-    conflict_explanation,
-    detect_send_scope_conflict,
+from market_support_crewai_agent.runtime.domain.sources.precedence import (
+    evidence_facts_for_plan,
+    plan_has_knowledge_evidence,
 )
 from market_support_crewai_agent.schemas import (
     ReplyKind,
@@ -55,6 +55,7 @@ class DecisionEngine:
         evidence_facts: list[EvidenceFact],
         request: ReplyRequest,
         policy: PolicyManifest,
+        domain_context: DomainContext | None = None,
     ) -> ResponseDirective:
         del policy
         if plan.response_mode == "refusal" or plan.compliance.is_compliant is False:
@@ -90,7 +91,19 @@ class DecisionEngine:
                     text=report_period_text,
                     reason_code="report_period_metadata_available",
                 )
-            if _has_knowledge_answer_evidence(evidence_facts):
+            material_products_text = _material_pack_product_answer(
+                plan,
+                evidence_facts,
+                domain_context,
+            )
+            if material_products_text:
+                return _directive(
+                    mode="knowledge_answer",
+                    reply_kind="answer",
+                    text=material_products_text,
+                    reason_code="material_pack_product_list_available",
+                )
+            if _has_knowledge_answer_evidence(plan, evidence_facts, domain_context):
                 return _directive(
                     mode="knowledge_answer",
                     reply_kind="answer",
@@ -122,23 +135,23 @@ class DecisionEngine:
             )
 
         if plan.response_mode == "unable":
-            scope_conflict = detect_send_scope_conflict(
-                request,
-                # Strategy canonicalization is already reflected in the plan. The
-                # send-scope conflict check still has request-level strategy values.
-                canonical_context=CanonicalContext(),
-                artifact_kind=plan.artifact_kind,
-            )
-            if scope_conflict is not None:
+            scope_conflict_text = _send_scope_conflict_text(plan, request)
+            if scope_conflict_text:
                 return _directive(
                     mode="unable",
                     reply_kind="unable_to_answer",
-                    text=conflict_explanation(scope_conflict),
+                    text=scope_conflict_text,
                     reason_code="send_scope_conflict",
                 )
 
         if plan.response_mode == "action":
-            return _action_directive(plan, business_facts, evidence_facts, request)
+            return _action_directive(
+                plan,
+                business_facts,
+                evidence_facts,
+                request,
+                domain_context,
+            )
 
         return _directive(
             mode="unable",
@@ -222,6 +235,7 @@ def _action_directive(
     business_facts: BusinessFacts,
     evidence_facts: list[EvidenceFact],
     request: ReplyRequest,
+    domain_context: DomainContext | None = None,
 ) -> ResponseDirective:
     if not plan.action_intents:
         return _directive(
@@ -291,7 +305,20 @@ def _action_directive(
                 action_intents=plan.action_intents,
                 reason_code="action_ready_with_deterministic_answer",
             )
-        if _has_knowledge_answer_evidence(evidence_facts):
+        material_products_text = _material_pack_product_answer(
+            plan,
+            evidence_facts,
+            domain_context,
+        )
+        if material_products_text:
+            return _directive(
+                mode="action",
+                reply_kind="answer",
+                text=material_products_text,
+                action_intents=plan.action_intents,
+                reason_code="action_ready_with_material_pack_product_list",
+            )
+        if _has_knowledge_answer_evidence(plan, evidence_facts, domain_context):
             return _directive(
                 mode="action",
                 reply_kind="answer",
@@ -419,36 +446,65 @@ def _directive(
     )
 
 
-def _has_knowledge_answer_evidence(evidence_facts: list[EvidenceFact]) -> bool:
-    if any(
-        fact.fact_type == "document_context"
-        and bool(fact.value)
-        and (
-            fact.source_type == "document_mcp"
-            or (
-                fact.source_type == "approved_static_knowledge"
-                and fact.metadata.get("approved_static_knowledge") is True
-                and fact.metadata.get("content_is_data_only") is True
-            )
+def _send_scope_conflict_text(plan: ExecutionPlan, request: ReplyRequest) -> str:
+    for decision in plan.guardrail_decisions:
+        if decision.reason_code != "send_scope_destination_outside_current_channel":
+            continue
+        requested = str(decision.metadata.get("requested_target") or "").strip()
+        current = str(decision.metadata.get("current_scope") or request.dist_channel_name).strip()
+        label = _artifact_label(plan.artifact_kind)
+        if not requested:
+            requested = "其他渠道"
+        return (
+            f"当前群是{current}相关沟通群，你要的是{requested}的{label}，"
+            f"我不能把它替换成当前渠道发送。请在对应渠道群操作，或确认是否发送{current}的{label}。"
         )
-        for fact in evidence_facts
-    ):
-        return True
-    return any(
-        (
-            (
-                fact.source_type == "adapter_report_scope"
-                and fact.fact_type
-                in {"report_scope_summary", "report_scope_match", "report_scope_products"}
-            )
-            or (
-                fact.source_type == "adapter_resolve"
-                and fact.fact_type == "report_period"
-            )
-        )
-        and bool(fact.value)
-        for fact in evidence_facts
-    )
+    return ""
+
+
+def _artifact_label(artifact_kind: str) -> str:
+    if artifact_kind == "weekly_report":
+        return "周报"
+    if artifact_kind == "monthly_report":
+        return "月报"
+    return "材料"
+
+
+def _has_knowledge_answer_evidence(
+    plan: ExecutionPlan,
+    evidence_facts: list[EvidenceFact],
+    domain_context: DomainContext | None = None,
+) -> bool:
+    return plan_has_knowledge_evidence(plan, evidence_facts, domain_context)
+
+
+def _material_pack_product_answer(
+    plan: ExecutionPlan,
+    evidence_facts: list[EvidenceFact],
+    domain_context: DomainContext | None = None,
+) -> str:
+    if "material_pack" not in plan.answer_capabilities:
+        return ""
+    products: list[str] = []
+    for fact in evidence_facts_for_plan(plan, evidence_facts, domain_context):
+        if fact.fact_type != "material_pack_product_list" or not fact.value:
+            continue
+        for item in fact.metadata.get("products", []):
+            name = _product_name(item)
+            if name and name not in products:
+                products.append(name)
+    if not products:
+        return ""
+    return "材料包包含：" + "、".join(products)
+
+
+def _product_name(value: object) -> str:
+    if isinstance(value, dict):
+        for key in ("product_name", "name", "display_name"):
+            text = str(value.get(key) or "").strip()
+            if text:
+                return text
+    return str(value or "").strip()
 
 
 def _sentence(text: str) -> str:

@@ -19,6 +19,10 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
     ordered_resolve_types,
 )
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
+from market_support_crewai_agent.runtime.domain.ontology import (
+    DomainContext,
+    DomainContextBuilder,
+)
 from market_support_crewai_agent.runtime.evidence.document_mcp import (
     DocumentMcpEvidenceService,
     NoopDocumentMcpEvidenceService,
@@ -34,6 +38,15 @@ from market_support_crewai_agent.runtime.evidence import (
 )
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
+from market_support_crewai_agent.runtime.validation.guardrail_types import (
+    GuardrailDecision,
+)
+from market_support_crewai_agent.runtime.validation.evidence_source_guard import (
+    retrieval_source_guard,
+)
+from market_support_crewai_agent.runtime.validation.execution_tool_guard import (
+    execution_tool_guard,
+)
 from market_support_crewai_agent.schemas import AdapterResolveType, ReplyRequest
 
 
@@ -42,6 +55,8 @@ class EvidenceExecutionResult:
     preflight: AdapterPreflightSnapshot
     evidence_facts: list[EvidenceFact]
     business_facts: BusinessFacts
+    domain_context: DomainContext
+    guardrail_decisions: list[GuardrailDecision]
 
 
 class EvidenceExecutor:
@@ -82,6 +97,29 @@ class EvidenceExecutor:
         policy: PolicyManifest,
         action_history: list[ActionLedgerRecord] | None = None,
     ) -> EvidenceExecutionResult:
+        initial_domain_context = DomainContextBuilder().build(
+            request,
+            conversation_metadata={
+                "context_id": request.context_id,
+                "conversation_key": request.conversation_key,
+            },
+        )
+        tool_decision = execution_tool_guard(
+            plan=plan,
+            policy=policy,
+            domain_context=initial_domain_context,
+        )
+        if tool_decision.outcome == "block":
+            evidence_facts = evidence_facts_from_action_history(action_history)
+            business_facts = derive_business_facts(evidence_facts, request)
+            return EvidenceExecutionResult(
+                preflight=AdapterPreflightSnapshot.empty(),
+                evidence_facts=evidence_facts,
+                business_facts=business_facts,
+                domain_context=initial_domain_context,
+                guardrail_decisions=[tool_decision],
+            )
+
         resolve_types = _resolve_types_for_plan(plan, policy)
         preflight = await self.preflight_service.collect(
             request,
@@ -117,10 +155,26 @@ class EvidenceExecutor:
             )
         )
         business_facts = derive_business_facts(evidence_facts, request)
+        domain_context = DomainContextBuilder().build(
+            request,
+            available_artifacts=[preflight, *evidence_facts],
+            conversation_metadata={
+                "context_id": request.context_id,
+                "conversation_key": request.conversation_key,
+            },
+        )
+        source_decision = retrieval_source_guard(
+            plan=plan,
+            policy=policy,
+            evidence_facts=evidence_facts,
+            domain_context=domain_context,
+        )
         return EvidenceExecutionResult(
             preflight=preflight,
             evidence_facts=evidence_facts,
             business_facts=business_facts,
+            domain_context=domain_context,
+            guardrail_decisions=[tool_decision, source_decision],
         )
 
 

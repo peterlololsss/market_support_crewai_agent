@@ -67,6 +67,7 @@ POST /reply
   -> Action ledger lookup
   -> Entity/canonicalization layer
   -> Policy compiler
+  -> Context projection for planner
   -> LLM planner
   -> Plan validation
   -> Evidence executor
@@ -76,6 +77,7 @@ POST /reply
       -> Tool output validation
   -> EvidenceFact derivation
   -> BusinessFacts derivation
+  -> Context projection for composer/verifier when needed
   -> ResponseDirective decision engine
   -> Deterministic renderer for action/refusal/clarification/handoff/unable/no_reply
   -> Reply composer LLM only for document-backed knowledge_answer
@@ -113,7 +115,7 @@ Contains allowed reply modes, allowed capabilities, allowed outbound actions, al
 
 ### ExecutionPlan
 
-Compiled deterministically from `IntentFrame`, policy, canonical context, and the capability registry. It describes user need, artifact kind, response mode, compliance, capabilities, adapter resolve specs, action intents, ambiguity slots, selected strategy, and confidence.
+Compiled deterministically from `PlanSpec`, policy, canonical context, and the capability registry. It describes user need, artifact kind, response mode, compliance, capabilities, adapter resolve specs, action intents, selected strategy, and the selected planner contract.
 
 `ExecutionPlan` is not allowed to be a source of final business facts.
 
@@ -198,6 +200,39 @@ and model ids, prompt profile ids, policy ids, and validator ids.
 CrewAI output metadata is compacted before audit storage. The trace keeps stage name, agent role, response format,
 latency, usage metrics, structured-output type, raw-output length, and planning/todo counts. It does not store CrewAI
 message history, raw prompts, raw plan text, or hidden execution content.
+
+### Context Is A Projection
+
+Durable/current state and model-visible context are different layers. The
+conversation transcript records what happened; `ModelVisibleContext` records
+what the next planner, composer, or verifier is allowed to see.
+
+`ContextProjectionManager` builds that view from request metadata, recent
+history, action ledger summaries, `DomainContext`, `CanonicalContext`,
+`PolicyManifest`, plan/validation state, evidence, `BusinessFacts`,
+`AnswerabilityAssessment`, guardrail decisions, candidate response, and
+alignment retry state.
+
+Projection block types:
+
+```text
+recent_verbatim        last N turns, context-only
+compacted_summary      deterministic older-history summary
+large_result_preview   bounded preview with reload_handle
+allowed_evidence       accepted evidence for the current plan
+context_only           non-evidence state/history/ledger summaries
+disallowed_evidence    rejected evidence with content redacted
+app_state              request/canonical/domain/policy/plan/facts/guardrails
+current_task           current user message and verifier candidate response
+ephemeral              retry/alignment state
+```
+
+Conversation history is not claim evidence by default. Allowed evidence is
+selected through the guardrail pipeline before prompt assembly; disallowed
+evidence keeps source metadata but redacts content. Large content uses stable
+previews and internal reload handles so prompts do not randomly truncate
+documents or transcripts. Context pressure estimates and projection decisions
+are audit metadata, not prompt text storage.
 
 ## Capability taxonomy
 
