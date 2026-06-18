@@ -18,6 +18,10 @@ class Settings(BaseModel):
     llm_timeout_seconds: float = Field(default=90.0, gt=0)
     llm_temperature: float = Field(default=0.1, ge=0)
     llm_max_tokens: int = Field(default=6000, gt=0)
+    planner_llm_base_url: str = "https://llm.yanfuinvest.com/v1"
+    planner_llm_provider: str = "openai"
+    planner_llm_model: str = "deepseek-v4-pro"
+    planner_llm_api_key: str | None = None
     crewai_verbose: bool = False
     crewai_max_iter: int = Field(default=5, gt=0)
     crewai_max_execution_time: int = Field(default=120, gt=0)
@@ -64,15 +68,40 @@ class Settings(BaseModel):
 
 
 def get_settings() -> Settings:
+    llm_base_url = os.getenv("YANFU_LLM_BASE_URL", "https://llm.yanfuinvest.com/v1")
+    llm_provider = os.getenv("YANFU_LLM_PROVIDER", "openai")
+    llm_model = os.getenv("YANFU_LLM_MODEL", "deepseek-v4-pro")
+    llm_api_key = os.getenv("YANFU_LLM_API_KEY") or None
+    planner_llm_api_key = os.getenv("MARKET_AGENT_PLANNER_LLM_API_KEY")
+    planner_llm_overridden = any(
+        os.getenv(name) is not None
+        for name in (
+            "MARKET_AGENT_PLANNER_LLM_BASE_URL",
+            "MARKET_AGENT_PLANNER_LLM_PROVIDER",
+            "MARKET_AGENT_PLANNER_LLM_MODEL",
+        )
+    )
+    if planner_llm_api_key is not None:
+        planner_llm_api_key_resolved = planner_llm_api_key or None
+    elif planner_llm_overridden:
+        planner_llm_api_key_resolved = None
+    else:
+        planner_llm_api_key_resolved = llm_api_key
     return Settings(
         api_key=os.getenv("MARKET_AGENT_API_KEY") or None,
-        llm_base_url=os.getenv("YANFU_LLM_BASE_URL", "https://llm.yanfuinvest.com/v1"),
-        llm_provider=os.getenv("YANFU_LLM_PROVIDER", "openai"),
-        llm_model=os.getenv("YANFU_LLM_MODEL", "deepseek-v4-pro"),
-        llm_api_key=os.getenv("YANFU_LLM_API_KEY") or None,
+        llm_base_url=llm_base_url,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        llm_api_key=llm_api_key,
         llm_timeout_seconds=_float_env("YANFU_LLM_TIMEOUT_SECONDS", 90.0),
         llm_temperature=_float_env("YANFU_LLM_TEMPERATURE", 0.1),
         llm_max_tokens=_int_env("YANFU_LLM_MAX_TOKENS", 6000),
+        planner_llm_base_url=os.getenv("MARKET_AGENT_PLANNER_LLM_BASE_URL")
+        or llm_base_url,
+        planner_llm_provider=os.getenv("MARKET_AGENT_PLANNER_LLM_PROVIDER")
+        or llm_provider,
+        planner_llm_model=os.getenv("MARKET_AGENT_PLANNER_LLM_MODEL") or llm_model,
+        planner_llm_api_key=planner_llm_api_key_resolved,
         crewai_verbose=_bool_env("CREWAI_VERBOSE", False),
         crewai_max_iter=_int_env("CREWAI_MAX_ITER", 5),
         crewai_max_execution_time=_int_env("CREWAI_MAX_EXECUTION_TIME", 120),

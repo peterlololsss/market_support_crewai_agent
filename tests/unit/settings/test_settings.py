@@ -73,6 +73,52 @@ def test_llm_max_tokens_reads_environment(monkeypatch):
     assert settings.llm_max_tokens == 2500
 
 
+def test_planner_llm_override_reads_environment(monkeypatch):
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_LLM_BASE_URL", "http://planner.local/gemini")
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_LLM_MODEL", "gemini-3-flash-preview")
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_LLM_API_KEY", "planner-key")
+
+    settings = get_settings()
+
+    assert settings.planner_llm_base_url == "http://planner.local/gemini"
+    assert settings.planner_llm_provider == "gemini"
+    assert settings.planner_llm_model == "gemini-3-flash-preview"
+    assert settings.planner_llm_api_key == "planner-key"
+
+
+def test_blank_planner_llm_api_key_does_not_reuse_default_key(monkeypatch):
+    monkeypatch.setenv("YANFU_LLM_API_KEY", "default-key")
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_LLM_BASE_URL", "http://planner.local")
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_LLM_API_KEY", "")
+
+    settings = get_settings()
+
+    assert settings.planner_llm_api_key is None
+
+
+def test_planner_llm_override_without_key_does_not_reuse_default_key(monkeypatch):
+    monkeypatch.setenv("YANFU_LLM_API_KEY", "default-key")
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_LLM_BASE_URL", "http://planner.local")
+    monkeypatch.delenv("MARKET_AGENT_PLANNER_LLM_API_KEY", raising=False)
+
+    settings = get_settings()
+
+    assert settings.planner_llm_api_key is None
+
+
+def test_planner_llm_uses_default_key_without_override(monkeypatch):
+    monkeypatch.setenv("YANFU_LLM_API_KEY", "default-key")
+    monkeypatch.delenv("MARKET_AGENT_PLANNER_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("MARKET_AGENT_PLANNER_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("MARKET_AGENT_PLANNER_LLM_MODEL", raising=False)
+    monkeypatch.delenv("MARKET_AGENT_PLANNER_LLM_API_KEY", raising=False)
+
+    settings = get_settings()
+
+    assert settings.planner_llm_api_key == "default-key"
+
+
 def test_doc_mcp_configuration_reads_environment(monkeypatch):
     monkeypatch.setenv("MARKET_AGENT_DOC_MCP_BASE_URL", "http://192.168.209.195:23000")
     monkeypatch.setenv("MARKET_AGENT_DOC_MCP_TIMEOUT_SECONDS", "7")

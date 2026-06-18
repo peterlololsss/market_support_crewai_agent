@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+from types import SimpleNamespace
 from time import perf_counter
 
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
@@ -39,15 +41,122 @@ async def run_crewai_kickoff(
             str(prompt_program.profile.response_model),
         ),
     ):
-        result = await asyncio.wait_for(
-            agent.kickoff_async(
-                prompt_program.prompt_text,
-                response_format=prompt_program.profile.response_model,
-            ),
-            timeout=timeout_seconds,
-        )
+        if _is_gemini_agent(agent):
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_run_gemini_structured, agent, prompt_program),
+                timeout=timeout_seconds,
+            )
+        else:
+            result = await asyncio.wait_for(
+                agent.kickoff_async(
+                    prompt_program.prompt_text,
+                    response_format=prompt_program.profile.response_model,
+                ),
+                timeout=timeout_seconds,
+            )
     latency_ms = (perf_counter() - started_at) * 1000
     return result, _compact_crewai_execution(prompt_program, result, latency_ms)
+
+
+def _is_gemini_agent(agent) -> bool:
+    provider = str(getattr(getattr(agent, "llm", None), "provider", "")).lower()
+    return provider in {"gemini", "google"}
+
+
+def _run_gemini_structured(agent, prompt_program: PromptProgram):
+    from google.genai import types
+
+    llm = agent.llm
+    response_model = prompt_program.profile.response_model
+    config = types.GenerateContentConfig(
+        temperature=getattr(llm, "temperature", None),
+        top_p=getattr(llm, "top_p", None),
+        top_k=getattr(llm, "top_k", None),
+        max_output_tokens=getattr(llm, "max_output_tokens", None),
+        stop_sequences=getattr(llm, "stop_sequences", None) or None,
+        response_mime_type="application/json",
+        response_json_schema=_gemini_json_schema(response_model),
+        thinking_config=getattr(llm, "thinking_config", None),
+    )
+    response = llm._get_sync_client().models.generate_content(
+        model=llm.model,
+        contents=prompt_program.prompt_text,
+        config=config,
+    )
+    raw = getattr(response, "text", None) or ""
+    try:
+        pydantic = response_model.model_validate_json(raw)
+    except ValueError:
+        pydantic = None
+    return SimpleNamespace(
+        raw=raw,
+        pydantic=pydantic,
+        agent_role=str(getattr(agent, "role", "") or ""),
+        usage_metrics=_usage_metadata(response),
+    )
+
+
+def _gemini_json_schema(model) -> dict:
+    schema = model.model_json_schema()
+    defs = schema.get("$defs", {})
+    drop_keys = {"$defs", "$schema", "title", "default", "examples"}
+    drop_constraints = {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "pattern",
+    }
+
+    def convert(node):
+        if isinstance(node, list):
+            return [convert(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            name = node["$ref"].rsplit("/", 1)[-1]
+            merged = copy.deepcopy(defs[name])
+            merged.update({key: value for key, value in node.items() if key != "$ref"})
+            return convert(merged)
+        if "anyOf" in node:
+            choices = node["anyOf"]
+            non_null = [item for item in choices if item.get("type") != "null"]
+            if len(non_null) == 1 and len(non_null) != len(choices):
+                output = convert(non_null[0])
+                type_value = output.get("type")
+                types = [type_value] if isinstance(type_value, str) else list(type_value or [])
+                output["type"] = types + ["null"]
+                return output
+            return convert(non_null[0] if non_null else choices[0])
+
+        output = {}
+        for key, value in node.items():
+            if key in drop_keys or key in drop_constraints or key == "additionalProperties":
+                continue
+            if key == "const":
+                output["enum"] = [value]
+            elif key == "properties":
+                properties = {prop: convert(prop_schema) for prop, prop_schema in value.items()}
+                output["properties"] = properties
+                output["propertyOrdering"] = list(properties)
+            else:
+                output[key] = convert(value)
+        return output
+
+    return convert(schema)
+
+
+def _usage_metadata(response):
+    usage = getattr(response, "usage_metadata", None)
+    if usage is None:
+        return None
+    if hasattr(usage, "model_dump"):
+        return usage.model_dump(mode="json")
+    return usage
 
 
 def coerce_planner_plan(
@@ -83,6 +192,37 @@ def coerce_plan_spec(result) -> PlanSpec | None:
         return PlanSpec.model_validate_json(result.raw)
     except ValueError:
         return None
+
+
+def plan_spec_error_summary(result, max_issues: int = 5) -> str:
+    if getattr(result, "pydantic", None) is not None:
+        try:
+            PlanSpec.model_validate(result.pydantic)
+            return ""
+        except ValueError as exc:
+            return _validation_error_summary(exc, max_issues=max_issues)
+
+    raw = str(getattr(result, "raw", "") or "")
+    if not raw.strip():
+        return "empty planner output"
+    try:
+        PlanSpec.model_validate_json(raw)
+        return ""
+    except ValueError as exc:
+        return _validation_error_summary(exc, max_issues=max_issues)
+
+
+def _validation_error_summary(exc: ValueError, *, max_issues: int) -> str:
+    errors = getattr(exc, "errors", lambda: [])()
+    if errors:
+        parts = []
+        for error in errors[:max_issues]:
+            loc = ".".join(str(item) for item in error.get("loc", ())) or "<root>"
+            parts.append(f"{loc}: {error.get('msg', 'validation failed')}")
+        if len(errors) > max_issues:
+            parts.append(f"... {len(errors) - max_issues} more")
+        return "; ".join(parts)
+    return safe_short_text(exc) or "PlanSpec validation failed"
 
 
 def coerce_composer_output(result) -> ComposerReplyOutput | None:
