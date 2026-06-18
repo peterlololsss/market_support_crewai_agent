@@ -4,6 +4,10 @@ from hmac import compare_digest
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
+from market_support_crewai_agent.server.logging_config import configure_app_logging
+
+configure_app_logging()
+
 from market_support_crewai_agent.runtime.state.action_ledger import get_action_ledger
 from market_support_crewai_agent.runtime.validation.reply_validator import ReplyContractError
 from market_support_crewai_agent.runtime.validation.request_input_guard import (
