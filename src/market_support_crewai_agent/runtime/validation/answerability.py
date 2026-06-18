@@ -80,7 +80,7 @@ class AnswerabilityGate:
                 capability_id=selected_capability_id,
                 ambiguity="unknown_artifact",
                 recommended_response_mode="abstain",
-                user_facing_reason="当前上下文没有匹配的可回答能力，我不能安全判断。",
+                user_facing_reason="当前上下文没有匹配的可回答能力，我无法直接判断。",
             )
 
         selection = select_evidence_for_plan(
@@ -118,11 +118,11 @@ class AnswerabilityGate:
         if plan.response_mode == "clarification" or plan.ambiguity_slots:
             ambiguity = "other"
             recommended = "clarify"
-            reason = "我需要再确认一下具体需求后再处理。"
+            reason = _clarification_reason(plan)
         elif missing_runtime_inputs:
             ambiguity = "other"
             recommended = "clarify"
-            reason = "当前缺少必要的请求信息，我需要先确认后再回答。"
+            reason = "我需要先确认缺少的信息，再回答。"
         elif missing_artifacts or evidence_missing:
             ambiguity = "unknown_artifact"
             recommended = "abstain"
@@ -286,8 +286,21 @@ def _missing_artifact_reason(manifest, missing_artifacts: list[str]) -> str:
     if manifest.id == "material_pack.product_list":
         return "当前上下文没有可用于回答产品列表的材料包内容，我不能用周报、月报或历史记录替代判断。"
     if label:
-        return f"当前上下文没有可用于回答该问题的{label}证据，我不能安全判断。"
-    return "当前上下文缺少该能力要求的证据，我不能安全判断。"
+        return f"当前上下文没有可用于回答该问题的{label}证据，我先不展开。"
+    return "当前上下文缺少该能力要求的证据，我先不展开。"
+
+
+def _clarification_reason(plan: ExecutionPlan) -> str:
+    slots = set(plan.ambiguity_slots)
+    if "material_pack_option" in slots:
+        return "当前需要确认具体材料包选项。"
+    if "report_query" in slots:
+        return "当前需要确认你要查询报告里的哪个产品或栏目。"
+    if "artifact" in slots:
+        return "当前需要确认你需要材料包、周报、月报，还是文档信息。"
+    if "request_meaning" in slots:
+        return "当前无法判断你是要发送材料/报告，还是查询材料或报告里的内容。"
+    return "我需要再确认一下具体需求后再处理。"
 
 
 def _artifact_label(artifact: str) -> str:

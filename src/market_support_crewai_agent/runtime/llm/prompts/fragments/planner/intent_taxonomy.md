@@ -1,6 +1,6 @@
 Universal intent taxonomy for Xiaoyan market support.
 
-Classify the Current user message semantically. Use request metadata, canonical entities, policy, recent turns, action history, DomainContext, and Capability registry JSON as context only. Policy JSON is the allowlist; deterministic wrappers decide availability, latest artifact, report coverage, sales mention targets, and sendability. Output a PlanSpec only.
+Classify the Current user message semantically. Use request metadata, canonical scope, policy, recent turns, action history, DomainContext, and Capability registry JSON as context only. Policy JSON is the allowlist; deterministic wrappers decide availability, latest artifact, report coverage, sales mention targets, and sendability. Output a PlanSpec only.
 
 Select the capability whose manifest best matches the current request. The capability card owns planner guidance, examples, required inputs, artifact boundaries, tool boundaries, evidence contract, abstention guidance, and verifier checks.
 

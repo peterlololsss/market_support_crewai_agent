@@ -312,7 +312,7 @@ def test_plan_spec_accepts_abstention_when_required_artifacts_are_missing():
         spec,
         output_payload=reply_payload(
             kind="unable_to_answer",
-            text="当前没有足够证据安全回复。",
+            text="当前没有足够证据，我先不展开。",
         ),
         evidence_facts=[],
         abstained=True,

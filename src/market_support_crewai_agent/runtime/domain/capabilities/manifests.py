@@ -101,7 +101,9 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "Send the material pack.",
             "发一下材料包",
             "发一下中证1000材料",
+            "发一下PPT/一页通/要素表",
             "来个开放日历",
+            "来个培训视频",
             "来个空气指增策略介绍",
         ],
         examples_negative=[
@@ -278,7 +280,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use when the request is understood but required evidence is absent.",
         agent_guidance="State inability concisely and do not invent facts.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["当前没有足够证据安全回复。"],
+        examples_positive=["当前没有足够证据，我先不展开。"],
         examples_negative=["已发送周报"],
     ),
     CapabilityManifest(

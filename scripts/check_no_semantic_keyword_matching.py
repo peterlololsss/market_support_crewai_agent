@@ -39,23 +39,8 @@ TEXTISH_NAMES = (
 SCANNER_METHODS = {"find", "rfind", "index", "rindex"}
 
 # These are not semantic business decisions. They are exact safety validators,
-# schema/key checks, model routing, or typed-catalog candidate generation.
+# schema/key checks, or model routing.
 ALLOWED_FUNCTIONS = {
-    "runtime/domain/entity_resolution.py:DefaultMentionExtractor._extract_from_text": (
-        "candidate generation from explicit DomainEntity phrases"
-    ),
-    "runtime/domain/entity_resolution.py:DefaultCandidateGenerator.generate": (
-        "candidate generation from exact IDs/names/aliases/examples only"
-    ),
-    "runtime/domain/entity_resolution.py:_find_phrase_occurrences": (
-        "candidate span extraction against explicit typed catalog phrases"
-    ),
-    "runtime/domain/entity_resolution.py:_structured_unknown_strategy_mentions": (
-        "candidate mention extraction; never resolves authority by itself"
-    ),
-    "runtime/domain/entity_resolution.py:_valid_phrase_boundary": (
-        "exact token-boundary validation for candidate extraction"
-    ),
     "runtime/evidence/document_mcp.py:DocumentMcpClient._post_json_rpc": (
         "exact JSON-RPC error-key validation"
     ),

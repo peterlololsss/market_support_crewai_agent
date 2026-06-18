@@ -23,6 +23,7 @@ from market_support_crewai_agent.runtime.orchestration.reply_agent import (
     CrewAIReplyRuntime,
     build_reply,
 )
+from market_support_crewai_agent.runtime.llm.composer_output import ComposerReplyOutput
 from market_support_crewai_agent.runtime.orchestration.response_ids import ensure_response_ids
 from market_support_crewai_agent.schemas import (
     ActionFeedbackRequest,
@@ -53,6 +54,36 @@ from tests.helpers.reply_contract import (
 )
 
 client = TestClient(app)
+
+
+def install_fake_clarification_composer(
+    runtime: CrewAIReplyRuntime,
+    *,
+    text: str,
+    prompts: list[str] | None = None,
+    stages: list[str] | None = None,
+):
+    class FakeComposer:
+        async def kickoff_async(self, prompt, response_format):
+            if prompts is not None:
+                prompts.append(prompt)
+            assert response_format is ComposerReplyOutput
+            return SimpleNamespace(
+                pydantic=ComposerReplyOutput(
+                    response_mode="clarify",
+                    missing_inputs=["ambiguity"],
+                    reply=PrimaryReply(kind="clarification", text=text, mentions=[]),
+                    actions=[],
+                ),
+                raw="",
+            )
+
+    def build_agent(stage="knowledge_composer"):
+        if stages is not None:
+            stages.append(stage)
+        return FakeComposer()
+
+    runtime._build_agent = build_agent  # type: ignore[method-assign]
 
 
 @pytest.mark.filterwarnings(
@@ -430,11 +461,22 @@ def test_runtime_does_not_force_send_when_planner_returns_unclear_no_action():
             requested_capabilities=[],
         ),
     )
+    composer_prompts: list[str] = []
+    composer_stages: list[str] = []
+    install_fake_clarification_composer(
+        runtime,
+        text="当前不确定你是要发送材料还是查询内容，请确认一下。",
+        prompts=composer_prompts,
+        stages=composer_stages,
+    )
 
     response = asyncio.run(runtime.reply(ReplyRequestShim("发一下中证1000材料").payload()))
 
     assert response.reply.kind == "clarification"
+    assert response.reply.text == "当前不确定你是要发送材料还是查询内容，请确认一下。"
     assert response.actions == []
+    assert composer_stages == ["knowledge_composer"]
+    assert "request_meaning" in composer_prompts[0]
 
 
 def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
@@ -473,6 +515,14 @@ def test_runtime_preserves_planner_report_clarification():
         runtime,
         make_weekly_plan_spec(ambiguity_slots=["report_query"]),
     )
+    composer_prompts: list[str] = []
+    composer_stages: list[str] = []
+    install_fake_clarification_composer(
+        runtime,
+        text="当前只看到你提到周报，但还需要确认要查哪个产品或栏目。",
+        prompts=composer_prompts,
+        stages=composer_stages,
+    )
 
     response = asyncio.run(
         runtime.reply(
@@ -486,7 +536,10 @@ def test_runtime_preserves_planner_report_clarification():
     )
 
     assert response.reply.kind == "clarification"
+    assert response.reply.text == "当前只看到你提到周报，但还需要确认要查哪个产品或栏目。"
     assert response.actions == []
+    assert composer_stages == ["knowledge_composer"]
+    assert "report_query" in composer_prompts[0]
 
 
 def test_runtime_uses_planner_resolved_followup_for_weekly_action():
@@ -720,6 +773,41 @@ def test_alignment_verifier_allows_valid_action_response():
 
     assert response.reply.text == ""
     assert response.actions[0].type == "send_weekly_report"
+
+
+def test_alignment_verifier_return_clarification_uses_composer():
+    runtime = CrewAIReplyRuntime(
+        Settings(llm_api_key="test-key"),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+    install_fake_planner(runtime, make_weekly_plan_spec())
+    composer_stages: list[str] = []
+    install_fake_clarification_composer(
+        runtime,
+        text="当前不确定你要周报还是月报，请确认一下。",
+        stages=composer_stages,
+    )
+
+    class ClarifyingVerifier:
+        async def verify(self, **kwargs):
+            assert kwargs["response"].actions[0].type == "send_weekly_report"
+            return ReplyAlignmentVerdict(
+                aligned=False,
+                safe_to_return=False,
+                failure_code="ambiguous_request",
+                remediation="return_clarification",
+                rationale="report artifact is ambiguous",
+            )
+
+    runtime.alignment_verifier = ClarifyingVerifier()
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("报告发我一下").payload()))
+
+    assert response.reply.kind == "clarification"
+    assert response.reply.text == "当前不确定你要周报还是月报，请确认一下。"
+    assert response.actions == []
+    assert composer_stages == ["knowledge_composer"]
 
 
 def test_alignment_verifier_replan_path_includes_feedback():
@@ -1377,6 +1465,7 @@ def test_same_conversation_key_reuses_prior_turns():
         make_support_plan_spec(),
         prompts,
     )
+    install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
     asyncio.run(runtime.reply(ReplyRequestShim("first question").payload()))
     asyncio.run(runtime.reply(ReplyRequestShim("follow up").payload()))
@@ -1399,6 +1488,7 @@ def test_different_conversation_key_does_not_share_history():
         make_support_plan_spec(),
         prompts,
     )
+    install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
     asyncio.run(runtime.reply(ReplyRequestShim("group one history").payload()))
     asyncio.run(
@@ -1450,6 +1540,7 @@ def test_adapter_execution_history_is_in_planner_prompt():
     runtime._build_planner_agent = lambda: FakePlannerAgent(  # type: ignore[method-assign]
         prompts=planner_prompts,
     )
+    install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
     asyncio.run(runtime.reply(ReplyRequestShim("刚才发了吗").payload()))
 
@@ -1478,6 +1569,7 @@ def test_runtime_passes_projected_context_to_planner_without_raw_huge_history():
         make_support_plan_spec(),
         prompts,
     )
+    install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
     asyncio.run(runtime.reply(ReplyRequestShim("current question").payload()))
 

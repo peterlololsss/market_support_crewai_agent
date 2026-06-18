@@ -138,7 +138,7 @@ Purpose:
 - allow evidence capabilities selected by policy;
 - allow target capabilities selected by policy;
 - map every requested capability and adapter resolve spec to a fixed wrapper;
-- require canonical entities for sensitive/internal queries;
+- require structured scope for sensitive/internal queries;
 - cap deterministic evidence calls;
 - force clarification when ambiguity exceeds policy tolerance.
 
@@ -158,8 +158,8 @@ Adapter resolve/preflight runs before final reply/action composition for materia
 
 Document MCP calls follow the same wrapper rule. A CrewAI agent does not receive the MCP base URL and does not call MCP
 directly. The planner can only propose an allowed evidence capability. The harness then builds a bounded query from
-canonical entities, request identity, and policy, calls the fixed wrapper, and rejects the call if the plan lacks a
-permitted capability or resolved entity context.
+structured scope, request identity, and policy, calls the fixed wrapper, and rejects the call if the plan lacks a
+permitted capability or enough structured scope.
 
 Use Document MCP only for document-backed factual answers. Do not call it for plain send actions; material/report
 sendability comes from adapter resolve/preflight. Report-body inspection is a future extension and is not enabled by

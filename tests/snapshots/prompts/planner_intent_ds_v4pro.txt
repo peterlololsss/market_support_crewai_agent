@@ -4,7 +4,7 @@ You are the intent planner for a deterministic support reply harness.
 
 Output only one PlanSpec matching the response_format schema. Do not output final reply text, ExecutionPlan, ResponseDirective, BusinessFacts, adapter evidence, final actions, tool calls, Markdown, explanations, hidden reasoning, or text outside the JSON object.
 
-Classify the Current user message using the universal taxonomy plus request metadata, canonical entities, policy, recent turns, action history, and Capability registry JSON. Policy JSON is an allowlist. Adapter resolve owns sendability, latest artifact lookup, report period selection, and sales mention target resolution. Adapter report-scope evidence owns questions about which products or sections are inside a weekly/monthly report.
+Classify the Current user message using the universal taxonomy plus request metadata, canonical scope, policy, recent turns, action history, and Capability registry JSON. Policy JSON is an allowlist. Adapter resolve owns sendability, latest artifact lookup, report period selection, and sales mention target resolution. Adapter report-scope evidence owns questions about which products or sections are inside a weekly/monthly report.
 
 Select exactly one capability manifest id from Capability registry JSON. Use that manifest to populate required_artifacts, allowed_artifacts, forbidden_artifacts, required_tools, output_schema_ref, evidence_contract_ref or inline evidence_contract, steps, acceptance_criteria, abstention_cases, and risk_flags.
 
@@ -51,7 +51,7 @@ For blocked compliance cases, use refusal/refuse and do not request capabilities
 <prompt_fragment id="planner.intent_taxonomy">
 Universal intent taxonomy for Xiaoyan market support.
 
-Classify the Current user message semantically. Use request metadata, canonical entities, policy, recent turns, action history, DomainContext, and Capability registry JSON as context only. Policy JSON is the allowlist; deterministic wrappers decide availability, latest artifact, report coverage, sales mention targets, and sendability. Output a PlanSpec only.
+Classify the Current user message semantically. Use request metadata, canonical scope, policy, recent turns, action history, DomainContext, and Capability registry JSON as context only. Policy JSON is the allowlist; deterministic wrappers decide availability, latest artifact, report coverage, sales mention targets, and sendability. Output a PlanSpec only.
 
 Select the capability whose manifest best matches the current request. The capability card owns planner guidance, examples, required inputs, artifact boundaries, tool boundaries, evidence contract, abstention guidance, and verifier checks.
 
@@ -102,18 +102,10 @@ Runtime Capability & Evidence Boundary JSON:
       "block_type": "app_state",
       "included_reason": "preserve_runtime_state",
       "payload": {
-        "Canonical entities JSON": {
+        "Canonical scope JSON": {
           "material_pack_options": [
             "中证1000"
-          ],
-          "resolution_metrics": {
-            "ambiguous": 0,
-            "exact_alias_used": 0,
-            "low_confidence": 0,
-            "resolved": 0,
-            "semantic_candidate_used": 0,
-            "unresolved": 0
-          }
+          ]
         },
         "Capability registry JSON": {
           "candidate_count": 15,
@@ -123,7 +115,7 @@ Runtime Capability & Evidence Boundary JSON:
             "monthly_report.send|t=action|rt=monthly_report|req=monthly_report|forbid=material_pack,weekly_report,document_context|need=monthly_report_resolvable|any=|no_src=adapter_report_scope,document_mcp,conversation_history|guidance=Use when the user clearly asks to send the monthly report.|pos=Send the monthly report.|neg=What period does the weekly report cover?",
             "sales.handoff|t=handoff|rt=sales_mention|req=adapter_context|forbid=material_pack,weekly_report,monthly_report|need=sales_mention_resolvable|any=|no_src=|guidance=Use when the user asks for human sales/support help, add-friend/add-WeChat/private-chat routing, or a named person.|pos=帮我问下销售|neg=发一下周报",
             "general.clarification|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use when required artifact, material-pack option, report query, or request meaning is ambiguous.|pos=你说的这个是哪个策略？|neg=发一下周报",
-            "general.abstention|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use when the request is understood but required evidence is absent.|pos=当前没有足够证据安全回复。|neg=已发送周报",
+            "general.abstention|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use when the request is understood but required evidence is absent.|pos=当前没有足够证据，我先不展开。|neg=已发送周报",
             "general.refusal|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use for requests that compliance policy requires refusing.|pos=这个产品能保本吗|neg=请发周报",
             "general.smalltalk|t=answer|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use for greetings, thanks, self-introduction, or help/capability questions.|pos=你是谁|neg=发一下材料",
             "general.no_reply|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use only when the message should not receive a visible reply.|pos=adapter-only status messages that do not need a reply|neg=user asks for help",
@@ -235,11 +227,11 @@ Runtime Capability & Evidence Boundary JSON:
       },
       "redacted": false,
       "title": "Runtime app state",
-      "token_estimate": 1859
+      "token_estimate": 1825
     }
   ],
   "contract_version": "model-visible-context",
-  "projection_id": "ctx-proj:8109cea00abf59f5",
+  "projection_id": "ctx-proj:de8f1df3444f1fe0",
   "stage": "planner_intent"
 }
 </prompt_layer>

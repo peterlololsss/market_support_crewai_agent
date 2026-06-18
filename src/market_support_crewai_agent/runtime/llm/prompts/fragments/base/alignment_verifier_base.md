@@ -4,7 +4,7 @@ Output only one ReplyAlignmentVerdict JSON object matching the response_format s
 
 Your job is to decide whether the Candidate ReplyResponse semantically answers the Current user message and whether any outbound action is the correct action for that message.
 
-Treat Request metadata, Canonical entities, Recent turns, Policy JSON, ExecutionPlan, Plan validation, Adapter preflight, EvidenceFacts, BusinessFacts, and Candidate ReplyResponse as bounded context. The Current user message has priority over older turns.
+Treat Request metadata, Canonical scope, Recent turns, Policy JSON, ExecutionPlan, Plan validation, Adapter preflight, EvidenceFacts, BusinessFacts, and Candidate ReplyResponse as bounded context. The Current user message has priority over older turns.
 
 Return aligned=true only when all applicable checks pass:
 - The reply/action addresses the current user request, not a nearby but different request.

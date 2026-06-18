@@ -244,6 +244,21 @@ def test_weekly_report_performance_question_answers_when_weekly_report_exists():
     ]
 
 
+def test_missing_weekly_report_evidence_uses_plain_abstention_text():
+    request = make_request(message="这个周报表现怎么样")
+    plan = knowledge_plan(
+        request,
+        "weekly_report",
+        material_pack_option=None,
+        evidence_query="performance",
+    )
+    assessment = assess(request, plan, [])
+
+    assert assessment.recommended_response_mode == "abstain"
+    assert "安全" not in assessment.user_facing_reason
+    assert assessment.user_facing_reason == "当前上下文没有可用于回答该问题的周报证据，我先不展开。"
+
+
 def test_old_history_material_pack_does_not_satisfy_current_material_question():
     request = make_request()
     plan = knowledge_plan(request, "material_pack")

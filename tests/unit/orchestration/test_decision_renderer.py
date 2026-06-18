@@ -114,6 +114,42 @@ def test_decision_adds_weekly_report_rationale_for_dynamic_metric_send():
     assert response.actions[0].type == "send_weekly_report"
 
 
+def test_decision_uses_composer_for_ambiguous_action_clarification():
+    request = make_request(
+        message="发一下材料",
+        material_pack_options=["中证1000指增", "中证A500指增"],
+    )
+    policy = compile_policy(request)
+    plan = make_plan(
+        request,
+        artifact_kind="material_pack",
+        action_intent="send",
+    )
+    facts = [
+        EvidenceFact(
+            fact_type="material_pack_resolvable",
+            value=False,
+            resolve_type="material_pack",
+            metadata={
+                "status": "ambiguous",
+                "candidates": ["中证1000指增", "中证A500指增"],
+            },
+        )
+    ]
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        request,
+        policy,
+    )
+
+    assert directive.mode == "clarification"
+    assert directive.requires_knowledge_composer is True
+    assert directive.composer_stage == "knowledge_composer"
+    assert "中证1000指增" in directive.text
+
+
 def test_decision_requires_knowledge_composer_only_with_document_context():
     request = make_request(message="介绍一下衍复")
     policy = compile_policy(request, doc_mcp_enabled=True)

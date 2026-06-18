@@ -30,7 +30,7 @@ The built-in material-pack manifests do not allow it.
 ReplyRequest
 -> ConversationStore.get_recent + ActionLedger.recent_executed_for_conversation
 -> DomainContextBuilder
--> CanonicalEntityResolver
+-> canonicalize_request
 -> compile_policy
 -> ContextProjectionManager.project_for_stage
 -> Planner LLM emits PlanSpec
@@ -91,10 +91,10 @@ fragments, orchestration branches, or verifier-specific functions.
 ArtifactScope(channel, strategy, product, time_range)
 ```
 
-`CanonicalEntityResolver` resolves mentions only against explicit domain
-entities, exact names/aliases, structured defaults, or bounded closed-set
-selectors. Unknown or ambiguous 产品/策略 mentions stay unresolved or ambiguous;
-the harness clarifies or abstains instead of nearest matching.
+`canonicalize_request` projects adapter-provided material-pack scope labels into
+prompt-visible context. It does not infer product or strategy entities from
+user text; the planner selects a capability, and evidence/validators decide
+whether enough structured scope exists.
 
 ## PlanSpec
 

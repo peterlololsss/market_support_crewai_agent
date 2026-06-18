@@ -70,6 +70,8 @@ class DecisionEngine:
                 mode="clarification",
                 reply_kind="clarification",
                 text=_clarification_text(plan, business_facts, request),
+                requires_knowledge_composer=True,
+                composer_stage="knowledge_composer",
                 reason_code="ambiguous_request",
             )
 
@@ -113,7 +115,7 @@ class DecisionEngine:
             return _directive(
                 mode="unable",
                 reply_kind="unable_to_answer",
-                text="当前没有足够的文档证据安全回复，我先不展开。",
+                text="当前没有足够的文档证据，我先不展开。",
                 reason_code="document_context_missing",
             )
 
@@ -155,7 +157,7 @@ class DecisionEngine:
         return _directive(
             mode="unable",
             reply_kind="unable_to_answer",
-            text="当前没有足够证据安全回复。",
+            text="当前没有足够证据，我先不展开。",
             reason_code="insufficient_evidence",
         )
 
@@ -263,6 +265,8 @@ def _action_directive(
                     "我需要再确认一下你指的是哪一个可发送内容",
                     resolve_state.candidates or tuple(request.material_pack_options),
                 ),
+                requires_knowledge_composer=True,
+                composer_stage="knowledge_composer",
                 reason_code="ambiguous_action_resolve",
             )
         if resolve_state.status != "available":
@@ -373,6 +377,8 @@ def _clarification_text(
         return "我需要再确认你想查询报告里的哪个产品或栏目。"
     if "artifact" in slots:
         return "我需要再确认你需要的是材料包、周报、月报，还是文档信息。"
+    if "request_meaning" in slots:
+        return "你想让我发送材料/报告，还是查询材料或报告里的内容？"
     return "我需要再确认一下具体需求后再处理。"
 
 

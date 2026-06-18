@@ -203,7 +203,7 @@ Machine-readable validation result with validity, severity, error codes, and met
 ### AuditTrace
 
 Replayable trace for incident review and eval debugging. It records request/context id, policy manifest id/hash,
-canonical entities, planner output, validation decisions, evidence calls/source ids, business facts, reply output,
+canonical scope, planner output, validation decisions, evidence calls/source ids, business facts, reply output,
 invalid-output records, renderer decision reason, final actions, adapter execution status, per-CrewAI-stage latency/usage summaries,
 and model ids, prompt profile ids, policy ids, and validator ids.
 
@@ -319,7 +319,7 @@ The runtime shape is:
 
 ```text
 Planner LLM proposes query_internal_company_info evidence need
- -> plan validator checks PolicyManifest and canonical entities
+ -> plan validator checks PolicyManifest and structured scope
  -> evidence executor calls a fixed Document MCP wrapper only for channel-permitted requests
  -> wrapper selects list_products/get_documents inputs, redacts, caps, and marks content as data-only
  -> document_context EvidenceFacts feed the composer prompt

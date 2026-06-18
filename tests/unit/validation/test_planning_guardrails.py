@@ -128,3 +128,24 @@ def test_compile_plan_spec_refusal_has_no_actions_or_evidence():
     assert plan.adapter_resolves == []
     assert plan.action_intents == []
     assert validate_execution_plan(plan, policy).valid
+
+
+def test_compile_plan_spec_carries_clarification_slot_from_risk_flags():
+    request = make_request()
+    policy = compile_policy(request)
+
+    plan = compile_plan_spec(
+        make_plan_spec(
+            request,
+            artifact_kind="weekly_report",
+            action_intent="send",
+            ambiguity_slots=["report_query"],
+        ),
+        request,
+        canonicalize_request(request),
+        policy,
+    )
+
+    assert plan.response_mode == "clarification"
+    assert plan.ambiguity_slots == ["report_query"]
+    assert validate_execution_plan(plan, policy).valid

@@ -27,7 +27,6 @@ def test_canonicalize_projects_material_pack_options_only():
     context = canonicalize_request(make_request("发一下 A500 材料包"))
 
     assert context.material_pack_options == ("中证500", "中证A500")
-    assert context.entities == ()
 
 
 def test_canonicalize_does_not_infer_single_material_pack_option():
@@ -38,11 +37,12 @@ def test_canonicalize_does_not_infer_single_material_pack_option():
     assert context.material_pack_options == ("中证A500",)
 
 
-def test_canonicalize_does_not_resolve_query_against_domain_context_or_resolver():
+def test_canonicalize_does_not_resolve_query_against_domain_context():
     context = canonicalize_request(
         make_request("中证A500指增介绍一下"),
         domain_context=object(),  # type: ignore[arg-type]
-        resolver=object(),  # type: ignore[arg-type]
     )
 
-    assert context.resolutions == ()
+    assert context.to_prompt_dict() == {
+        "material_pack_options": ["中证500", "中证A500"],
+    }

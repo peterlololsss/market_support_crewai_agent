@@ -139,7 +139,7 @@ BusinessFacts include material/report resolvability, sales mention resolvability
 
 ## Phase 7: planner integration
 
-Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, canonical entities, policy manifest, and available materials/strategies.
+Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, canonical scope, policy manifest, and available materials/strategies.
 
 Planner output is `PlanSpec`: selected capability, domain scope, required artifacts/tools, answerability policy, output schema reference, evidence contract, and execution steps.
 
@@ -202,7 +202,7 @@ post-send follow-up copy without duplicate agent text.
 
 ## Phase 11: observability and audit
 
-Audit records request/context id, inbound message id, conversation key, policy id/hash, canonical entities, compiled plan, response directive, validations, evidence ids, adapter resolves, EvidenceFacts, BusinessFacts, reply output, error-on-invalid path, final actions, adapter execution status, latency, token usage, and model/profile/version metadata.
+Audit records request/context id, inbound message id, conversation key, policy id/hash, canonical scope, compiled plan, response directive, validations, evidence ids, adapter resolves, EvidenceFacts, BusinessFacts, reply output, error-on-invalid path, final actions, adapter execution status, latency, token usage, and model/profile/version metadata.
 
 Avoid logging secrets, unnecessary PII, and sensitive full evidence bodies.
 

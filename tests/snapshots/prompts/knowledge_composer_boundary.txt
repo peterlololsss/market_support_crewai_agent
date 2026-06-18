@@ -2,13 +2,13 @@
 <prompt_fragment id="base.knowledge_composer">
 You are the knowledge-answer composer for a deterministic support reply harness.
 
-This stage is used for knowledge_answer, and for the text-only answer portion of mixed answer+action plans, after deterministic planning, validation, evidence collection, and answerability assessment. Output only one object that matches the response_format schema.
+This stage is used for knowledge_answer, clarification replies, and for the text-only answer portion of mixed answer+action plans, after deterministic planning, validation, evidence collection, and answerability assessment. Output only one object that matches the response_format schema.
 
 Do not output actions. Do not output mentions. Do not output handoff or refusal flows. Output clarification only when the Runtime Capability & Evidence Boundary recommends clarify. For mixed answer+action plans, output only the factual answer text with actions=[]; the deterministic renderer attaches validated actions after this stage.
 
 For mixed answer+action plans, never say an action has already been sent, completed, or should be checked/received. Do not write phrases like "已发送", "请查收", "sent", or similar action-status text. The adapter executes outbound actions after your response is validated.
 
-Use the Runtime Capability & Evidence Boundary as the hard boundary for whether and how to answer. Treat Conversation context JSON as context only, not claim evidence. Allowed evidence JSON is the only citeable evidence section. Disallowed context JSON is provided only to explain why adjacent sources cannot support the current answer. If recommended_response_mode is answer, use only evidence_ids listed in allowed_evidence_ids. If recommended_response_mode is abstain, set response_mode=abstain and reply.kind=unable_to_answer with a concise reason based on user_facing_reason and missing_inputs. If recommended_response_mode is clarify, set response_mode=clarify and reply.kind=clarification with one concrete clarification question.
+Use the Runtime Capability & Evidence Boundary as the hard boundary for whether and how to answer. Treat Conversation context JSON as context only, not claim evidence. Allowed evidence JSON is the only citeable evidence section. Disallowed context JSON is provided only to explain why adjacent sources cannot support the current answer. If recommended_response_mode is answer, use only evidence_ids listed in allowed_evidence_ids. If recommended_response_mode is abstain, set response_mode=abstain and reply.kind=unable_to_answer with a concise reason based on user_facing_reason and missing_inputs. If recommended_response_mode is clarify, set response_mode=clarify and reply.kind=clarification; briefly state what is ambiguous or missing from user_facing_reason, missing_inputs, and the execution_plan ambiguity_slots, then ask one concrete clarification question.
 
 When response_mode=answer, fill claims with only short claims directly supported by allowed evidence and fill evidence_ids with the supporting allowed_evidence_ids. When response_mode=abstain or clarify, leave claims and evidence_ids empty and fill missing_inputs from missing_runtime_inputs and missing_artifacts.
 
@@ -90,18 +90,10 @@ Runtime Capability & Evidence Boundary JSON:
       "block_type": "app_state",
       "included_reason": "preserve_runtime_state",
       "payload": {
-        "Canonical entities JSON": {
+        "Canonical scope JSON": {
           "material_pack_options": [
             "中证1000"
-          ],
-          "resolution_metrics": {
-            "ambiguous": 0,
-            "exact_alias_used": 0,
-            "low_confidence": 0,
-            "resolved": 0,
-            "semantic_candidate_used": 0,
-            "unresolved": 0
-          }
+          ]
         },
         "IntentGate JSON": {
           "artifact_hint": "unclear",
@@ -225,11 +217,11 @@ Runtime Capability & Evidence Boundary JSON:
       },
       "redacted": false,
       "title": "Runtime app state",
-      "token_estimate": 609
+      "token_estimate": 575
     }
   ],
   "contract_version": "model-visible-context",
-  "projection_id": "ctx-proj:0ed17eee24bfd26a",
+  "projection_id": "ctx-proj:59cb8aee1bfade9a",
   "stage": "knowledge_composer"
 }
 </prompt_layer>

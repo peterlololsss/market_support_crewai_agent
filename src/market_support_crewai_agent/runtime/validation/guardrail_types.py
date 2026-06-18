@@ -95,7 +95,7 @@ class EvidenceSelection:
 
 
 def abstention_response_text() -> str:
-    return "当前没有足够证据安全回复，我先不展开。"
+    return "当前没有足够证据，我先不展开。"
 
 
 def make_decision(

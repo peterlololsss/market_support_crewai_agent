@@ -21,13 +21,15 @@ def directive_from_answerability(
             reply_kind="clarification",
             text=assessment.user_facing_reason
             or "我需要再确认一下具体需求后再处理。",
+            requires_knowledge_composer=True,
+            composer_stage="knowledge_composer",
             reason_code=f"answerability_{assessment.ambiguity}",
         )
     return ResponseDirective(
         mode="unable",
         reply_kind="unable_to_answer",
         text=assessment.user_facing_reason
-        or "当前上下文缺少该问题所需证据，我不能安全判断。",
+        or "当前上下文缺少该问题所需证据，我先不展开。",
         reason_code="answerability_missing_evidence",
     )
 
