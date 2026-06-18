@@ -45,9 +45,7 @@ class Settings(BaseModel):
     # Process-wide TTL for the static product manifest and document content.
     # 0 disables caching and re-fetches from the MCP on every query.
     doc_mcp_cache_ttl_seconds: float = Field(default=300.0, ge=0)
-    # Preferred document categories to load first when the closed-set selector
-    # declines. The wrapper then appends the remaining docs while the corpus is
-    # small enough to inline.
+    # Preferred document categories to load first when the closed-set selector declines.
     doc_mcp_baseline_categories: tuple[str, ...] = ("常见问答",)
     reply_alignment_verifier_enabled: bool = True
     reply_alignment_max_replans: int = Field(default=1, ge=0)

@@ -45,8 +45,8 @@ Runtime fake-dependency check script at `scripts/check_reply_runtime_fake_deps.p
 Document MCP is not attached directly to CrewAI agents. It is enabled only when
 `MARKET_AGENT_DOC_MCP_ENABLED=true` and `MARKET_AGENT_DOC_MCP_BASE_URL` is configured. The planner sees only the
 policy-allowed capability name `query_internal_company_info`; the fixed wrapper calls `/mcp` with `list_products` and
-`get_documents`, ranks relevant docs first, appends the remaining small corpus, then passes bounded `document_context`
-EvidenceFacts to the composer.
+`get_documents`, fetches selector-selected documents when available, and uses baseline/broad reads only when selection
+is unsure. It then passes bounded `document_context` EvidenceFacts to the composer.
 
 ## Module ownership
 

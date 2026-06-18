@@ -264,15 +264,8 @@ class DocumentMcpClient:
             products,
             max_documents=max_documents,
         )
-        if document_ids:
-            document_ids = _append_remaining_document_ids(
-                products,
-                document_ids,
-                max_documents=max_documents,
-            )
-        else:
-            # The corpus is small enough to inline; when selection is unsure,
-            # read broadly and let the composer/verifier stay grounded.
+        if not document_ids:
+            # When selection is unsure, fall back to bounded baseline/broad evidence.
             document_ids = _fallback_document_ids(
                 products,
                 self.baseline_categories,
@@ -629,25 +622,6 @@ def _validated_selected_document_ids(
         output.append(normalized_id)
         if len(output) >= max_documents:
             break
-    return output
-
-
-def _append_remaining_document_ids(
-    products: list[dict],
-    document_ids: list[str],
-    *,
-    max_documents: int,
-) -> list[str]:
-    output = list(document_ids)
-    for product in products:
-        if len(output) >= max_documents:
-            break
-        if not isinstance(product, dict):
-            continue
-        product_id = str(product.get("id") or "").strip()
-        if not product_id or product_id in output:
-            continue
-        output.append(product_id)
     return output
 
 

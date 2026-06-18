@@ -205,8 +205,8 @@ MARKET_AGENT_DOC_MCP_BASELINE_CATEGORIES=常见问答
 ```
 
 The current document MCP server responds as streamable HTTP on `/mcp`, requires `Accept: application/json, text/event-stream`,
-and exposes wrapper-only tools `list_products` and `get_documents`. The wrapper ranks relevant docs first, then appends
-the remaining small corpus so the composer can use the full approved knowledge base without offset paging.
+and exposes wrapper-only tools `list_products` and `get_documents`. When the selector returns valid document IDs, the
+wrapper fetches only those documents. If selection is unsure, it falls back to the bounded baseline/broad read.
 
 ## Incoming request authentication
 
