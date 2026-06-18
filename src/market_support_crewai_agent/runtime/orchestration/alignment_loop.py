@@ -7,6 +7,7 @@ from market_support_crewai_agent.runtime.orchestration.alignment_refetch import 
     report_scope_refetch_query,
     report_scope_refetch_requested,
 )
+from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.orchestration.crewai_io import safe_short_text
 from market_support_crewai_agent.runtime.state.runtime_trace import trace_event, trace_span
 
@@ -255,12 +256,73 @@ async def ensure_aligned_response(
                     "failure_code": verdict.failure_code,
                 }
             )
-            return runtime._fallback_attempt(
-                candidate,
-                policy,
-                kind="clarification",
+            directive = ResponseDirective(
+                mode="clarification",
+                reply_kind="clarification",
+                text=verdict.composer_feedback
+                or verdict.rationale
+                or "我需要再确认一下具体需求后再处理。",
+                requires_knowledge_composer=True,
+                composer_stage="knowledge_composer",
                 reason_code="alignment_return_clarification",
             )
+            answerability = candidate.answerability.model_copy(
+                update={
+                    "can_answer": False,
+                    "ambiguity": "other",
+                    "recommended_response_mode": "clarify",
+                    "user_facing_reason": directive.text,
+                }
+            )
+            try:
+                with trace_span("alignment.remediate.return_clarification"):
+                    response, composer_output = await runtime._compose_or_render_response(
+                        request=request,
+                        canonical_context=canonical_context,
+                        domain_context=candidate.domain_context,
+                        policy=policy,
+                        model_family=model_family,
+                        intent_gate=intent_gate,
+                        history=history,
+                        action_history=action_history,
+                        prompt_programs=prompt_programs,
+                        llm_executions=llm_executions,
+                        plan=candidate.plan,
+                        plan_validation=candidate.plan_validation,
+                        preflight=candidate.preflight,
+                        evidence_facts=candidate.evidence_facts,
+                        business_facts=candidate.business_facts,
+                        answerability=answerability,
+                        directive=directive,
+                        alignment_verdict=verdict,
+                        alignment_attempt=len(alignment_verdicts),
+                        guardrail_decisions=candidate.guardrail_decisions,
+                    )
+                    return runtime._validated_attempt(
+                        plan=candidate.plan,
+                        plan_validation=candidate.plan_validation,
+                        preflight=candidate.preflight,
+                        evidence_facts=candidate.evidence_facts,
+                        business_facts=candidate.business_facts,
+                        domain_context=candidate.domain_context,
+                        answerability=answerability,
+                        directive=directive,
+                        response=response,
+                        policy=policy,
+                        guardrail_decisions=candidate.guardrail_decisions,
+                        composer_output=composer_output,
+                    )
+            except Exception as exc:
+                trace_event(
+                    "alignment.return_clarification_failed",
+                    error=safe_short_text(exc),
+                )
+                return runtime._fallback_attempt(
+                    candidate,
+                    policy,
+                    kind="unable",
+                    reason_code="alignment_return_clarification_failed",
+                )
 
         alignment_remediations.append(
             {

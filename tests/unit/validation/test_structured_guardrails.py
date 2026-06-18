@@ -843,7 +843,7 @@ def test_validate_reply_allows_knowledge_composer_to_downgrade_to_unable():
     )
     response = ReplyResponse(
         response_id="resp-1",
-        reply=PrimaryReply(kind="unable_to_answer", text="当前没有足够证据安全回复。"),
+        reply=PrimaryReply(kind="unable_to_answer", text="当前没有足够证据，我先不展开。"),
         actions=[],
     )
 

@@ -599,6 +599,19 @@ class CrewAIReplyRuntime:
         forced_directive = directive_from_answerability(answerability, plan)
         if forced_directive is not None:
             directive = forced_directive
+        if (
+            directive.mode == "clarification"
+            and answerability.recommended_response_mode != "clarify"
+        ):
+            answerability = answerability.model_copy(
+                update={
+                    "can_answer": False,
+                    "ambiguity": "other",
+                    "recommended_response_mode": "clarify",
+                    "user_facing_reason": directive.text
+                    or answerability.user_facing_reason,
+                }
+            )
         trace_event(
             "state.directive_selected",
             mode=directive.mode,
@@ -1009,7 +1022,7 @@ class CrewAIReplyRuntime:
             directive = ResponseDirective(
                 mode="unable",
                 reply_kind="unable_to_answer",
-                text="当前没有足够证据安全回复，我先不展开。",
+                text="当前没有足够证据，我先不展开。",
                 reason_code=reason_code,
             )
         response = ReplyResponse(
