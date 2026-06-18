@@ -370,9 +370,7 @@ def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
 
     assert selector.calls[0]["evidence_query"] == "最新规模情况"
     assert selector.calls[0]["products"][0]["id"] == "衍复万得小市值指数增强策略"
-    assert client.requested_document_ids == [
-        ("衍复公司介绍(简介)", "衍复万得小市值指数增强策略")
-    ]
+    assert client.requested_document_ids == [("衍复公司介绍(简介)",)]
     assert [chunk.document_id for chunk in chunks] == ["衍复公司介绍(简介)"]
     assert "2026年一季度末规模" in chunks[0].text
 
