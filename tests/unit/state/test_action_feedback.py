@@ -37,7 +37,6 @@ def make_feedback(**overrides):
                 "action_id": "act-1",
                 "resolve_ref": "weekly:resolve-ref",
                 "material_type": "weekly",
-                "strategy": None,
                 "material_id": "weekly:opaque-ref",
                 "version": "20260529",
                 "adapter_result": {"ok": True},

@@ -38,7 +38,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -58,14 +58,14 @@ def resolved_item(resolve_type: str, resolve_ref: str) -> AdapterPreflightItem:
                 "candidates": [],
                 "channel_type": "bank",
                 "available_materials": ["material", "weekly", "monthly"],
-                "available_strategies": ["指增"],
+                "material_pack_options": ["指增"],
                 "resolved_at": 1,
                 "resolve_ref": resolve_ref,
-                "strategy": "指增",
+                "material_pack_option": "指增"
+                if resolve_type == "material_pack"
+                else None,
                 "period": "20260612" if resolve_type == "weekly_report" else None,
                 "report_date": "2026-06-12" if resolve_type == "weekly_report" else None,
-                "scope_status": "included" if resolve_type == "weekly_report" else "unknown",
-                "contains_strategy": True if resolve_type == "weekly_report" else None,
             }
         ),
     )
@@ -122,7 +122,7 @@ def test_registry_declares_capability_contract_mappings_without_prompt_coupling(
     assert material.resolve_type == "material_pack"
     assert material.side_effect_action_type == "send_material_pack"
     assert material.read_capability == "resolve_material_pack"
-    assert material.requires_strategy_for_bank_material is True
+    assert material.supports_material_pack_option is True
     assert weekly.resolve_type == "weekly_report"
     assert weekly.side_effect_action_type == "send_weekly_report"
     assert weekly.is_report is True

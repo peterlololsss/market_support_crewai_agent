@@ -17,6 +17,7 @@ from market_support_crewai_agent.runtime.validation.reply_alignment_verifier imp
     ReplyAlignmentVerdict,
 )
 from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse
+from market_support_crewai_agent.runtime.state.runtime_trace import trace_span
 
 
 async def run_crewai_kickoff(
@@ -26,13 +27,25 @@ async def run_crewai_kickoff(
     timeout_seconds: float | None,
 ):
     started_at = perf_counter()
-    result = await asyncio.wait_for(
-        agent.kickoff_async(
-            prompt_program.prompt_text,
-            response_format=prompt_program.profile.response_model,
+    with trace_span(
+        "llm.crewai_kickoff",
+        stage=prompt_program.profile.stage,
+        prompt_profile_id=prompt_program.profile.id,
+        prompt_hash=prompt_program.prompt_hash,
+        prompt_chars=len(prompt_program.prompt_text),
+        response_format=getattr(
+            prompt_program.profile.response_model,
+            "__name__",
+            str(prompt_program.profile.response_model),
         ),
-        timeout=timeout_seconds,
-    )
+    ):
+        result = await asyncio.wait_for(
+            agent.kickoff_async(
+                prompt_program.prompt_text,
+                response_format=prompt_program.profile.response_model,
+            ),
+            timeout=timeout_seconds,
+        )
     latency_ms = (perf_counter() - started_at) * 1000
     return result, _compact_crewai_execution(prompt_program, result, latency_ms)
 

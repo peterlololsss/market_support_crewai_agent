@@ -38,7 +38,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证500", "中证1000"],
+        "material_pack_options": ["中证500", "中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -122,8 +122,6 @@ def test_non_compliant_reason_codes_require_refusal_text_for_reason(
                 action_id="act-1",
                 resolve_type="weekly_report",
                 resolve_ref="weekly:ref",
-                report_scope="channel_all",
-                strategy=None,
                 period="20260529",
                 report_date="2026-05-29",
             )

@@ -72,7 +72,7 @@ def _request_payload(message: str, index: int) -> dict:
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证500", "中证1000"],
+        "material_pack_options": ["中证500", "中证1000"],
         "channel_type": "bank",
     }
 

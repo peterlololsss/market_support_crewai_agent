@@ -26,13 +26,14 @@ from market_support_crewai_agent.runtime.llm.prompting.assembler import (
     assembleCanonicalizationPrompt,
 )
 from market_support_crewai_agent.runtime.llm.prompting.registry import prompt_agent_spec_by_id
+from market_support_crewai_agent.runtime.state.runtime_trace import trace_span
 from market_support_crewai_agent.settings import Settings, get_settings
 
 _DOC_CAPABILITY = next(iter(read_capabilities_for_artifact("knowledge_answer")), "")
 _MCP_ACCEPT_HEADER = "application/json, text/event-stream"
 # Fallback ceiling for helpers invoked without an explicit budget. Production
 # callers thread Settings.doc_mcp_max_chars_per_document through instead.
-_DEFAULT_MAX_CHARS_PER_DOCUMENT = 16000
+_DEFAULT_MAX_CHARS_PER_DOCUMENT = 1_000_000
 _LOCAL_LOCATOR_RE = re.compile(
     r"(?i)(file://\S+|/[Uu]sers/\S+|/[Hh]ome/\S+|[A-Za-z]:\\[^\s]+|"
     r"wecom-adapter:[^\s]+|mcp://\S+)"
@@ -123,7 +124,7 @@ class DocumentProductCandidate(StrictModel):
 
 
 class DocumentProductSelection(StrictModel):
-    document_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=3)
+    document_ids: tuple[str, ...] = Field(default_factory=tuple, max_length=50)
     confidence: Literal["none", "low", "medium", "high"] = "none"
     rationale: str = Field(default="", max_length=600)
 
@@ -210,7 +211,7 @@ class DocumentMcpClient:
         canonical_context: CanonicalContext,
         *,
         evidence_query: str | None = None,
-        max_documents: int = 3,
+        max_documents: int = 50,
         max_chars_per_document: int | None = None,
     ) -> list[DocumentEvidenceChunk]:
         try:
@@ -235,7 +236,7 @@ class DocumentMcpClient:
         canonical_context: CanonicalContext,
         *,
         evidence_query: str | None = None,
-        max_documents: int = 3,
+        max_documents: int = 50,
         max_chars_per_document: int | None = None,
     ) -> list[DocumentEvidenceChunk]:
         if not self.base_url:
@@ -263,12 +264,16 @@ class DocumentMcpClient:
             products,
             max_documents=max_documents,
         )
-        if not document_ids:
-            # The closed-set selector declined. A general FAQ rarely advertises
-            # every topic it covers, so fall back to the catch-all baseline
-            # document(s) instead of returning no evidence at all. Downstream
-            # composition and the alignment verifier still gate correctness.
-            document_ids = _baseline_document_ids(
+        if document_ids:
+            document_ids = _append_remaining_document_ids(
+                products,
+                document_ids,
+                max_documents=max_documents,
+            )
+        else:
+            # The corpus is small enough to inline; when selection is unsure,
+            # read broadly and let the composer/verifier stay grounded.
+            document_ids = _fallback_document_ids(
                 products,
                 self.baseline_categories,
                 max_documents=max_documents,
@@ -627,15 +632,32 @@ def _validated_selected_document_ids(
     return output
 
 
-def _baseline_document_ids(
+def _append_remaining_document_ids(
+    products: list[dict],
+    document_ids: list[str],
+    *,
+    max_documents: int,
+) -> list[str]:
+    output = list(document_ids)
+    for product in products:
+        if len(output) >= max_documents:
+            break
+        if not isinstance(product, dict):
+            continue
+        product_id = str(product.get("id") or "").strip()
+        if not product_id or product_id in output:
+            continue
+        output.append(product_id)
+    return output
+
+
+def _fallback_document_ids(
     products: list[dict],
     baseline_categories: tuple[str, ...],
     *,
     max_documents: int,
 ) -> list[str]:
     wanted = {category.strip() for category in baseline_categories if category.strip()}
-    if not wanted:
-        return []
     output: list[str] = []
     for product in products:
         if not isinstance(product, dict):
@@ -646,7 +668,16 @@ def _baseline_document_ids(
             continue
         output.append(product_id)
         if len(output) >= max_documents:
-            break
+            return output
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        product_id = str(product.get("id") or "").strip()
+        if not product_id or product_id in output:
+            continue
+        output.append(product_id)
+        if len(output) >= max_documents:
+            return output
     return output
 
 
@@ -709,10 +740,16 @@ async def _run_crewai_document_product_selector(
         max_retry_limit=settings.crewai_max_retry_limit,
         planning=False,
     )
-    result = await asyncio.wait_for(
-        agent.kickoff_async(prompt, response_format=DocumentProductSelection),
-        timeout=timeout_seconds,
-    )
+    with trace_span(
+        "llm.selector",
+        stage="document_product_selector",
+        prompt_chars=len(prompt),
+        response_format="DocumentProductSelection",
+    ):
+        result = await asyncio.wait_for(
+            agent.kickoff_async(prompt, response_format=DocumentProductSelection),
+            timeout=timeout_seconds,
+        )
     if result.pydantic is not None:
         return DocumentProductSelection.model_validate(result.pydantic)
     return DocumentProductSelection.model_validate_json(result.raw)

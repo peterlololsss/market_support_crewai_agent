@@ -22,7 +22,7 @@ def make_payload(**overrides):
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": [],
+        "material_pack_options": [],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -70,12 +70,11 @@ class FakeAdapterClient:
                 "candidates": [],
                 "channel_type": "bank",
                 "available_materials": ["material", "weekly", "monthly"],
-                "available_strategies": ["指增"],
+                "material_pack_options": ["指增"],
                 "resolved_at": 1,
                 "resolve_ref": f"{request.resolve_type}:ref",
-                "strategy": request.strategy,
+                "material_pack_option": request.material_pack_option,
                 "period": "20260529" if request.resolve_type == "weekly_report" else None,
-                "scope_status": "unknown",
             }
         )
 
@@ -85,7 +84,7 @@ def test_preflight_collects_all_registry_adapter_resolve_types_without_implicit_
 
     request = ReplyRequest.model_validate(
         make_payload(
-            available_strategies=["指增"],
+            material_pack_options=["指增"],
             dist_channel_name="测试渠道",
         )
     )
@@ -101,15 +100,18 @@ def test_preflight_collects_all_registry_adapter_resolve_types_without_implicit_
         "monthly_report",
         "sales_mention",
     ]
-    assert all(resolve_request.strategy is None for resolve_request in fake_client.requests)
+    assert all(
+        resolve_request.material_pack_option is None
+        for resolve_request in fake_client.requests
+    )
     assert all(resolve_request.dist_name == "测试渠道" for resolve_request in fake_client.requests)
 
 
-def test_preflight_omits_strategy_when_multiple_candidates_exist():
+def test_preflight_omits_material_pack_option_when_multiple_candidates_exist():
     from market_support_crewai_agent.schemas import ReplyRequest
 
     request = ReplyRequest.model_validate(
-        make_payload(available_strategies=["指增", "量化"])
+        make_payload(material_pack_options=["指增", "量化"])
     )
     fake_client = FakeAdapterClient()
     service = AdapterPreflightService(adapter_client=fake_client)
@@ -117,16 +119,19 @@ def test_preflight_omits_strategy_when_multiple_candidates_exist():
     asyncio.run(service.collect(request))
 
     assert fake_client.requests[0].resolve_type == "material_pack"
-    assert all(resolve_request.strategy is None for resolve_request in fake_client.requests)
+    assert all(
+        resolve_request.material_pack_option is None
+        for resolve_request in fake_client.requests
+    )
 
 
-def test_preflight_ignores_canonical_strategy_without_plan_strategy_selector():
+def test_preflight_ignores_query_without_material_pack_option_selector():
     from market_support_crewai_agent.schemas import ReplyRequest
 
     request = ReplyRequest.model_validate(
         make_payload(
             message="1000所有号的周报我想看看",
-            available_strategies=["中证500", "中证1000"],
+            material_pack_options=["中证500", "中证1000"],
         )
     )
     fake_client = FakeAdapterClient()
@@ -135,10 +140,10 @@ def test_preflight_ignores_canonical_strategy_without_plan_strategy_selector():
     asyncio.run(service.collect(request))
 
     assert fake_client.requests[0].resolve_type == "material_pack"
-    assert fake_client.requests[0].strategy is None
-    assert fake_client.requests[1].strategy is None
-    assert fake_client.requests[2].strategy is None
-    assert fake_client.requests[3].strategy is None
+    assert fake_client.requests[0].material_pack_option is None
+    assert fake_client.requests[1].material_pack_option is None
+    assert fake_client.requests[2].material_pack_option is None
+    assert fake_client.requests[3].material_pack_option is None
 
 
 def test_preflight_request_projection_keeps_conversation_identity_out_of_adapter_contract():
@@ -148,7 +153,7 @@ def test_preflight_request_projection_keeps_conversation_identity_out_of_adapter
         make_payload(
             context_id="trace-1",
             conversation_key="wecom:group:sender",
-            available_strategies=["指增"],
+            material_pack_options=["指增"],
         )
     )
     fake_client = FakeAdapterClient()
@@ -169,7 +174,7 @@ def test_preflight_can_limit_adapter_resolve_types():
     request = ReplyRequest.model_validate(
         make_payload(
             message="1000所有号的周报我想看看",
-            available_strategies=["中证500", "中证1000"],
+            material_pack_options=["中证500", "中证1000"],
         )
     )
     fake_client = FakeAdapterClient()
@@ -190,8 +195,8 @@ def test_preflight_can_limit_adapter_resolve_types():
         "weekly_report",
         "sales_mention",
     ]
-    assert fake_client.requests[0].strategy is None
-    assert fake_client.requests[1].strategy is None
+    assert fake_client.requests[0].material_pack_option is None
+    assert fake_client.requests[1].material_pack_option is None
 
 
 def test_preflight_returns_empty_snapshot_when_plan_needs_no_adapter_resolves():
@@ -209,13 +214,13 @@ def test_preflight_returns_empty_snapshot_when_plan_needs_no_adapter_resolves():
     assert fake_client.requests == []
 
 
-def test_preflight_uses_plan_strategy_override_for_report_resolve():
+def test_preflight_uses_material_pack_option_only_for_material_pack_resolve():
     from market_support_crewai_agent.schemas import ReplyRequest
 
     request = ReplyRequest.model_validate(
         make_payload(
             message="这个周报发一下",
-            available_strategies=["中证500", "中证1000"],
+            material_pack_options=["中证500", "中证1000"],
         )
     )
     fake_client = FakeAdapterClient()
@@ -224,15 +229,17 @@ def test_preflight_uses_plan_strategy_override_for_report_resolve():
     asyncio.run(
         service.collect(
             request,
-            resolve_types=["weekly_report", "sales_mention"],
-            resolve_strategies={"weekly_report": "中证1000"},
+            resolve_types=["material_pack", "weekly_report", "sales_mention"],
+            resolve_material_pack_options={"material_pack": "中证1000"},
         )
     )
 
-    assert fake_client.requests[0].resolve_type == "weekly_report"
-    assert fake_client.requests[0].strategy == "中证1000"
-    assert fake_client.requests[1].resolve_type == "sales_mention"
-    assert fake_client.requests[1].strategy is None
+    assert fake_client.requests[0].resolve_type == "material_pack"
+    assert fake_client.requests[0].material_pack_option == "中证1000"
+    assert fake_client.requests[1].resolve_type == "weekly_report"
+    assert fake_client.requests[1].material_pack_option is None
+    assert fake_client.requests[2].resolve_type == "sales_mention"
+    assert fake_client.requests[2].material_pack_option is None
 
 
 def test_preflight_records_adapter_errors_without_raising():

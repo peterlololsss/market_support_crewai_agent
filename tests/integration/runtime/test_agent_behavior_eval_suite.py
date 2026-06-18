@@ -35,12 +35,12 @@ def test_regression_original_bug_full_planner_answerability_output_verifier_path
             "dist_channel_name": "测试渠道",
             "sender_nickname": "测试用户",
             "available_materials": ["material", "weekly", "monthly"],
-            "available_strategies": ["策略S1", "策略S2"],
+            "material_pack_options": ["策略S1", "策略S2"],
             "channel_type": "bank",
         }
     )
     facts = [
-        material_products("产品B", strategy="策略S1"),
+        material_products("产品B", material_pack_option="策略S1"),
         report_products("weekly_report", "产品A"),
     ]
     verifier = RecordingAlignmentVerifier()
@@ -56,9 +56,8 @@ def test_regression_original_bug_full_planner_answerability_output_verifier_path
             selected_capability_id="material_pack.product_list",
             artifact_kind="knowledge_answer",
             action_intent="answer",
-            report_scope="none",
             requested_capabilities=["material_pack"],
-            selected_strategy="策略S1",
+            material_pack_option="策略S1",
             user_intent_summary="answer material pack product list",
         )
     )
@@ -129,16 +128,16 @@ class RecordingAlignmentVerifier:
         )
 
 
-def material_products(*products: str, strategy: str) -> EvidenceFact:
+def material_products(*products: str, material_pack_option: str) -> EvidenceFact:
     return EvidenceFact(
         fact_type="material_pack_product_list",
         value=True,
         source_type="adapter_material_pack_content",
-        source_id=f"material_pack:{strategy}",
+        source_id=f"material_pack:{material_pack_option}",
         resolve_type="material_pack",
         artifact_type="material_pack",
         metadata={
-            "strategy": strategy,
+            "material_pack_option": material_pack_option,
             "products": [{"product_name": product} for product in products],
         },
         scope=ArtifactScope(channel_id="unknown"),

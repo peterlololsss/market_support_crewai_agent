@@ -4,15 +4,27 @@ You are the intent planner for a deterministic support reply harness.
 
 Output only one PlanSpec matching the response_format schema. Do not output final reply text, ExecutionPlan, ResponseDirective, BusinessFacts, adapter evidence, final actions, tool calls, Markdown, explanations, hidden reasoning, or text outside the JSON object.
 
-Classify the Current user message using the universal taxonomy plus request metadata, canonical entities, policy, recent turns, action history, and Capability registry JSON. Policy JSON is an allowlist. Adapter resolve owns sendability, latest artifact lookup, report period selection, sales mention target resolution, and report coverage.
+Classify the Current user message using the universal taxonomy plus request metadata, canonical entities, policy, recent turns, action history, and Capability registry JSON. Policy JSON is an allowlist. Adapter resolve owns sendability, latest artifact lookup, report period selection, and sales mention target resolution. Adapter report-scope evidence owns questions about which products or sections are inside a weekly/monthly report.
 
 Select exactly one capability manifest id from Capability registry JSON. Use that manifest to populate required_artifacts, allowed_artifacts, forbidden_artifacts, required_tools, output_schema_ref, evidence_contract_ref or inline evidence_contract, steps, acceptance_criteria, abstention_cases, and risk_flags.
 
-For outbound sends, set answerability_policy=send only when the current user message clearly asks for a send/action and compliance is true. Evidence wrappers and validators will decide executability later.
+For outbound sends, set answerability_policy=send when the current user message clearly asks for a send/action and compliance is true. Evidence wrappers and validators will decide executability later.
+
+Hard routing requirements:
+- Do not convert a direct performance-number question into a send just because the number is dynamic. If the user asks for recent/live/since-inception/this-year return, excess return, NAV, drawdown, or attribution without clearly asking to send an artifact, route to general.refusal or general.abstention with answerability_policy=refuse or abstain and no actions.
+- Do not treat document-backed strategy composition facts as unsafe live performance. Factor/excess-return contribution mix,收益来源占比, holdings profile, exposure controls, historical max-drawdown explanations, and FAQ operating facts are knowledge answers when document_context can support them.
+- Treat "介绍一下", "是什么", "讲讲", or "说明一下" by itself as a knowledge question, not a send request. It becomes a send request only when paired with explicit send/provide wording such as "来个", "发我", "发送", or "同步".
+- Treat colloquial "来个/发我/发送/同步" plus strategy intro, product highlight, one-pager, material, open calendar, or performance material as a send request. Select the closest supported action capability; adapter resolve owns whether that artifact is actually available.
+- Treat add-friend, add-WeChat, private chat, or named sales/support-person requests as sales.handoff, not document knowledge.
+- For document-backed FAQ or strategy questions, do not clarify only because the product name is shorthand, multiple documents could apply, or the question is broad. Select a document_context capability and let evidence/composer answer or abstain from the small approved corpus.
+- For an unscoped material-pack or one-pager send request, select material_pack.send with answerability_policy=send and leave domain_scope.material_pack_option null. Do not clarify only because material_pack_options contains multiple options; adapter resolve owns ambiguity or availability.
+- For a material-pack or one-pager send request that explicitly targets one value from material_pack_options, set domain_scope.material_pack_option to that exact material_pack_options value. Treat this as material-pack routing only, not as a general strategy-catalog resolution.
+- For send_weekly_report and send_monthly_report, do not set material_pack_option or any report scope selector. These actions send the adapter-resolved report itself. Questions about which products/sections are in a report are knowledge-answer requests backed by adapter_report_scope evidence, not scoped send actions.
+- For weekly_report.send chosen to handle a clear request to send/provide a performance report or weekly report, include "weekly_report_rationale_required" in risk_flags when the user did not literally say weekly report. This flag tells the renderer to explain that the weekly report is being sent because the requested recent metric needs report evidence.
 
 For knowledge answers, require evidence through the selected capability contract; do not answer from model memory. For ambiguity, set answerability_policy=clarify and include the missing slot in abstention_cases or risk_flags.
 
-For outbound sends, encode structured scope in domain_scope. The current conversation scope may fill an omitted target only. It must not replace an explicit user target such as another channel, institution, customer, product, strategy, or period. If the explicit target is outside or cannot be proven to match the current request scope, set answerability_policy=clarify or abstain instead of substituting the current channel.
+For outbound sends, encode only supported structured scope in domain_scope. The current conversation scope may fill an omitted target only. It must not replace an explicit user target such as another channel, institution, customer, product, material-pack option, or period. If the explicit target is outside or cannot be proven to match the current request scope, set answerability_policy=clarify or abstain instead of substituting the current channel.
 </prompt_fragment>
 
 <prompt_fragment id="model.ds_v4pro.structured">
@@ -29,9 +41,9 @@ Strict output rules:
 Planner ordering:
 1. Check compliance.
 2. Classify artifact_kind.
-3. Fill action_intent, selected_strategy, report_scope, ambiguity_slots, requested_capabilities.
+3. Select one capability and fill PlanSpec domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-For blocked compliance cases, use refusal/refuse and do not request capabilities. For multiple strategies explicitly named by the current user or multiple sendable artifact types, prefer ambiguity_slots instead of merging requests. Do not treat catalog-only available_strategies as ambiguity.
+For blocked compliance cases, use refusal/refuse and do not request capabilities. For multiple material-pack options explicitly named by the current user or multiple sendable artifact types, prefer ambiguity slots instead of merging requests. Do not treat material_pack_options as a general strategy catalog or as ambiguity by itself.
 </prompt_fragment>
 </prompt_layer>
 
@@ -91,37 +103,35 @@ Runtime Capability & Evidence Boundary JSON:
       "included_reason": "preserve_runtime_state",
       "payload": {
         "Canonical entities JSON": {
-          "resolution_metrics": {
-            "ambiguous": 0,
-            "exact_alias_used": 1,
-            "low_confidence": 0,
-            "resolved": 1,
-            "semantic_candidate_used": 0,
-            "unresolved": 0
-          },
-          "selected_strategy": "中证1000",
-          "strategy_candidates": [
+          "material_pack_options": [
             "中证1000"
           ],
-          "strategy_status": "resolved"
+          "resolution_metrics": {
+            "ambiguous": 0,
+            "exact_alias_used": 0,
+            "low_confidence": 0,
+            "resolved": 0,
+            "semantic_candidate_used": 0,
+            "unresolved": 0
+          }
         },
         "Capability registry JSON": {
           "candidate_count": 15,
           "capability_cards": [
-            "material_pack.send|t=action|rt=material_pack|req=material_pack|forbid=weekly_report,monthly_report,document_context|need=material_pack_resolvable|any=|no_src=adapter_report_scope,document_mcp,conversation_history|guidance=Use when the user clearly asks to send a material pack or one-pager.|pos=Send the material pack.|neg=Which products are in the weekly report?",
-            "weekly_report.send|t=action|rt=weekly_report|req=weekly_report|forbid=material_pack,monthly_report,document_context|need=weekly_report_resolvable|any=|no_src=adapter_report_scope,document_mcp,conversation_history|guidance=Use when the user clearly asks to send the weekly report.|pos=Send this week's report.|neg=What products are in the weekly report?",
+            "material_pack.send|t=action|rt=material_pack|req=material_pack|forbid=weekly_report,monthly_report,document_context|need=material_pack_resolvable|any=|no_src=adapter_report_scope,document_mcp,conversation_history|guidance=Use when the user clearly asks to send a material pack or one-pager. Also use for strategy intro, product highlight, open calendar, or performance material only when the wording clearly asks to send/provide an artifac...|pos=Send the material pack.|neg=Which products are in the weekly report?",
+            "weekly_report.send|t=action|rt=weekly_report|req=weekly_report|forbid=material_pack,monthly_report,document_context|need=weekly_report_resolvable|any=|no_src=adapter_report_scope,document_mcp,conversation_history|guidance=Use when the user clearly asks to send the weekly report. Also use when the user clearly asks to send or provide an official performance report/material and weekly_report is the closest supported action. Do not use me...|pos=Send this week's report.|neg=What products are in the weekly report?",
             "monthly_report.send|t=action|rt=monthly_report|req=monthly_report|forbid=material_pack,weekly_report,document_context|need=monthly_report_resolvable|any=|no_src=adapter_report_scope,document_mcp,conversation_history|guidance=Use when the user clearly asks to send the monthly report.|pos=Send the monthly report.|neg=What period does the weekly report cover?",
-            "sales.handoff|t=handoff|rt=sales_mention|req=adapter_context|forbid=material_pack,weekly_report,monthly_report|need=sales_mention_resolvable|any=|no_src=|guidance=Use when the user asks for human sales/support help.|pos=帮我问下销售|neg=发一下周报",
-            "general.clarification|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use when required artifact, strategy, or request meaning is ambiguous.|pos=你说的这个是哪个策略？|neg=发一下周报",
+            "sales.handoff|t=handoff|rt=sales_mention|req=adapter_context|forbid=material_pack,weekly_report,monthly_report|need=sales_mention_resolvable|any=|no_src=|guidance=Use when the user asks for human sales/support help, add-friend/add-WeChat/private-chat routing, or a named person.|pos=帮我问下销售|neg=发一下周报",
+            "general.clarification|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use when required artifact, material-pack option, report query, or request meaning is ambiguous.|pos=你说的这个是哪个策略？|neg=发一下周报",
             "general.abstention|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use when the request is understood but required evidence is absent.|pos=当前没有足够证据安全回复。|neg=已发送周报",
             "general.refusal|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use for requests that compliance policy requires refusing.|pos=这个产品能保本吗|neg=请发周报",
             "general.smalltalk|t=answer|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use for greetings, thanks, self-introduction, or help/capability questions.|pos=你是谁|neg=发一下材料",
             "general.no_reply|t=handoff|rt=None|req=|forbid=|need=|any=|no_src=|guidance=Use only when the message should not receive a visible reply.|pos=adapter-only status messages that do not need a reply|neg=user asks for help",
             "material_pack.product_list|t=answer|rt=material_pack|req=material_pack|forbid=weekly_report,monthly_report|need=material_pack_product_list|any=|no_src=adapter_report_scope,document_mcp|guidance=Use when the user asks what products are inside a material pack. Do not satisfy this capability from weekly or monthly report evidence.|pos=What products are in the material pack?|neg=Send me the material pack.",
             "material_pack.open_calendar|t=answer|rt=material_pack|req=material_pack|forbid=weekly_report,monthly_report|need=material_pack_open_calendar|any=|no_src=adapter_report_scope,document_mcp|guidance=Use when the user asks when products in a material pack are open, available, or purchasable.|pos=When is this product open for subscription?|neg=Send the material pack.",
-            "weekly_report.product_performance|t=answer|rt=weekly_report|req=weekly_report|forbid=material_pack,monthly_report|need=|any=weekly_report_resolvable,report_scope_summary,report_scope_match,report_scope_products,report_period|no_src=document_mcp|guidance=Use for product performance, period, or product-list questions about a weekly report.|pos=Which products are in the weekly report?|neg=What products are in the material pack?",
-            "monthly_report.product_performance|t=answer|rt=monthly_report|req=monthly_report|forbid=material_pack,weekly_report|need=|any=monthly_report_resolvable,report_scope_summary,report_scope_match,report_scope_products,report_period|no_src=document_mcp|guidance=Use for product performance, period, or product-list questions about a monthly report.|pos=Which products are in the monthly report?|neg=Send the weekly report.",
-            "channel.strategy_summary|t=summary|rt=document_context|req=document_context|forbid=material_pack,weekly_report,monthly_report|need=|any=document_context|no_src=adapter_report_scope|guidance=Use for channel or strategy summary questions that require approved company/product document evidence.|pos=Can you summarize this channel's strategy?|neg=Send the weekly report.",
+            "weekly_report.product_performance|t=answer|rt=weekly_report|req=weekly_report|forbid=material_pack,monthly_report|need=|any=weekly_report_resolvable,report_scope_summary,report_scope_match,report_scope_products,report_period|no_src=document_mcp|guidance=Use for product performance, period, or product-list questions about a weekly report. Do not use for strategy/company scale, capacity, headcount, founding date, holdings profile, factors, product intro, or other everg...|pos=Which products are in the weekly report?|neg=What products are in the material pack?",
+            "monthly_report.product_performance|t=answer|rt=monthly_report|req=monthly_report|forbid=material_pack,weekly_report|need=|any=monthly_report_resolvable,report_scope_summary,report_scope_match,report_scope_products,report_period|no_src=document_mcp|guidance=Use for product performance, period, or product-list questions about a monthly report. Do not use for strategy/company scale, capacity, headcount, founding date, holdings profile, factors, product intro, or other ever...|pos=Which products are in the monthly report?|neg=Send the weekly report.",
+            "channel.strategy_summary|t=summary|rt=document_context|req=document_context|forbid=material_pack,weekly_report,monthly_report|need=|any=document_context|no_src=adapter_report_scope|guidance=Use for channel or strategy summary questions that require approved company/product document evidence, including scale/AUM, capacity, headcount, founding date, holdings profile, factor lineup, strategy intro, product...|pos=Can you summarize this channel's strategy?|neg=Send the weekly report.",
             "channel.product_summary|t=summary|rt=document_context|req=document_context|forbid=material_pack,weekly_report,monthly_report|need=|any=document_context|no_src=adapter_report_scope|guidance=Use for product-summary questions about the current channel when the answer must come from approved product/company documents.|pos=Can you summarize the products for this channel?|neg=Which products are in the weekly report?"
           ]
         },
@@ -130,7 +140,7 @@ Runtime Capability & Evidence Boundary JSON:
           "compliance_hint": "unknown",
           "confidence": 0.0,
           "contract_version": "intent-gate",
-          "named_strategy_count": 1,
+          "material_pack_option_count": 1,
           "side_effect_hint": false
         },
         "Policy JSON": {
@@ -182,9 +192,6 @@ Runtime Capability & Evidence Boundary JSON:
             "weekly",
             "monthly"
           ],
-          "available_strategies": [
-            "中证1000"
-          ],
           "channel_type": "bank",
           "context_id": "msg-1",
           "conversation_key": "wecom:group-1:sender-1",
@@ -192,6 +199,9 @@ Runtime Capability & Evidence Boundary JSON:
           "group_id": "group-1",
           "group_name": "test group",
           "is_group": true,
+          "material_pack_options": [
+            "中证1000"
+          ],
           "sender_id": "sender-1",
           "sender_nickname": "test user"
         },
@@ -216,10 +226,8 @@ Runtime Capability & Evidence Boundary JSON:
           "name": "test channel",
           "provenance": "request"
         },
-        "current_strategy": {
-          "selected_strategy": "中证1000",
-          "status": "resolved",
-          "strategy_candidates": [
+        "material_pack_routing": {
+          "material_pack_options": [
             "中证1000"
           ]
         },
@@ -227,11 +235,11 @@ Runtime Capability & Evidence Boundary JSON:
       },
       "redacted": false,
       "title": "Runtime app state",
-      "token_estimate": 1684
+      "token_estimate": 1859
     }
   ],
   "contract_version": "model-visible-context",
-  "projection_id": "ctx-proj:a3a184f1b054479c",
+  "projection_id": "ctx-proj:8109cea00abf59f5",
   "stage": "planner_intent"
 }
 </prompt_layer>
@@ -247,8 +255,7 @@ PlanSpec compact schema:
   "domain_scope": {
     "channel_id": "DomainContext channel id or unknown",
     "channel_kind": "bank|non_bank|unknown",
-    "strategy_id": null or "DomainContext strategy id",
-    "strategy_name": null or "canonical strategy name",
+    "material_pack_option": null or "exact value from request.material_pack_options",
     "product_ids": [],
     "time_range": null or {"period": null, "start": null, "end": null, "label": null}
   },
@@ -284,7 +291,7 @@ Rules:
 - Knowledge answers: answerability_policy=answer and selected_capability_id should be an answer or summary capability whose manifest evidence contract can support the requested answer.
 - Missing evidence or missing required artifact: use answerability_policy=abstain or clarify according to the selected capability's fallback/abstention guidance. Do not answer from history or model memory unless the EvidenceContract explicitly allows history.
 - Handoff, refusal, smalltalk, and no-reply: use the matching handoff/general capability from Capability registry JSON.
-- EvidenceContract required_scope_match names structured fields only: channel_id, channel_kind, strategy_id, strategy_name, time_range, product_id, product_ids, artifact_type.
+- EvidenceContract required_scope_match names structured fields only: channel_id, channel_kind, material_pack_option, time_range, product_id, product_ids, artifact_type.
 </prompt_fragment>
 
 Current user message:

@@ -18,7 +18,6 @@ class FakePlannerAgent:
         self.plan_spec = plan_spec or make_plan_spec(
             artifact_kind="unclear",
             action_intent="none",
-            report_scope="none",
             ambiguity_slots=["request_meaning"],
         )
         self.prompts = prompts
@@ -34,7 +33,6 @@ def make_support_plan_spec(**overrides) -> PlanSpec:
         "user_need": "answer current market support request",
         "artifact_kind": "unclear",
         "action_intent": "none",
-        "report_scope": "none",
         "ambiguity_slots": ["request_meaning"],
         "compliance": {
             "is_compliant": True,
@@ -52,7 +50,6 @@ def make_weekly_plan_spec(**overrides) -> PlanSpec:
         "user_need": "send weekly report",
         "artifact_kind": "weekly_report",
         "action_intent": "send",
-        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -69,7 +66,6 @@ def make_monthly_plan_spec(**overrides) -> PlanSpec:
         "user_need": "send monthly report",
         "artifact_kind": "monthly_report",
         "action_intent": "send",
-        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -97,7 +93,7 @@ def make_payload(message: str = "hello", **overrides):
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": [],
+        "material_pack_options": [],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -136,7 +132,7 @@ def resolved_item(resolve_type: str, **overrides) -> AdapterPreflightItem:
         "candidates": [],
         "channel_type": "bank",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "resolved_at": 1,
         "resolve_ref": f"{resolve_type}:ref",
     }
@@ -153,9 +149,9 @@ class ResolvedWeeklyPreflight:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_strategies
+        del request, canonical_context, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
@@ -163,8 +159,6 @@ class ResolvedWeeklyPreflight:
                     resolve_ref="weekly:ref",
                     period="20260529",
                     report_date="2026-05-29",
-                    scope_status="included",
-                    contains_strategy=True,
                 )
             ]
         )
@@ -176,9 +170,9 @@ class ResolvedMonthlyPreflight:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_strategies
+        del request, canonical_context, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
@@ -186,8 +180,6 @@ class ResolvedMonthlyPreflight:
                     resolve_ref="monthly:ref",
                     period="202605",
                     report_date="2026-05-31",
-                    scope_status="included",
-                    contains_strategy=True,
                 )
             ]
         )
@@ -199,9 +191,9 @@ class ResolvedWeeklyMonthlyPreflight:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_strategies
+        del request, canonical_context, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
@@ -209,16 +201,12 @@ class ResolvedWeeklyMonthlyPreflight:
                     resolve_ref="weekly:ref",
                     period="20260529",
                     report_date="2026-05-29",
-                    scope_status="included",
-                    contains_strategy=True,
                 ),
                 resolved_item(
                     "monthly_report",
                     resolve_ref="monthly:ref",
                     period="202605",
                     report_date="2026-05-31",
-                    scope_status="included",
-                    contains_strategy=True,
                 ),
             ]
         )
@@ -226,18 +214,17 @@ class ResolvedWeeklyMonthlyPreflight:
 
 class CapturingResolvedWeeklyPreflight:
     def __init__(self):
-        self.resolve_strategies = None
+        self.resolve_material_pack_options = None
 
     async def collect(
         self,
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
         del request, canonical_context, resolve_types
-        self.resolve_strategies = resolve_strategies or {}
-        strategy = self.resolve_strategies.get("weekly_report")
+        self.resolve_material_pack_options = resolve_material_pack_options or {}
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
@@ -245,9 +232,6 @@ class CapturingResolvedWeeklyPreflight:
                     resolve_ref="weekly:ref",
                     period="20260529",
                     report_date="2026-05-29",
-                    scope_status="included",
-                    contains_strategy=True,
-                    strategy=strategy,
                 )
             ]
         )
@@ -255,24 +239,24 @@ class CapturingResolvedWeeklyPreflight:
 
 class CapturingResolvedMaterialPreflight:
     def __init__(self):
-        self.resolve_strategies = None
+        self.resolve_material_pack_options = None
 
     async def collect(
         self,
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
         del request, canonical_context, resolve_types
-        self.resolve_strategies = resolve_strategies or {}
-        strategy = self.resolve_strategies.get("material_pack")
+        self.resolve_material_pack_options = resolve_material_pack_options or {}
+        material_pack_option = self.resolve_material_pack_options.get("material_pack")
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
                     "material_pack",
                     resolve_ref="material:ref",
-                    strategy=strategy,
+                    material_pack_option=material_pack_option,
                 )
             ]
         )
@@ -284,9 +268,9 @@ class MissingWeeklyWithSalesPreflight:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_strategies
+        del request, canonical_context, resolve_types, resolve_material_pack_options
         missing = {
             "contract_version": "adapter-resolve",
             "resolve_type": "weekly_report",
@@ -296,7 +280,7 @@ class MissingWeeklyWithSalesPreflight:
             "candidates": [],
             "channel_type": "bank",
             "available_materials": [],
-            "available_strategies": [],
+            "material_pack_options": [],
             "resolved_at": 1,
         }
         return AdapterPreflightSnapshot(
@@ -316,9 +300,9 @@ class EmptyPreflightService:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_strategies
+        del request, canonical_context, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot.empty()
 
 
@@ -331,12 +315,14 @@ class CapturingEmptyPreflightService:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
         self.calls.append(
             {
                 "resolve_types": list(resolve_types or []),
-                "resolve_strategies": dict(resolve_strategies or {}),
+                "resolve_material_pack_options": dict(
+                    resolve_material_pack_options or {}
+                ),
             }
         )
         del request, canonical_context

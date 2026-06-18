@@ -8,6 +8,7 @@ from market_support_crewai_agent.runtime.orchestration.alignment_refetch import 
     report_scope_refetch_requested,
 )
 from market_support_crewai_agent.runtime.orchestration.crewai_io import safe_short_text
+from market_support_crewai_agent.runtime.state.runtime_trace import trace_event, trace_span
 
 
 async def ensure_aligned_response(
@@ -48,6 +49,7 @@ async def ensure_aligned_response(
                 attempt=len(alignment_verdicts),
             )
         except Exception as exc:
+            trace_event("alignment.verifier_failed", error=safe_short_text(exc))
             alignment_remediations.append(
                 {
                     "remediation": "return_unable",
@@ -64,9 +66,14 @@ async def ensure_aligned_response(
 
         alignment_verdicts.append(verdict)
         if verdict.aligned and verdict.safe_to_return:
+            trace_event("alignment.accepted", attempt=len(alignment_verdicts) - 1)
             return candidate
 
         if total_remediations >= runtime.settings.reply_alignment_max_total_remediations:
+            trace_event(
+                "alignment.remediation_limit",
+                failure_code=verdict.failure_code,
+            )
             alignment_remediations.append(
                 {
                     "remediation": "return_unable",
@@ -93,20 +100,21 @@ async def ensure_aligned_response(
                     "failure_code": verdict.failure_code,
                 }
             )
-            candidate = await runtime._build_candidate_response(
-                request=request,
-                canonical_context=canonical_context,
-                domain_context=domain_context,
-                policy=policy,
-                model_family=model_family,
-                intent_gate=intent_gate,
-                history=history,
-                action_history=action_history,
-                prompt_programs=prompt_programs,
-                llm_executions=llm_executions,
-                alignment_verdict=verdict,
-                alignment_attempt=len(alignment_verdicts),
-            )
+            with trace_span("alignment.remediate.replan"):
+                candidate = await runtime._build_candidate_response(
+                    request=request,
+                    canonical_context=canonical_context,
+                    domain_context=domain_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                )
             if not candidate.reply_validation.valid:
                 return candidate
             continue
@@ -128,21 +136,22 @@ async def ensure_aligned_response(
                     "refined_evidence_query": refined_query,
                 }
             )
-            candidate = await runtime._build_candidate_from_plan(
-                request=request,
-                canonical_context=canonical_context,
-                domain_context=candidate.domain_context,
-                policy=policy,
-                model_family=model_family,
-                intent_gate=intent_gate,
-                history=history,
-                action_history=action_history,
-                prompt_programs=prompt_programs,
-                llm_executions=llm_executions,
-                plan=candidate.plan.model_copy(update={"evidence_query": refined_query}),
-                alignment_verdict=verdict,
-                alignment_attempt=len(alignment_verdicts),
-            )
+            with trace_span("alignment.remediate.refetch_report_scope"):
+                candidate = await runtime._build_candidate_from_plan(
+                    request=request,
+                    canonical_context=canonical_context,
+                    domain_context=candidate.domain_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    plan=candidate.plan.model_copy(update={"evidence_query": refined_query}),
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                )
             if not candidate.reply_validation.valid:
                 return candidate
             continue
@@ -163,23 +172,24 @@ async def ensure_aligned_response(
                     "failure_code": verdict.failure_code,
                 }
             )
-            candidate = await runtime._build_candidate_from_plan(
-                request=request,
-                canonical_context=canonical_context,
-                domain_context=candidate.domain_context,
-                policy=policy,
-                model_family=model_family,
-                intent_gate=intent_gate,
-                history=history,
-                action_history=action_history,
-                prompt_programs=prompt_programs,
-                llm_executions=llm_executions,
-                plan=candidate.plan.model_copy(
-                    update={"evidence_query": verdict.refined_evidence_query}
-                ),
-                alignment_verdict=verdict,
-                alignment_attempt=len(alignment_verdicts),
-            )
+            with trace_span("alignment.remediate.refetch_document_context"):
+                candidate = await runtime._build_candidate_from_plan(
+                    request=request,
+                    canonical_context=canonical_context,
+                    domain_context=candidate.domain_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    plan=candidate.plan.model_copy(
+                        update={"evidence_query": verdict.refined_evidence_query}
+                    ),
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                )
             if not candidate.reply_validation.valid:
                 return candidate
             continue
@@ -197,42 +207,43 @@ async def ensure_aligned_response(
                     "failure_code": verdict.failure_code,
                 }
             )
-            response, composer_output = await runtime._compose_or_render_response(
-                request=request,
-                canonical_context=canonical_context,
-                domain_context=candidate.domain_context,
-                policy=policy,
-                model_family=model_family,
-                intent_gate=intent_gate,
-                history=history,
-                action_history=action_history,
-                prompt_programs=prompt_programs,
-                llm_executions=llm_executions,
-                plan=candidate.plan,
-                plan_validation=candidate.plan_validation,
-                preflight=candidate.preflight,
-                evidence_facts=candidate.evidence_facts,
-                business_facts=candidate.business_facts,
-                answerability=candidate.answerability,
-                directive=candidate.directive,
-                alignment_verdict=verdict,
-                alignment_attempt=len(alignment_verdicts),
-                guardrail_decisions=candidate.guardrail_decisions,
-            )
-            candidate = runtime._validated_attempt(
-                plan=candidate.plan,
-                plan_validation=candidate.plan_validation,
-                preflight=candidate.preflight,
-                evidence_facts=candidate.evidence_facts,
-                business_facts=candidate.business_facts,
-                domain_context=candidate.domain_context,
-                answerability=candidate.answerability,
-                directive=candidate.directive,
-                response=response,
-                policy=policy,
-                guardrail_decisions=candidate.guardrail_decisions,
-                composer_output=composer_output,
-            )
+            with trace_span("alignment.remediate.recompose"):
+                response, composer_output = await runtime._compose_or_render_response(
+                    request=request,
+                    canonical_context=canonical_context,
+                    domain_context=candidate.domain_context,
+                    policy=policy,
+                    model_family=model_family,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    prompt_programs=prompt_programs,
+                    llm_executions=llm_executions,
+                    plan=candidate.plan,
+                    plan_validation=candidate.plan_validation,
+                    preflight=candidate.preflight,
+                    evidence_facts=candidate.evidence_facts,
+                    business_facts=candidate.business_facts,
+                    answerability=candidate.answerability,
+                    directive=candidate.directive,
+                    alignment_verdict=verdict,
+                    alignment_attempt=len(alignment_verdicts),
+                    guardrail_decisions=candidate.guardrail_decisions,
+                )
+                candidate = runtime._validated_attempt(
+                    plan=candidate.plan,
+                    plan_validation=candidate.plan_validation,
+                    preflight=candidate.preflight,
+                    evidence_facts=candidate.evidence_facts,
+                    business_facts=candidate.business_facts,
+                    domain_context=candidate.domain_context,
+                    answerability=candidate.answerability,
+                    directive=candidate.directive,
+                    response=response,
+                    policy=policy,
+                    guardrail_decisions=candidate.guardrail_decisions,
+                    composer_output=composer_output,
+                )
             if not candidate.reply_validation.valid:
                 return candidate
             continue

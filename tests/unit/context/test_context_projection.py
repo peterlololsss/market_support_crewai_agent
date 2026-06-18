@@ -37,7 +37,6 @@ def _material_plan(request, policy):
         artifact_kind="knowledge_answer",
         action_intent="answer",
         requested_capabilities=["material_pack"],
-        report_scope="none",
         compliance={
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -56,7 +55,6 @@ def _doc_plan(request, policy):
         artifact_kind="knowledge_answer",
         action_intent="answer",
         requested_capabilities=["document_context"],
-        report_scope="none",
         compliance={
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -158,7 +156,7 @@ def test_weekly_report_history_or_evidence_cannot_answer_material_pack():
 
 
 def test_current_material_pack_evidence_is_allowed_and_report_evidence_redacted():
-    request = make_request(message="材料包里有什么产品", available_strategies=["指增"])
+    request = make_request(message="材料包里有什么产品", material_pack_options=["指增"])
     policy = compile_policy(request)
     plan = _material_plan(request, policy)
     material_fact = EvidenceFact(

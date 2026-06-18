@@ -5,7 +5,6 @@ from market_support_crewai_agent.runtime.domain.planning.compiler import (
 )
 from market_support_crewai_agent.runtime.domain.planning.models import (
     ActionIntentSpec,
-    ActionReportScope,
     AdapterResolveSpec,
     ComplianceDecision,
     ExecutionPlan,
@@ -23,7 +22,6 @@ from market_support_crewai_agent.runtime.domain.planning.validation import (
 
 __all__ = [
     "ActionIntentSpec",
-    "ActionReportScope",
     "AdapterResolveSpec",
     "ComplianceDecision",
     "ExecutionPlan",

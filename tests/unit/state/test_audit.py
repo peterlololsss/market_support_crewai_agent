@@ -43,7 +43,7 @@ def make_request(message: str = "请发一下周报", **overrides) -> ReplyReque
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -56,7 +56,6 @@ def make_weekly_plan_spec(**overrides):
         "user_need": "send weekly report",
         "artifact_kind": "weekly_report",
         "action_intent": "send",
-        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -78,7 +77,7 @@ def resolve_item(resolve_type: str, status: str, **overrides) -> AdapterPrefligh
         "candidates": [],
         "channel_type": "bank",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": [],
+        "material_pack_options": [],
         "resolved_at": 1,
     }
     if status == "resolved":
@@ -104,9 +103,9 @@ class ResolvedWeeklyPreflight:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_strategies
+        del request, canonical_context, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolve_item(
@@ -114,8 +113,6 @@ class ResolvedWeeklyPreflight:
                     "resolved",
                     period="20260529",
                     report_date="2026-05-29",
-                    scope_status="included",
-                    contains_strategy=True,
                     resolve_ref="weekly:ref",
                 )
             ]
@@ -139,8 +136,6 @@ def test_build_audit_trace_records_adapter_safe_runtime_state():
                 "resolved",
                 period="20260529",
                 report_date="2026-05-29",
-                scope_status="included",
-                contains_strategy=True,
                 resolve_ref="weekly:ref",
             )
         ]
@@ -156,8 +151,6 @@ def test_build_audit_trace_records_adapter_safe_runtime_state():
                 action_id="act-1",
                 resolve_type="weekly_report",
                 resolve_ref="weekly:ref",
-                report_scope="channel_all",
-                strategy=None,
                 period="20260529",
                 report_date="2026-05-29",
             )
@@ -198,7 +191,7 @@ def test_build_audit_trace_records_adapter_safe_runtime_state():
     assert len(trace.policy_hash) == 16
     assert trace.plan_validation["valid"] is True
     assert trace.response_directive["mode"] == "action"
-    assert trace.canonical_entities["selected_strategy"] == "指增"
+    assert trace.canonical_entities["material_pack_options"] == ["指增"]
     assert trace.reply_validation is not None
     assert trace.reply_validation["valid"] is True
     assert trace.business_facts["weekly_report"]["status"] == "available"
@@ -211,14 +204,11 @@ def test_build_audit_trace_records_adapter_safe_runtime_state():
             "action_type": "send_weekly_report",
             "resolve_type": "weekly_report",
             "resolve_status": "resolved",
-            "plan_report_scope": "channel_all",
-            "plan_strategy": None,
-            "action_strategy": None,
-            "adapter_strategy": None,
+            "plan_material_pack_option": None,
+            "action_material_pack_option": None,
+            "adapter_material_pack_option": None,
             "adapter_ref_available": True,
             "action_ref_available": True,
-            "contains_strategy": True,
-            "scope_status": "included",
             "period": "20260529",
             "report_date": "2026-05-29",
         }
@@ -251,4 +241,9 @@ def test_runtime_records_trace_for_deterministic_action_response():
     assert trace.llm_executions[0]["prompt_hash"].startswith("sha256:")
     assert "planner.intent_taxonomy" in trace.llm_executions[0]["prompt_fragment_ids"]
     assert trace.versions["prompt_profile_ids"] == ["planner_intent.ds_v4pro"]
+    assert trace.versions["runtime_trace"] == "runtime-trace-v1"
+    assert trace.runtime_trace["schema_version"] == "runtime-trace-v1"
+    trace_event_names = [event["name"] for event in trace.runtime_trace["events"]]
+    assert "candidate.build" in trace_event_names
+    assert "llm.crewai_kickoff" in trace_event_names
     assert all(item["stage"] != "knowledge_composer" for item in trace.llm_executions)

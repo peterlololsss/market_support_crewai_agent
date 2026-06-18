@@ -810,7 +810,7 @@ def _strategy_entity(strategy: Strategy) -> DomainEntity:
         entity_id=strategy.id,
         type="strategy",
         canonical_name=strategy.name,
-        aliases=(strategy.name,),
+        aliases=_strategy_aliases(strategy.name),
         channel_id=strategy.channel_id,
         source_id=strategy.source_id,
         provenance=strategy.provenance,
@@ -828,6 +828,19 @@ def _product_entity(product: Product) -> DomainEntity:
         source_id=product.source_id,
         provenance=product.provenance,
     )
+
+
+def _strategy_aliases(name: str) -> tuple[str, ...]:
+    aliases = [name]
+    for prefix in ("中证", "沪深", "万得"):
+        if name.startswith(prefix) and len(name) > len(prefix):
+            suffix = name[len(prefix):]
+            if name.endswith("指增"):
+                aliases.append(suffix)
+            else:
+                aliases.extend((f"{name}指增", f"{suffix}指增"))
+            break
+    return _unique_text(aliases)
 
 
 def _artifact_entity(artifact: Artifact) -> DomainEntity:
@@ -930,7 +943,7 @@ def _artifact_scope_boost(entity: DomainEntity, mention: EntityMention) -> float
 
 def _candidate_rationale(sources: tuple[CandidateSource, ...]) -> str:
     if "context_default" in sources:
-        return "single available strategy selected from request context"
+        return "single material pack option selected from request context"
     if "exact_alias" in sources:
         return "exact alias generated a candidate, then context scoring selected it"
     if any(source.startswith("semantic") for source in sources):

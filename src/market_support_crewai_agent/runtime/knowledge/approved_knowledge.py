@@ -21,6 +21,7 @@ from market_support_crewai_agent.runtime.llm.prompting.assembler import (
     assembleCanonicalizationPrompt,
 )
 from market_support_crewai_agent.runtime.llm.prompting.registry import prompt_agent_spec_by_id
+from market_support_crewai_agent.runtime.state.runtime_trace import trace_span
 from market_support_crewai_agent.settings import Settings, get_settings
 
 _DOC_CAPABILITY = next(iter(read_capabilities_for_artifact("knowledge_answer")), "")
@@ -442,10 +443,16 @@ async def _run_crewai_selector(
         max_retry_limit=settings.crewai_max_retry_limit,
         planning=False,
     )
-    result = await asyncio.wait_for(
-        agent.kickoff_async(prompt, response_format=ApprovedKnowledgeSelection),
-        timeout=timeout_seconds,
-    )
+    with trace_span(
+        "llm.selector",
+        stage="approved_knowledge_selector",
+        prompt_chars=len(prompt),
+        response_format="ApprovedKnowledgeSelection",
+    ):
+        result = await asyncio.wait_for(
+            agent.kickoff_async(prompt, response_format=ApprovedKnowledgeSelection),
+            timeout=timeout_seconds,
+        )
     if result.pydantic is not None:
         return ApprovedKnowledgeSelection.model_validate(result.pydantic)
     return ApprovedKnowledgeSelection.model_validate_json(result.raw)

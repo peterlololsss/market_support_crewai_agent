@@ -1,6 +1,6 @@
 # Xiaoyan WeCom Current Adapter Contract
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 The `xiaoyan_wecom` backend provides adapter preflight/resolve for `market-support-crewai-agent`. Contract models live in `src/market_support_crewai_agent/schemas.py`. Cross-repo acceptance lives in `tests/live/test_xiaoyan_adapter_live_contract.py`.
 
@@ -30,7 +30,7 @@ POST /actions/feedback
 {
   "resolve_type": "material_pack",
   "dist_name": "银河证券",
-  "strategy": "指增"
+  "material_pack_option": "指增"
 }
 ```
 
@@ -43,6 +43,8 @@ monthly_report
 sales_mention
 ```
 
+`material_pack_option` is accepted only for `resolve_type=material_pack`. Weekly and monthly report resolve requests do not accept strategy, material-pack option, or report-scope selectors; they resolve the whole current report for the channel.
+
 ## Batch resolve
 
 `POST /adapter/resolve/batch` accepts a JSON object with `requests` and preserves result order:
@@ -50,9 +52,9 @@ sales_mention
 ```json
 {
   "requests": [
-    {"resolve_type": "material_pack", "dist_name": "银河证券", "strategy": "指增"},
-    {"resolve_type": "weekly_report", "dist_name": "银河证券", "strategy": "指增"},
-    {"resolve_type": "monthly_report", "dist_name": "银河证券", "strategy": "指增"},
+    {"resolve_type": "material_pack", "dist_name": "银河证券", "material_pack_option": "指增"},
+    {"resolve_type": "weekly_report", "dist_name": "银河证券"},
+    {"resolve_type": "monthly_report", "dist_name": "银河证券"},
     {"resolve_type": "sales_mention", "dist_name": "银河证券"}
   ]
 }
@@ -60,28 +62,34 @@ sales_mention
 
 Each result uses `AdapterResolveResult` with `contract_version=adapter-resolve`, typed status, display name, reason code, and adapter evidence needed by the runtime. When `status=resolved`, `resolve_ref` is required.
 
-Report scope evidence uses:
+Resolve metadata may include:
 
 ```text
-contains_strategy
-generated_strategies
-scope_status
-strategy
+material_pack_option
 period
 report_date
 period_start
 period_end
 period_label
+scope_complete
+expected_product_count
+generated_product_count
+missing_product_count
+report_sections
 ```
 
 Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `resolve_ref` and `material_id` are opaque adapter identifiers.
 
+`ReplyRequest.material_pack_options` and `AdapterResolveResult.material_pack_options` are material-pack routing options
+only. They are not a general strategy catalog. Empty `material_pack_options` means the channel has no extra
+material-pack scope for the harness to choose before resolve; the adapter still owns final material-pack selection and
+may return `resolved`, `ambiguous`, `missing`, `forbidden`, or `temporarily_unavailable` from resolve/preflight.
+
 Raw send targets, URLs, filesystem paths, receiver identifiers, credentials, and internal execution records stay in adapter storage.
 
-Agent-returned send actions carry the adapter-safe `resolve_ref` needed for execution. Report actions also carry
-`resolve_type`, `report_scope`, `strategy` when scoped to one strategy, `period`, and `report_date`. The adapter must execute from `resolve_ref`; it must not re-select artifacts by guessing from strategy or free-form reply text.
+Agent-returned send actions carry the adapter-safe `resolve_ref` needed for execution. Material-pack actions may also carry `material_pack_option` when the current request explicitly selected one of `ReplyRequest.material_pack_options`. Weekly and monthly report actions carry only `resolve_type`, `period`, and `report_date` in addition to `resolve_ref`; they do not carry `report_scope`, `strategy`, or `material_pack_option`. The adapter must execute from `resolve_ref`; it must not re-select artifacts by guessing from free-form reply text.
 
-`POST /adapter/report-scope` is a bounded read command for report-scope evidence. It accepts `material_type`, `dist_name`, `command`, optional `period`, and command-specific fields:
+`POST /adapter/report-scope` is a bounded read command for report-content evidence: which products, sections, and counts are present inside a weekly/monthly report. It is not a send-action selector. It accepts `material_type`, `dist_name`, `command`, optional `period`, and command-specific fields:
 
 ```text
 summary        compact counts and report sections only
@@ -103,7 +111,7 @@ adapter execution.
 
 The reply runtime verifies `/adapter/capabilities`, then collects preflight checks with `/adapter/resolve/batch` before LLM composition. Matching `status=resolved` is required before the runtime can return material/report/sales outbound action proposals.
 
-Missing report scope evidence remains `unknown`. The runtime can use positive scope evidence when the adapter supplies it.
+Missing report-scope evidence remains `unknown`. The runtime can use positive report-content evidence when the adapter supplies it for knowledge answers. It must not use report-scope evidence to partially send a report.
 
 ## Live adapter eval
 
@@ -134,7 +142,7 @@ cd /Users/ivan/PycharmProjects/xiaoyan_wecom
 python3 scripts/market_agent_adapter_scope_fixture.py
 ```
 
-The fixture-backed live eval sets `MARKET_AGENT_LIVE_ADAPTER_STRATEGY` and `MARKET_AGENT_LIVE_ADAPTER_EXPECT_SCOPE=1`, then verifies that the real adapter returns `contains_strategy=true` and `scope_status=included`.
+The fixture-backed live eval sets `MARKET_AGENT_LIVE_ADAPTER_EXPECT_REPORT_SCOPE=1`, then verifies that the real adapter returns a resolved `/adapter/report-scope` summary. To test material-pack routing, set `MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION`; the live preflight eval verifies that only `material_pack` resolve receives that option.
 
 ## Action feedback
 

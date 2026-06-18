@@ -20,7 +20,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -153,7 +153,6 @@ def test_compile_policy_includes_adapter_safe_ledger_summary():
                         "action_id": "act-weekly",
                         "resolve_ref": "weekly:resolve-ref",
                         "material_type": "weekly",
-                        "strategy": "中证1000",
                         "material_id": "weekly:opaque",
                         "version": "20260529",
                     },
@@ -170,6 +169,6 @@ def test_compile_policy_includes_adapter_safe_ledger_summary():
     assert policy.ledger_summary.has_recent_executed_actions is True
     assert policy.ledger_summary.recent_executed_count == 1
     assert policy.ledger_summary.recent_material_types == ("weekly",)
-    assert policy.ledger_summary.recent_strategies == ("中证1000",)
+    assert policy.ledger_summary.recent_material_pack_options == ()
     assert policy.ledger_summary.recent_versions == ("20260529",)
     assert "opaque" not in str(policy.ledger_summary.to_prompt_dict())

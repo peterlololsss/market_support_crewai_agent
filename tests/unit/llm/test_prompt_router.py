@@ -37,7 +37,7 @@ def make_request(message: str, **overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证A500", "中证1000", "中证500"],
+        "material_pack_options": ["中证A500", "中证1000", "中证500"],
         "channel_type": "non_bank",
     }
     payload.update(overrides)
@@ -68,7 +68,7 @@ def test_route_intent_is_non_authoritative_audit_hint():
     assert gate.side_effect_hint is False
     assert gate.compliance_hint == "unknown"
     assert gate.confidence == 0.0
-    assert gate.named_strategy_count == 1
+    assert gate.material_pack_option_count == 3
 
 
 def test_representative_messages_use_same_universal_planner_fragments():
@@ -101,7 +101,7 @@ def test_representative_messages_use_same_universal_planner_fragments():
 def test_planner_prompt_is_compact_for_default_fixture():
     _, program = planner_program("发一下中证1000材料")
 
-    assert len(program.prompt_text) < 21000
+    assert len(program.prompt_text) < 23000
     assert "Universal intent taxonomy for Xiaoyan market support." in program.prompt_text
     assert "Capability registry JSON" in program.prompt_text
     assert "material_pack.product_list" in program.prompt_text

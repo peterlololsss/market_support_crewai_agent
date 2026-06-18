@@ -47,6 +47,7 @@ from market_support_crewai_agent.runtime.validation.evidence_source_guard import
 from market_support_crewai_agent.runtime.validation.execution_tool_guard import (
     execution_tool_guard,
 )
+from market_support_crewai_agent.runtime.state.runtime_trace import trace_event, trace_span
 from market_support_crewai_agent.schemas import AdapterResolveType, ReplyRequest
 
 
@@ -121,40 +122,46 @@ class EvidenceExecutor:
             )
 
         resolve_types = _resolve_types_for_plan(plan, policy)
-        preflight = await self.preflight_service.collect(
-            request,
-            canonical_context=canonical_context,
-            resolve_types=resolve_types,
-            resolve_strategies=_resolve_strategies_for_plan(plan),
-        )
+        trace_event("evidence.resolve_types", resolve_types=resolve_types)
+        with trace_span("evidence.adapter_preflight"):
+            preflight = await self.preflight_service.collect(
+                request,
+                canonical_context=canonical_context,
+                resolve_types=resolve_types,
+                resolve_material_pack_options=_resolve_material_pack_options_for_plan(plan),
+            )
         evidence_facts = evidence_facts_from_preflight(preflight)
         evidence_facts.extend(evidence_facts_from_action_history(action_history))
-        evidence_facts.extend(
-            await self.document_evidence_service.collect(
-                request,
-                canonical_context,
-                plan,
-                policy,
+        with trace_span("evidence.document_mcp"):
+            evidence_facts.extend(
+                await self.document_evidence_service.collect(
+                    request,
+                    canonical_context,
+                    plan,
+                    policy,
+                )
             )
-        )
-        evidence_facts.extend(
-            await self.report_scope_service.collect(
-                request,
-                canonical_context,
-                plan,
-                policy,
-                preflight,
+        with trace_span("evidence.report_scope"):
+            evidence_facts.extend(
+                await self.report_scope_service.collect(
+                    request,
+                    canonical_context,
+                    plan,
+                    policy,
+                    preflight,
+                )
             )
-        )
-        evidence_facts.extend(
-            await self.approved_knowledge_service.collect(
-                request,
-                canonical_context,
-                plan,
-                policy,
+        with trace_span("evidence.approved_knowledge"):
+            evidence_facts.extend(
+                await self.approved_knowledge_service.collect(
+                    request,
+                    canonical_context,
+                    plan,
+                    policy,
+                )
             )
-        )
-        business_facts = derive_business_facts(evidence_facts, request)
+        with trace_span("evidence.derive_business_facts"):
+            business_facts = derive_business_facts(evidence_facts, request)
         domain_context = DomainContextBuilder().build(
             request,
             available_artifacts=[preflight, *evidence_facts],
@@ -163,12 +170,13 @@ class EvidenceExecutor:
                 "conversation_key": request.conversation_key,
             },
         )
-        source_decision = retrieval_source_guard(
-            plan=plan,
-            policy=policy,
-            evidence_facts=evidence_facts,
-            domain_context=domain_context,
-        )
+        with trace_span("evidence.retrieval_source_guard"):
+            source_decision = retrieval_source_guard(
+                plan=plan,
+                policy=policy,
+                evidence_facts=evidence_facts,
+                domain_context=domain_context,
+            )
         return EvidenceExecutionResult(
             preflight=preflight,
             evidence_facts=evidence_facts,
@@ -190,12 +198,14 @@ def _resolve_types_for_plan(
     return ordered_resolve_types(requested)
 
 
-def _resolve_strategies_for_plan(plan: ExecutionPlan) -> dict[AdapterResolveType, str]:
-    strategies: dict[AdapterResolveType, str] = {}
+def _resolve_material_pack_options_for_plan(
+    plan: ExecutionPlan,
+) -> dict[AdapterResolveType, str]:
+    options: dict[AdapterResolveType, str] = {}
 
     for resolve_spec in plan.adapter_resolves:
-        if not resolve_spec.strategy:
+        if not resolve_spec.material_pack_option:
             continue
-        strategies.setdefault(resolve_spec.resolve_type, resolve_spec.strategy)
+        options.setdefault(resolve_spec.resolve_type, resolve_spec.material_pack_option)
 
-    return strategies
+    return options

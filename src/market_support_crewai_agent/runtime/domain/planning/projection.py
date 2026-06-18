@@ -153,10 +153,8 @@ def _domain_scope_for_execution_plan(
         return PlanDomainScope(
             channel_id="unknown",
             channel_kind="unknown",
-            strategy_id=plan.selected_strategy,
-            strategy_name=plan.selected_strategy,
+            material_pack_option=plan.material_pack_option,
         )
-    strategy = domain_context.strategy_by_name(plan.selected_strategy)
     requested_time_range = None
     if plan.requested_scope is not None and (
         plan.requested_scope.period
@@ -171,8 +169,7 @@ def _domain_scope_for_execution_plan(
     return PlanDomainScope(
         channel_id=domain_context.channel.id,
         channel_kind=domain_context.channel.kind,
-        strategy_id=strategy.id if strategy is not None else plan.selected_strategy,
-        strategy_name=strategy.name if strategy is not None else plan.selected_strategy,
+        material_pack_option=plan.material_pack_option,
         product_ids=[],
         time_range=requested_time_range,
     )

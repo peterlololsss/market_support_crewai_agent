@@ -35,7 +35,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证500", "中证1000"],
+        "material_pack_options": ["中证500", "中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -47,7 +47,6 @@ def make_plan(**overrides) -> ExecutionPlan:
         "user_need": "send weekly report",
         "artifact_kind": "weekly_report",
         "action_intent": "send",
-        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -69,14 +68,14 @@ class FakePreflightService:
             request,
             canonical_context=None,
             resolve_types=None,
-            resolve_strategies=None,
+            resolve_material_pack_options=None,
     ):
         self.calls.append(
             (
                 request,
                 canonical_context,
                 tuple(resolve_types or []),
-                dict(resolve_strategies or {}),
+                dict(resolve_material_pack_options or {}),
             )
         )
         return AdapterPreflightSnapshot(
@@ -93,14 +92,11 @@ class FakePreflightService:
                             "candidates": [],
                             "channel_type": "bank",
                             "available_materials": ["weekly"],
-                            "available_strategies": ["中证500", "中证1000"],
+                            "material_pack_options": ["中证500", "中证1000"],
                             "resolved_at": 1,
                             "resolve_ref": "weekly:ref",
-                            "strategy": (resolve_strategies or {}).get("weekly_report"),
                             "period": "20260529",
                             "report_date": "2026-05-29",
-                            "contains_strategy": True,
-                            "scope_status": "included",
                         }
                     ),
                 )
@@ -129,18 +125,18 @@ def test_evidence_executor_runs_preflight_and_derives_business_facts():
     assert result.preflight.items[0].status == "resolved"
     assert result.evidence_facts[0].fact_type == "weekly_report_resolvable"
     assert result.business_facts.weekly_report.status == "available"
-    assert result.business_facts.weekly_report.strategy is None
-    assert result.business_facts.requested_strategy_status == "available"
+    assert result.business_facts.weekly_report.material_pack_option is None
+    assert result.business_facts.requested_material_pack_option_status == "unknown"
 
 
-def test_evidence_executor_passes_plan_strategy_selector_to_preflight():
-    request = make_request(message="这个报告发一下")
+def test_evidence_executor_passes_material_pack_option_to_preflight():
+    request = make_request(message="这个材料包发一下")
     canonical_context = canonicalize_request(request)
     fake_preflight = FakePreflightService()
     executor = EvidenceExecutor(fake_preflight)
     plan = make_plan(
-        report_scope="strategy",
-        selected_strategy="中证1000",
+        artifact_kind="material_pack",
+        material_pack_option="中证1000",
     )
 
     result = asyncio.run(
@@ -156,11 +152,11 @@ def test_evidence_executor_passes_plan_strategy_selector_to_preflight():
         (
             request,
             canonical_context,
-            ("weekly_report", "sales_mention"),
-            {"weekly_report": "中证1000"},
+            ("material_pack", "sales_mention"),
+            {"material_pack": "中证1000"},
         )
     ]
-    assert result.business_facts.weekly_report.strategy == "中证1000"
+    assert result.business_facts.weekly_report.material_pack_option is None
 
 
 def test_evidence_executor_allows_plan_without_adapter_resolves():
@@ -176,16 +172,16 @@ def test_evidence_executor_allows_plan_without_adapter_resolves():
                 request,
                 canonical_context=None,
                 resolve_types=None,
-                resolve_strategies=None,
+                resolve_material_pack_options=None,
         ):
             self.calls.append(
                 (
-                    request,
-                    canonical_context,
-                    tuple(resolve_types or []),
-                    dict(resolve_strategies or {}),
+                        request,
+                        canonical_context,
+                        tuple(resolve_types or []),
+                        dict(resolve_material_pack_options or {}),
+                    )
                 )
-            )
             return AdapterPreflightSnapshot.empty()
 
     preflight = EmptyPreflightService()
@@ -248,9 +244,9 @@ def test_evidence_executor_adds_approved_static_knowledge_context():
                 request,
                 canonical_context=None,
                 resolve_types=None,
-                resolve_strategies=None,
+                resolve_material_pack_options=None,
         ):
-            del request, canonical_context, resolve_types, resolve_strategies
+            del request, canonical_context, resolve_types, resolve_material_pack_options
             return AdapterPreflightSnapshot.empty()
 
     class FakeSelector:
@@ -303,11 +299,10 @@ def test_evidence_executor_merges_recent_executed_action_facts():
                     {
                         "action_type": "send_weekly_report",
                         "status": "executed",
-                        "action_id": "act-previous-weekly",
-                        "resolve_ref": "weekly:ref",
-                        "material_type": "weekly",
-                        "strategy": "中证1000",
-                        "material_id": "weekly:opaque",
+                            "action_id": "act-previous-weekly",
+                            "resolve_ref": "weekly:ref",
+                            "material_type": "weekly",
+                            "material_id": "weekly:opaque",
                         "version": "20260529",
                     }
                 ],

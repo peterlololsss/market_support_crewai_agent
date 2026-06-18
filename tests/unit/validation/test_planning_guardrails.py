@@ -10,7 +10,7 @@ from tests.helpers.planning import make_plan_spec, make_request
 
 
 def test_compile_plan_spec_builds_weekly_report_action():
-    request = make_request(available_strategies=[])
+    request = make_request(material_pack_options=[])
     policy = compile_policy(request)
 
     plan = compile_plan_spec(
@@ -18,7 +18,6 @@ def test_compile_plan_spec_builds_weekly_report_action():
             request,
             artifact_kind="weekly_report",
             action_intent="send",
-            report_scope="channel_all",
         ),
         request,
         canonicalize_request(request),
@@ -32,13 +31,12 @@ def test_compile_plan_spec_builds_weekly_report_action():
         "sales_mention",
     ]
     assert plan.action_intents[0].action_type == "send_weekly_report"
-    assert plan.action_intents[0].report_scope == "channel_all"
-    assert plan.action_intents[0].strategy is None
+    assert plan.action_intents[0].material_pack_option is None
     assert validate_execution_plan(plan, policy).valid
 
 
-def test_compile_plan_spec_builds_strategy_scoped_report_action():
-    request = make_request(available_strategies=["指增"])
+def test_compile_plan_spec_does_not_scope_report_send_by_material_pack_option():
+    request = make_request(material_pack_options=["指增"])
     policy = compile_policy(request)
 
     plan = compile_plan_spec(
@@ -46,7 +44,7 @@ def test_compile_plan_spec_builds_strategy_scoped_report_action():
             request,
             artifact_kind="weekly_report",
             action_intent="send",
-            report_scope="strategy",
+            material_pack_option="指增",
         ),
         request,
         canonicalize_request(request),
@@ -54,11 +52,32 @@ def test_compile_plan_spec_builds_strategy_scoped_report_action():
     )
 
     assert plan.response_mode == "action"
-    assert plan.selected_strategy == "指增"
-    assert plan.adapter_resolves[0].strategy == "指增"
-    assert plan.action_intents[0].report_scope == "strategy"
-    assert plan.action_intents[0].strategy == "指增"
+    assert plan.material_pack_option is None
+    assert plan.adapter_resolves[0].material_pack_option is None
+    assert plan.action_intents[0].material_pack_option is None
     assert validate_execution_plan(plan, policy).valid
+
+
+def test_material_pack_scope_must_be_request_option():
+    request = make_request(material_pack_options=["中证A500"])
+    policy = compile_policy(request)
+
+    plan = compile_plan_spec(
+        make_plan_spec(
+            request,
+            artifact_kind="material_pack",
+            action_intent="send",
+            material_pack_option="中证500",
+        ),
+        request,
+        canonicalize_request(request),
+        policy,
+    )
+
+    validation = validate_execution_plan(plan, policy)
+
+    assert not validation.valid
+    assert validation.issues[0].code == "material_pack_scope_not_allowed"
 
 
 def test_compile_plan_spec_uses_document_context_for_knowledge_answer():

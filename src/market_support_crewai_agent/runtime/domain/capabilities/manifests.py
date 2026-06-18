@@ -54,11 +54,13 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         id="material_pack.send",
         version="2026-06-16.1",
         display_name="Send material pack",
-        description="Propose sending the adapter-resolved material pack for the current channel and strategy scope.",
+        description="Propose sending the adapter-resolved material pack for the current channel and optional material-pack option.",
         capability_type="action",
-        domain_entities=["channel", "strategy", "artifact"],
+        domain_entities=["channel", "material_pack_option", "artifact"],
         required_inputs=["request.dist_channel_name"],
-        optional_inputs=["canonical_context.selected_strategy"],
+        optional_inputs=[
+            "request.material_pack_options",
+        ],
         required_artifacts=["material_pack"],
         allowed_artifacts=["material_pack"],
         forbidden_artifacts=["weekly_report", "monthly_report", "document_context"],
@@ -81,23 +83,43 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             guidance="If the material pack cannot be resolved, abstain or hand off instead of inventing a send."
         ),
         planner_guidance=(
-            "Use when the user clearly asks to send a material pack or one-pager."
+            "Use when the user clearly asks to send a material pack or one-pager. "
+            "Also use for strategy intro, product highlight, open calendar, or "
+            "performance material only when the wording clearly asks to send/provide "
+            "an artifact and no more specific supported action exists. "
+            "material_pack_options are material-pack scope labels, not a general "
+            "strategy catalog. If the user explicitly targets one material_pack_options "
+            "value, copy that exact value into domain_scope.material_pack_option for adapter "
+            "resolve. "
+            "Do not clarify only because material_pack_options has multiple values; an "
+            "unscoped material-pack send is valid and adapter resolve will return "
+            "resolved, ambiguous, or unavailable."
         ),
         agent_guidance="Return only the typed send_material_pack action after adapter resolve evidence.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
-        examples_positive=["Send the material pack.", "发一下中证1000材料"],
-        examples_negative=["Which products are in the weekly report?"],
+        examples_positive=[
+            "Send the material pack.",
+            "发一下材料包",
+            "发一下中证1000材料",
+            "来个开放日历",
+            "来个空气指增策略介绍",
+        ],
+        examples_negative=[
+            "Which products are in the weekly report?",
+            "介绍一下全指指增",
+            "全指指增是什么",
+        ],
         runtime_capability="material_pack",
     ),
     CapabilityManifest(
         id="weekly_report.send",
         version="2026-06-16.1",
         display_name="Send weekly report",
-        description="Propose sending the adapter-resolved weekly report for the current channel or strategy scope.",
+        description="Propose sending the adapter-resolved weekly report for the current channel.",
         capability_type="action",
-        domain_entities=["channel", "strategy", "artifact"],
+        domain_entities=["channel", "artifact"],
         required_inputs=["request.dist_channel_name"],
-        optional_inputs=["canonical_context.selected_strategy"],
+        optional_inputs=[],
         required_artifacts=["weekly_report"],
         allowed_artifacts=["weekly_report"],
         forbidden_artifacts=["material_pack", "monthly_report", "document_context"],
@@ -117,14 +139,25 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         abstention_policy=AbstentionPolicy(
             abstention_reply_kinds=["unable_to_answer", "clarification", "human_handoff"],
-            guidance="If the weekly report cannot be resolved for the requested scope, abstain or hand off."
+            guidance="If the weekly report cannot be resolved, abstain or hand off."
         ),
         planner_guidance=(
-            "Use when the user clearly asks to send the weekly report."
+            "Use when the user clearly asks to send the weekly report. Also use "
+            "when the user clearly asks to send or provide an official performance "
+            "report/material and weekly_report is the closest supported action. "
+            "Do not use merely because the user asks a direct recent/live/latest "
+            "performance-number question; that should abstain/refuse unless the "
+            "user asks for a send. For this performance-report send, add "
+            "risk_flags=[\"weekly_report_rationale_required\"]."
         ),
         agent_guidance="Return only the typed send_weekly_report action after adapter resolve evidence.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
-        examples_positive=["Send this week's report.", "请发一下周报"],
+        examples_positive=[
+            "Send this week's report.",
+            "请发一下周报",
+            "发一下500最近回撤修复的周报",
+            "麻烦发一下产品业绩表现",
+        ],
         examples_negative=["What products are in the weekly report?"],
         runtime_capability="weekly_report",
     ),
@@ -132,11 +165,11 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         id="monthly_report.send",
         version="2026-06-16.1",
         display_name="Send monthly report",
-        description="Propose sending the adapter-resolved monthly report for the current channel or strategy scope.",
+        description="Propose sending the adapter-resolved monthly report for the current channel.",
         capability_type="action",
-        domain_entities=["channel", "strategy", "artifact"],
+        domain_entities=["channel", "artifact"],
         required_inputs=["request.dist_channel_name"],
-        optional_inputs=["canonical_context.selected_strategy"],
+        optional_inputs=[],
         required_artifacts=["monthly_report"],
         allowed_artifacts=["monthly_report"],
         forbidden_artifacts=["material_pack", "weekly_report", "document_context"],
@@ -156,7 +189,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         abstention_policy=AbstentionPolicy(
             abstention_reply_kinds=["unable_to_answer", "clarification", "human_handoff"],
-            guidance="If the monthly report cannot be resolved for the requested scope, abstain or hand off."
+            guidance="If the monthly report cannot be resolved, abstain or hand off."
         ),
         planner_guidance=(
             "Use when the user clearly asks to send the monthly report."
@@ -191,10 +224,10 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         abstention_policy=AbstentionPolicy(
             guidance="If sales mention cannot be resolved, return unable_to_answer."
         ),
-        planner_guidance="Use when the user asks for human sales/support help.",
+        planner_guidance="Use when the user asks for human sales/support help, add-friend/add-WeChat/private-chat routing, or a named person.",
         agent_guidance="Mention only adapter-resolved sales/support targets.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
-        examples_positive=["帮我问下销售", "请销售确认"],
+        examples_positive=["帮我问下销售", "请销售确认", "能加一下好友吗？", "我想找一下你们顾总？"],
         examples_negative=["发一下周报"],
         runtime_capability="sales_mention",
     ),
@@ -217,7 +250,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             requires_abstention_when_evidence_missing=False,
             abstention_reply_kinds=["clarification"],
         ),
-        planner_guidance="Use when required artifact, strategy, or request meaning is ambiguous.",
+        planner_guidance="Use when required artifact, material-pack option, report query, or request meaning is ambiguous.",
         agent_guidance="Ask one concise clarification and do not propose actions.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
         examples_positive=["你说的这个是哪个策略？"],
@@ -329,11 +362,10 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         display_name="Material pack product list",
         description="Answer which products are present in an official material pack.",
         capability_type="answer",
-        domain_entities=["channel", "strategy", "product", "artifact"],
+        domain_entities=["channel", "material_pack_option", "product", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "canonical_context.selected_strategy",
-            "request.available_strategies",
+            "request.material_pack_options",
         ],
         required_artifacts=["material_pack"],
         allowed_artifacts=["material_pack"],
@@ -383,11 +415,10 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         display_name="Material pack open calendar",
         description="Answer product opening or subscription calendar questions from a material pack.",
         capability_type="answer",
-        domain_entities=["channel", "strategy", "product", "artifact"],
+        domain_entities=["channel", "material_pack_option", "product", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "canonical_context.selected_strategy",
-            "request.available_strategies",
+            "request.material_pack_options",
         ],
         required_artifacts=["material_pack"],
         allowed_artifacts=["material_pack"],
@@ -439,7 +470,6 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         domain_entities=["channel", "strategy", "product", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "canonical_context.selected_strategy",
             "plan.evidence_query",
         ],
         required_artifacts=["weekly_report"],
@@ -469,7 +499,10 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use for product performance, period, or product-list questions about "
-            "a weekly report."
+            "a weekly report. Do not use for strategy/company scale, capacity, "
+            "headcount, founding date, holdings profile, factors, product intro, "
+            "or other evergreen document facts unless the user explicitly asks "
+            "about a weekly report."
         ),
         agent_guidance=(
             "Use only weekly-report resolve and report-scope facts. Do not fill gaps "
@@ -483,6 +516,8 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         examples_negative=[
             "What products are in the material pack?",
             "Send the monthly report.",
+            "500指增规模多少；容量多少",
+            "介绍一下全指指增",
         ],
         runtime_capability="weekly_report",
     ),
@@ -495,7 +530,6 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         domain_entities=["channel", "strategy", "product", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "canonical_context.selected_strategy",
             "plan.evidence_query",
         ],
         required_artifacts=["monthly_report"],
@@ -525,7 +559,10 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use for product performance, period, or product-list questions about "
-            "a monthly report."
+            "a monthly report. Do not use for strategy/company scale, capacity, "
+            "headcount, founding date, holdings profile, factors, product intro, "
+            "or other evergreen document facts unless the user explicitly asks "
+            "about a monthly report."
         ),
         agent_guidance=(
             "Use only monthly-report resolve and report-scope facts. Do not fill gaps "
@@ -539,6 +576,8 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         examples_negative=[
             "Send the weekly report.",
             "What is in the material pack?",
+            "500指增规模多少；容量多少",
+            "介绍一下全指指增",
         ],
         runtime_capability="monthly_report",
     ),
@@ -551,8 +590,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         domain_entities=["channel", "strategy", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "canonical_context.selected_strategy",
-            "request.available_strategies",
+            "domain_context.strategies",
         ],
         required_artifacts=["document_context"],
         allowed_artifacts=["document_context"],
@@ -575,7 +613,11 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use for channel or strategy summary questions that require approved "
-            "company/product document evidence."
+            "company/product document evidence, including scale/AUM, capacity, "
+            "headcount, founding date, holdings profile, factor lineup, strategy "
+            "intro, product differences, exposure, excess-return sources, redemption, "
+            "subscription, dividends, NAV disclosure timing, hedging cost, basis, "
+            "and FAQ style operating questions."
         ),
         agent_guidance=(
             "Summarize only what appears in trusted document or approved static evidence."
@@ -584,6 +626,13 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         examples_positive=[
             "Can you summarize this channel's strategy?",
             "How should I introduce this strategy?",
+            "500指增规模多少；容量多少",
+            "你们现在有多少员工？",
+            "全指指增是什么",
+            "因子有哪些",
+            "请问赎回是什么时间到账？",
+            "500指增的超额收益贡献占比",
+            "产品多久分红一次",
         ],
         examples_negative=[
             "Send the weekly report.",
@@ -600,8 +649,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         domain_entities=["channel", "product", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "canonical_context.selected_strategy",
-            "request.available_strategies",
+            "domain_context.strategies",
         ],
         required_artifacts=["document_context"],
         allowed_artifacts=["document_context"],

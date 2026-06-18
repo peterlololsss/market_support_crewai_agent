@@ -13,7 +13,6 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
     adapter_resolve_types,
     capability_by_resolve_type,
     ordered_resolve_types,
-    resolve_type_accepts_strategy,
 )
 from market_support_crewai_agent.schemas import (
     AdapterResolveRequest,
@@ -22,6 +21,7 @@ from market_support_crewai_agent.schemas import (
     ReplyRequest,
 )
 from market_support_crewai_agent.settings import Settings
+from market_support_crewai_agent.runtime.state.runtime_trace import trace_event, trace_span
 
 
 @dataclass(frozen=True)
@@ -69,19 +69,25 @@ class AdapterPreflightService:
         request: ReplyRequest,
         canonical_context: CanonicalContext | None = None,
         resolve_types: list[AdapterResolveType] | None = None,
-        resolve_strategies: dict[AdapterResolveType, str] | None = None,
+        resolve_material_pack_options: dict[AdapterResolveType, str] | None = None,
     ) -> AdapterPreflightSnapshot:
         resolve_requests = _build_resolve_requests(
             request,
             canonical_context,
             resolve_types,
-            resolve_strategies,
+            resolve_material_pack_options,
         )
         if not resolve_requests:
             return AdapterPreflightSnapshot.empty()
+        trace_event(
+            "adapter.preflight_requests",
+            resolve_types=[request.resolve_type for request in resolve_requests],
+        )
         try:
-            await self.adapter_client.assert_ready_async()
-            results = await self.adapter_client.resolve_many_async(resolve_requests)
+            with trace_span("adapter.assert_ready"):
+                await self.adapter_client.assert_ready_async()
+            with trace_span("adapter.resolve_many", request_count=len(resolve_requests)):
+                results = await self.adapter_client.resolve_many_async(resolve_requests)
         except AdapterClientError as exc:
             return AdapterPreflightSnapshot(
                 items=[
@@ -113,7 +119,7 @@ def _build_resolve_requests(
     request: ReplyRequest,
     canonical_context: CanonicalContext | None = None,
     resolve_types: list[AdapterResolveType] | None = None,
-    resolve_strategies: dict[AdapterResolveType, str] | None = None,
+    resolve_material_pack_options: dict[AdapterResolveType, str] | None = None,
 ) -> list[AdapterResolveRequest]:
     del canonical_context
     common = {
@@ -127,10 +133,9 @@ def _build_resolve_requests(
         resolve_requests.append(
             AdapterResolveRequest(
                 resolve_type=resolve_type,
-                strategy=(
-                    _strategy_for_resolve_type(resolve_type, resolve_strategies)
-                    if resolve_type_accepts_strategy(resolve_type)
-                    else None
+                material_pack_option=_material_pack_option_for_resolve_type(
+                    resolve_type,
+                    resolve_material_pack_options,
                 ),
                 **common,
             )
@@ -149,12 +154,13 @@ def _normalize_resolve_types(
     return tuple(ordered_resolve_types(resolve_types))
 
 
-def _strategy_for_resolve_type(
+def _material_pack_option_for_resolve_type(
     resolve_type: AdapterResolveType,
-    resolve_strategies: dict[AdapterResolveType, str] | None = None,
+    resolve_material_pack_options: dict[AdapterResolveType, str] | None = None,
 ) -> str | None:
-    if resolve_strategies is not None:
-        strategy = resolve_strategies.get(resolve_type)
-        if strategy:
-            return strategy
+    if resolve_type != "material_pack" or resolve_material_pack_options is None:
+        return None
+    option = resolve_material_pack_options.get(resolve_type)
+    if option:
+        return option
     return None

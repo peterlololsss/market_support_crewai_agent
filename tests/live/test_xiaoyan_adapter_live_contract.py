@@ -13,7 +13,11 @@ from market_support_crewai_agent.runtime.evidence.adapter_client import (
     AdapterClientError,
     AdapterResolveClient,
 )
-from market_support_crewai_agent.schemas import AdapterResolveRequest, ReplyRequest
+from market_support_crewai_agent.schemas import (
+    AdapterReportScopeRequest,
+    AdapterResolveRequest,
+    ReplyRequest,
+)
 from market_support_crewai_agent.settings import Settings
 
 
@@ -49,6 +53,7 @@ def test_live_xiaoyan_adapter_capabilities_contract():
     assert capabilities.endpoints.metrics == "/adapter/metrics"
     assert capabilities.endpoints.resolve == "/adapter/resolve"
     assert capabilities.endpoints.batch_resolve == "/adapter/resolve/batch"
+    assert capabilities.endpoints.report_scope == "/adapter/report-scope"
     assert capabilities.resolve_types == [
         "material_pack",
         "weekly_report",
@@ -91,6 +96,7 @@ def test_live_xiaoyan_adapter_metrics_contract():
             "metrics",
             "resolve",
             "batch_resolve",
+            "report_scope",
             "not_found",
         }
     )
@@ -112,16 +118,19 @@ def test_live_xiaoyan_adapter_batch_contract():
     base_url = _live_adapter_base_url()
     api_key = os.getenv("MARKET_AGENT_LIVE_ADAPTER_API_KEY") or None
     dist_name = os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "__contract_check__")
-    strategy = os.getenv("MARKET_AGENT_LIVE_ADAPTER_STRATEGY") or None
-    expect_scope = os.getenv("MARKET_AGENT_LIVE_ADAPTER_EXPECT_SCOPE", "").strip() == "1"
+    material_pack_option = os.getenv("MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION") or None
 
     _skip_if_adapter_is_not_running(base_url, api_key)
 
     client = _live_adapter_client(base_url, api_key)
     requests = [
-        AdapterResolveRequest(resolve_type="material_pack", dist_name=dist_name, strategy=strategy),
-        AdapterResolveRequest(resolve_type="weekly_report", dist_name=dist_name, strategy=strategy),
-        AdapterResolveRequest(resolve_type="monthly_report", dist_name=dist_name, strategy=strategy),
+        AdapterResolveRequest(
+            resolve_type="material_pack",
+            dist_name=dist_name,
+            material_pack_option=material_pack_option,
+        ),
+        AdapterResolveRequest(resolve_type="weekly_report", dist_name=dist_name),
+        AdapterResolveRequest(resolve_type="monthly_report", dist_name=dist_name),
         AdapterResolveRequest(resolve_type="sales_mention", dist_name=dist_name),
     ]
 
@@ -147,23 +156,14 @@ def test_live_xiaoyan_adapter_batch_contract():
         assert "/home/" not in serialized
         assert "portfolio_url_info.csv" not in serialized
 
-    if expect_scope:
-        weekly = next(result for result in results if result.resolve_type == "weekly_report")
-        assert weekly.status == "resolved"
-        assert weekly.contains_strategy is True
-        assert weekly.scope_status == "included"
-        assert strategy in weekly.generated_strategies
-        assert weekly.report_date
-
-
-def test_live_xiaoyan_adapter_preflight_service_scope_contract():
-    if os.getenv("MARKET_AGENT_LIVE_ADAPTER_EXPECT_SCOPE", "").strip() != "1":
-        pytest.skip("scope preflight live eval requires fixture-backed adapter")
+def test_live_xiaoyan_adapter_preflight_service_material_pack_option_contract():
+    material_pack_option = os.getenv("MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION")
+    if not material_pack_option:
+        pytest.skip("material-pack option live eval requires MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION")
 
     base_url = _live_adapter_base_url()
     api_key = os.getenv("MARKET_AGENT_LIVE_ADAPTER_API_KEY") or None
-    dist_name = os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "ScopeTest")
-    strategy = os.getenv("MARKET_AGENT_LIVE_ADAPTER_STRATEGY", "指增")
+    dist_name = os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "MaterialPackOptionTest")
 
     _skip_if_adapter_is_not_running(base_url, api_key)
 
@@ -175,18 +175,23 @@ def test_live_xiaoyan_adapter_preflight_service_scope_contract():
             "conversation_key": "wecom:live-scope:sender-1",
             "group_id": "live-scope-group",
             "sender_id": "sender-1",
-            "message": "请确认{}周报是否包含{}".format(dist_name, strategy),
+            "message": "请确认{}材料包".format(dist_name),
             "is_group": True,
             "group_name": "{}-群".format(dist_name),
             "dist_channel_name": dist_name,
             "sender_nickname": "live tester",
             "available_materials": ["material", "weekly", "monthly"],
-            "available_strategies": [strategy],
+            "material_pack_options": [material_pack_option],
             "channel_type": "bank",
         }
     )
 
-    snapshot = asyncio.run(service.collect(request))
+    snapshot = asyncio.run(
+        service.collect(
+            request,
+            resolve_material_pack_options={"material_pack": material_pack_option},
+        )
+    )
 
     assert snapshot.available is True
     assert [item.resolve_type for item in snapshot.items] == [
@@ -196,12 +201,38 @@ def test_live_xiaoyan_adapter_preflight_service_scope_contract():
         "sales_mention",
     ]
     weekly = next(item.result for item in snapshot.items if item.resolve_type == "weekly_report")
+    material = next(item.result for item in snapshot.items if item.resolve_type == "material_pack")
+    assert material is not None
+    assert material.material_pack_option == material_pack_option
     assert weekly is not None
-    assert weekly.status == "resolved"
-    assert weekly.contains_strategy is True
-    assert weekly.scope_status == "included"
-    assert strategy in weekly.generated_strategies
-    assert weekly.report_date
+    assert weekly.material_pack_option is None
+
+
+def test_live_xiaoyan_adapter_report_scope_contract():
+    if os.getenv("MARKET_AGENT_LIVE_ADAPTER_EXPECT_REPORT_SCOPE", "").strip() != "1":
+        pytest.skip("report-scope live eval requires fixture-backed adapter")
+
+    base_url = _live_adapter_base_url()
+    api_key = os.getenv("MARKET_AGENT_LIVE_ADAPTER_API_KEY") or None
+    dist_name = os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "ReportScopeTest")
+
+    _skip_if_adapter_is_not_running(base_url, api_key)
+
+    client = _live_adapter_client(base_url, api_key)
+    result = client.report_scope(
+        AdapterReportScopeRequest(
+            material_type="weekly",
+            dist_name=dist_name,
+            command="summary",
+        )
+    )
+
+    assert result.contract_version == "adapter-report-scope"
+    assert result.material_type == "weekly"
+    assert result.dist_name == dist_name
+    assert result.status == "resolved"
+    assert result.period
+    assert result.report_sections or result.expected_product_count is not None
 
 
 def test_live_xiaoyan_adapter_rejects_short_resolve_endpoint():

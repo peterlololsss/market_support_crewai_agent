@@ -292,8 +292,8 @@ def contract_rejection_code(
         return "artifact_type_not_allowed"
     if wrong_channel(fact.scope, domain_context):
         return "channel_scope_mismatch"
-    if wrong_strategy(fact, plan, domain_context):
-        return "strategy_scope_mismatch"
+    if wrong_material_pack_option(fact, plan, domain_context):
+        return "material_pack_option_scope_mismatch"
     if wrong_time_range(fact.scope, requested_scope_from_plan(plan)):
         return "time_range_scope_mismatch"
     if capability in {"weekly_report", "monthly_report"} and fact.resolve_type != capability:
@@ -322,10 +322,10 @@ def history_scope_rejection_code(
     if "channel_id" in fields and history_channel_mismatch(fact, domain_context):
         return "channel_scope_mismatch"
     if (
-        {"strategy_id", "strategy_name"} & fields
-        and wrong_strategy(fact, plan, domain_context)
+        "material_pack_option" in fields
+        and wrong_material_pack_option(fact, plan, domain_context)
     ):
-        return "strategy_scope_mismatch"
+        return "material_pack_option_scope_mismatch"
     if "time_range" in fields and history_time_range_mismatch_or_missing(fact, plan):
         return "time_range_scope_mismatch"
     return ""
@@ -408,12 +408,12 @@ def wrong_channel(
     return scope.channel_id not in allowed
 
 
-def wrong_strategy(
+def wrong_material_pack_option(
     fact: EvidenceFact,
     plan: object,
     domain_context: DomainContext | None,
 ) -> bool:
-    expected_name = str(getattr(plan, "selected_strategy", "") or "").strip()
+    expected_name = str(getattr(plan, "material_pack_option", "") or "").strip()
     if not expected_name:
         return False
     expected_ids = {expected_name}
@@ -423,11 +423,11 @@ def wrong_strategy(
             for strategy in domain_context.strategies
             if strategy.name == expected_name
         )
-    actual_strategy_name = str(fact.metadata.get("strategy") or "").strip()
-    if actual_strategy_name:
-        return actual_strategy_name != expected_name
-    actual_strategy_id = fact.scope.strategy_id
-    if domain_context is not None and actual_strategy_id and actual_strategy_id not in expected_ids:
+    actual_option_name = str(fact.metadata.get("material_pack_option") or "").strip()
+    if actual_option_name:
+        return actual_option_name != expected_name
+    actual_option_id = fact.scope.strategy_id
+    if domain_context is not None and actual_option_id and actual_option_id not in expected_ids:
         return True
     return False
 

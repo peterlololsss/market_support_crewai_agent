@@ -26,7 +26,6 @@ def _compact_pending_plan(plan: ExecutionPlan) -> dict[str, object] | None:
         "artifact_kind": plan.artifact_kind,
         "response_mode": plan.response_mode,
         "ambiguity_slots": list(plan.ambiguity_slots),
-        "selected_strategy": plan.selected_strategy,
-        "report_scope": getattr(plan, "report_scope", "none"),
+        "material_pack_option": plan.material_pack_option,
         "capabilities": list(plan.capabilities),
     }

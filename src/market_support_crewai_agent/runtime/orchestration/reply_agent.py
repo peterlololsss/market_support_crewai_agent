@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 
 from market_support_crewai_agent.runtime.state.action_ledger import (
@@ -19,6 +20,12 @@ from market_support_crewai_agent.runtime.state.audit import (
     AuditStore,
     build_audit_trace,
     get_audit_store,
+)
+from market_support_crewai_agent.runtime.state.runtime_trace import (
+    RuntimeTrace,
+    trace_event,
+    trace_span,
+    use_runtime_trace,
 )
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
 from market_support_crewai_agent.runtime.domain.canonicalization import (
@@ -108,6 +115,8 @@ from market_support_crewai_agent.runtime.orchestration.response_renderer import 
 from market_support_crewai_agent.runtime.orchestration.response_ids import ensure_response_ids
 from market_support_crewai_agent.schemas import PrimaryReply, ReplyRequest, ReplyResponse
 from market_support_crewai_agent.settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRuntimeError(RuntimeError):
@@ -224,104 +233,159 @@ class CrewAIReplyRuntime:
         self.context_projection_manager = ContextProjectionManager.from_settings(settings)
 
     async def reply(self, request: ReplyRequest) -> ReplyResponse:
-        validate_reply_request_input(request, self.settings)
-        if not self.settings.llm_api_key:
-            raise AgentRuntimeError("YANFU_LLM_API_KEY is not configured")
-
-        history = self.conversation_store.get_recent(request.conversation_key)
-        action_history = self.action_ledger.recent_executed_for_conversation(
-            request.conversation_key,
-            limit=20,
-        )
-        domain_context = DomainContextBuilder().build(
-            request,
-            conversation_metadata={
+        trace = RuntimeTrace(
+            context={
                 "context_id": request.context_id,
                 "conversation_key": request.conversation_key,
-            },
+            }
         )
-        canonical_context = canonicalize_request(
-            request,
-            domain_context=domain_context,
-        )
-        model_family = model_family_from_settings(self.settings)
-        policy = compile_policy(
-            request,
-            ledger_summary=ledger_summary_from_action_history(action_history),
-            doc_mcp_enabled=bool(
-                self.settings.doc_mcp_enabled and self.settings.doc_mcp_base_url
-            ),
-            doc_mcp_allowed_channel_types=self.settings.doc_mcp_allowed_channel_types,
-        )
-        intent_gate = route_intent(request, canonical_context, policy, history=history)
-        llm_executions: list[dict] = []
-        prompt_programs: list[PromptProgram] = []
-        alignment_verdicts: list[ReplyAlignmentVerdict] = []
-        alignment_remediations: list[dict] = []
+        with use_runtime_trace(trace):
+            try:
+                with trace_span("request.validate"):
+                    validate_reply_request_input(request, self.settings)
+                    if not self.settings.llm_api_key:
+                        raise AgentRuntimeError("YANFU_LLM_API_KEY is not configured")
 
-        candidate = await self._build_candidate_response(
-            request=request,
-            canonical_context=canonical_context,
-            domain_context=domain_context,
-            policy=policy,
-            model_family=model_family,
-            intent_gate=intent_gate,
-            history=history,
-            action_history=action_history,
-            prompt_programs=prompt_programs,
-            llm_executions=llm_executions,
-        )
-        if candidate.reply_validation.valid and self.settings.reply_alignment_verifier_enabled:
-            candidate = await self._ensure_aligned_response(
-                request=request,
-                canonical_context=canonical_context,
-                domain_context=domain_context,
-                policy=policy,
-                model_family=model_family,
-                intent_gate=intent_gate,
-                history=history,
-                action_history=action_history,
-                prompt_programs=prompt_programs,
-                llm_executions=llm_executions,
-                alignment_verdicts=alignment_verdicts,
-                alignment_remediations=alignment_remediations,
-                candidate=candidate,
-            )
-        self._record_audit_trace(
-            request=request,
-            policy=policy,
-            plan=candidate.plan,
-            directive=candidate.directive,
-            plan_validation=candidate.plan_validation,
-            action_history=action_history,
-            canonical_context=canonical_context,
-            domain_context=candidate.domain_context,
-            preflight=candidate.preflight,
-            evidence_facts=candidate.evidence_facts,
-            business_facts=candidate.business_facts,
-            answerability_assessment=candidate.answerability,
-            response=candidate.response,
-            reply_validation=candidate.reply_validation,
-            guardrail_decisions=candidate.guardrail_decisions,
-            intent_gate=intent_gate,
-            prompt_programs=prompt_programs,
-            llm_executions=llm_executions,
-            alignment_verdicts=alignment_verdicts,
-            alignment_remediations=alignment_remediations,
-        )
-        if not candidate.reply_validation.valid:
-            raise ReplyContractError(
-                "rendered reply failed validation: {}".format(
-                    _reply_validation_error_summary(candidate.reply_validation)
+                with trace_span("state.load_history"):
+                    history = self.conversation_store.get_recent(request.conversation_key)
+                    action_history = self.action_ledger.recent_executed_for_conversation(
+                        request.conversation_key,
+                        limit=20,
+                    )
+                trace_event(
+                    "state.history_loaded",
+                    history_count=len(history),
+                    action_history_count=len(action_history),
                 )
-            )
 
-        self.conversation_store.save_turn(
-            request.conversation_key,
-            request.message,
-            compact_assistant_result(candidate.response, candidate.plan),
-        )
-        return candidate.response
+                with trace_span("domain.build_context"):
+                    domain_context = DomainContextBuilder().build(
+                        request,
+                        conversation_metadata={
+                            "context_id": request.context_id,
+                            "conversation_key": request.conversation_key,
+                        },
+                    )
+
+                with trace_span("domain.canonicalize"):
+                    canonical_context = canonicalize_request(
+                        request,
+                        domain_context=domain_context,
+                    )
+
+                model_family = model_family_from_settings(self.settings)
+                with trace_span("policy.compile"):
+                    policy = compile_policy(
+                        request,
+                        ledger_summary=ledger_summary_from_action_history(action_history),
+                        doc_mcp_enabled=bool(
+                            self.settings.doc_mcp_enabled and self.settings.doc_mcp_base_url
+                        ),
+                        doc_mcp_allowed_channel_types=self.settings.doc_mcp_allowed_channel_types,
+                    )
+                trace_event(
+                    "state.policy_compiled",
+                    allowed_capabilities=policy.allowed_capabilities,
+                    allowed_actions=policy.allowed_side_effect_actions,
+                )
+
+                with trace_span("intent.route"):
+                    intent_gate = route_intent(
+                        request,
+                        canonical_context,
+                        policy,
+                        history=history,
+                    )
+                llm_executions: list[dict] = []
+                prompt_programs: list[PromptProgram] = []
+                alignment_verdicts: list[ReplyAlignmentVerdict] = []
+                alignment_remediations: list[dict] = []
+
+                with trace_span("candidate.build"):
+                    candidate = await self._build_candidate_response(
+                        request=request,
+                        canonical_context=canonical_context,
+                        domain_context=domain_context,
+                        policy=policy,
+                        model_family=model_family,
+                        intent_gate=intent_gate,
+                        history=history,
+                        action_history=action_history,
+                        prompt_programs=prompt_programs,
+                        llm_executions=llm_executions,
+                    )
+                if (
+                    candidate.reply_validation.valid
+                    and self.settings.reply_alignment_verifier_enabled
+                ):
+                    with trace_span("alignment.ensure"):
+                        candidate = await self._ensure_aligned_response(
+                            request=request,
+                            canonical_context=canonical_context,
+                            domain_context=domain_context,
+                            policy=policy,
+                            model_family=model_family,
+                            intent_gate=intent_gate,
+                            history=history,
+                            action_history=action_history,
+                            prompt_programs=prompt_programs,
+                            llm_executions=llm_executions,
+                            alignment_verdicts=alignment_verdicts,
+                            alignment_remediations=alignment_remediations,
+                            candidate=candidate,
+                        )
+                trace_event(
+                    "state.candidate_ready",
+                    reply_kind=candidate.response.reply.kind,
+                    action_count=len(candidate.response.actions),
+                    reply_valid=candidate.reply_validation.valid,
+                    alignment_verdict_count=len(alignment_verdicts),
+                )
+
+                with trace_span("audit.record"):
+                    self._record_audit_trace(
+                        request=request,
+                        policy=policy,
+                        plan=candidate.plan,
+                        directive=candidate.directive,
+                        plan_validation=candidate.plan_validation,
+                        action_history=action_history,
+                        canonical_context=canonical_context,
+                        domain_context=candidate.domain_context,
+                        preflight=candidate.preflight,
+                        evidence_facts=candidate.evidence_facts,
+                        business_facts=candidate.business_facts,
+                        answerability_assessment=candidate.answerability,
+                        response=candidate.response,
+                        reply_validation=candidate.reply_validation,
+                        guardrail_decisions=candidate.guardrail_decisions,
+                        intent_gate=intent_gate,
+                        prompt_programs=prompt_programs,
+                        llm_executions=llm_executions,
+                        alignment_verdicts=alignment_verdicts,
+                        alignment_remediations=alignment_remediations,
+                        runtime_trace=trace.to_dict(),
+                    )
+                if not candidate.reply_validation.valid:
+                    raise ReplyContractError(
+                        "rendered reply failed validation: {}".format(
+                            _reply_validation_error_summary(candidate.reply_validation)
+                        )
+                    )
+
+                with trace_span("state.save_turn"):
+                    self.conversation_store.save_turn(
+                        request.conversation_key,
+                        request.message,
+                        compact_assistant_result(candidate.response, candidate.plan),
+                    )
+                return candidate.response
+            finally:
+                trace.log_trace(
+                    logger,
+                    context_id=request.context_id,
+                    conversation_key=request.conversation_key,
+                )
 
     async def _build_candidate_response(
             self,
@@ -339,25 +403,11 @@ class CrewAIReplyRuntime:
             alignment_verdict: ReplyAlignmentVerdict | None = None,
             alignment_attempt: int = 0,
     ) -> RuntimeAttemptResult:
-        planner_context = self._project_context(
-            stage="planner_intent",
-            request=request,
-            canonical_context=canonical_context,
-            domain_context=domain_context,
-            policy=policy,
-            intent_gate=intent_gate,
-            history=history,
-            action_history=action_history,
-            alignment_verdict=alignment_verdict,
-            alignment_attempt=alignment_attempt,
-        )
-        planner_program = select_prompt_program(
-            PromptAssemblyContext(
+        with trace_span("planner.project_context"):
+            planner_context = self._project_context(
                 stage="planner_intent",
-                model_family=model_family,
                 request=request,
                 canonical_context=canonical_context,
-                model_visible_context=planner_context,
                 domain_context=domain_context,
                 policy=policy,
                 intent_gate=intent_gate,
@@ -366,11 +416,29 @@ class CrewAIReplyRuntime:
                 alignment_verdict=alignment_verdict,
                 alignment_attempt=alignment_attempt,
             )
+        with trace_span("planner.assemble_prompt"):
+            planner_program = select_prompt_program(
+                PromptAssemblyContext(
+                    stage="planner_intent",
+                    model_family=model_family,
+                    request=request,
+                    canonical_context=canonical_context,
+                    model_visible_context=planner_context,
+                    domain_context=domain_context,
+                    policy=policy,
+                    intent_gate=intent_gate,
+                    history=history,
+                    action_history=action_history,
+                    alignment_verdict=alignment_verdict,
+                    alignment_attempt=alignment_attempt,
+                )
         )
         prompt_programs.append(planner_program)
         try:
+            with trace_span("planner.build_agent"):
+                planner_agent = self._build_planner_agent()
             frame_result, planner_execution = await run_crewai_kickoff(
-                self._build_planner_agent(),
+                planner_agent,
                 planner_program,
                 timeout_seconds=self.settings.llm_timeout_seconds,
             )
@@ -380,16 +448,23 @@ class CrewAIReplyRuntime:
         except Exception as exc:
             raise AgentRuntimeError("CrewAI planner failed") from exc
 
-        plan = coerce_planner_plan(
-            frame_result,
-            request,
-            canonical_context,
-            policy,
-            domain_context=domain_context,
-            history=history,
-        )
+        with trace_span("planner.coerce_compile"):
+            plan = coerce_planner_plan(
+                frame_result,
+                request,
+                canonical_context,
+                policy,
+                domain_context=domain_context,
+                history=history,
+            )
         if plan is None:
             raise AgentRuntimeError("CrewAI planner returned an invalid PlanSpec contract")
+        trace_event(
+            "state.plan_compiled",
+            response_mode=plan.response_mode,
+            capabilities=plan.capabilities,
+            adapter_resolve_count=len(plan.adapter_resolves),
+        )
         return await self._build_candidate_from_plan(
             request=request,
             canonical_context=canonical_context,
@@ -432,7 +507,8 @@ class CrewAIReplyRuntime:
                     )
                 }
             )
-        plan_validation = validate_execution_plan(plan, policy)
+        with trace_span("plan.validate"):
+            plan_validation = validate_execution_plan(plan, policy)
         if not plan_validation.valid:
             raise AgentRuntimeError(
                 "compiled execution plan failed validation: {}".format(
@@ -440,12 +516,21 @@ class CrewAIReplyRuntime:
                 )
             )
 
-        evidence_result = await self.evidence_executor.execute(
-            request,
-            canonical_context,
-            plan,
-            policy,
-            action_history=action_history,
+        with trace_span("evidence.execute"):
+            evidence_result = await self.evidence_executor.execute(
+                request,
+                canonical_context,
+                plan,
+                policy,
+                action_history=action_history,
+            )
+        trace_event(
+            "state.evidence_collected",
+            preflight_items=len(evidence_result.preflight.items),
+            evidence_fact_count=len(evidence_result.evidence_facts),
+            guardrail_decision_count=len(
+                getattr(evidence_result, "guardrail_decisions", [])
+            ),
         )
         return await self._build_candidate_from_evidence(
             request=request,
@@ -493,25 +578,34 @@ class CrewAIReplyRuntime:
             alignment_verdict: ReplyAlignmentVerdict | None = None,
             alignment_attempt: int = 0,
     ) -> RuntimeAttemptResult:
-        answerability = AnswerabilityGate().assess(
-            request=request,
-            canonical_context=canonical_context,
-            domain_context=domain_context,
-            plan=plan,
-            policy=policy,
-            evidence_facts=evidence_facts,
-        )
-        directive = DecisionEngine().decide(
-            plan,
-            business_facts,
-            evidence_facts,
-            request,
-            policy,
-            domain_context,
-        )
+        with trace_span("answerability.assess"):
+            answerability = AnswerabilityGate().assess(
+                request=request,
+                canonical_context=canonical_context,
+                domain_context=domain_context,
+                plan=plan,
+                policy=policy,
+                evidence_facts=evidence_facts,
+            )
+        with trace_span("decision.decide"):
+            directive = DecisionEngine().decide(
+                plan,
+                business_facts,
+                evidence_facts,
+                request,
+                policy,
+                domain_context,
+            )
         forced_directive = directive_from_answerability(answerability, plan)
         if forced_directive is not None:
             directive = forced_directive
+        trace_event(
+            "state.directive_selected",
+            mode=directive.mode,
+            reply_kind=directive.reply_kind,
+            requires_knowledge_composer=directive.requires_knowledge_composer,
+            composer_stage=directive.composer_stage,
+        )
         response, composer_output = await self._compose_or_render_response(
             request=request,
             canonical_context=canonical_context,
@@ -534,20 +628,21 @@ class CrewAIReplyRuntime:
             alignment_attempt=alignment_attempt,
             guardrail_decisions=guardrail_decisions,
         )
-        return self._validated_attempt(
-            plan=plan,
-            plan_validation=plan_validation,
-            preflight=preflight,
-            evidence_facts=evidence_facts,
-            business_facts=business_facts,
-            domain_context=domain_context,
-            answerability=answerability,
-            directive=directive,
-            response=response,
-            policy=policy,
-            guardrail_decisions=guardrail_decisions,
-            composer_output=composer_output,
-        )
+        with trace_span("reply.validate_attempt"):
+            return self._validated_attempt(
+                plan=plan,
+                plan_validation=plan_validation,
+                preflight=preflight,
+                evidence_facts=evidence_facts,
+                business_facts=business_facts,
+                domain_context=domain_context,
+                answerability=answerability,
+                directive=directive,
+                response=response,
+                policy=policy,
+                guardrail_decisions=guardrail_decisions,
+                composer_output=composer_output,
+            )
 
     async def _compose_or_render_response(
             self,
@@ -574,43 +669,23 @@ class CrewAIReplyRuntime:
             guardrail_decisions: list[GuardrailDecision] | None = None,
     ) -> tuple[ReplyResponse, ComposerReplyOutput | None]:
         if not directive.requires_knowledge_composer:
-            return (
-                render_directive(
-                    directive,
-                    plan,
-                    business_facts,
-                    evidence_facts,
-                ),
-                None,
-            )
+            with trace_span("reply.render_directive"):
+                return (
+                    render_directive(
+                        directive,
+                        plan,
+                        business_facts,
+                        evidence_facts,
+                    ),
+                    None,
+                )
 
         composer_stage = directive.composer_stage or "knowledge_composer"
-        composer_context = self._project_context(
-            stage=composer_stage,
-            request=request,
-            canonical_context=canonical_context,
-            domain_context=domain_context,
-            policy=policy,
-            intent_gate=intent_gate,
-            execution_plan=plan,
-            plan_validation=plan_validation,
-            preflight=preflight,
-            evidence_facts=evidence_facts,
-            business_facts=business_facts,
-            answerability_assessment=answerability,
-            guardrail_decisions=guardrail_decisions or [],
-            history=history,
-            action_history=action_history,
-            alignment_verdict=alignment_verdict,
-            alignment_attempt=alignment_attempt,
-        )
-        composer_program = select_prompt_program(
-            PromptAssemblyContext(
+        with trace_span("composer.project_context", stage=composer_stage):
+            composer_context = self._project_context(
                 stage=composer_stage,
-                model_family=model_family,
                 request=request,
                 canonical_context=canonical_context,
-                model_visible_context=composer_context,
                 domain_context=domain_context,
                 policy=policy,
                 intent_gate=intent_gate,
@@ -626,11 +701,36 @@ class CrewAIReplyRuntime:
                 alignment_verdict=alignment_verdict,
                 alignment_attempt=alignment_attempt,
             )
+        with trace_span("composer.assemble_prompt", stage=composer_stage):
+            composer_program = select_prompt_program(
+                PromptAssemblyContext(
+                    stage=composer_stage,
+                    model_family=model_family,
+                    request=request,
+                    canonical_context=canonical_context,
+                    model_visible_context=composer_context,
+                    domain_context=domain_context,
+                    policy=policy,
+                    intent_gate=intent_gate,
+                    execution_plan=plan,
+                    plan_validation=plan_validation,
+                    preflight=preflight,
+                    evidence_facts=evidence_facts,
+                    business_facts=business_facts,
+                    answerability_assessment=answerability,
+                    guardrail_decisions=guardrail_decisions or [],
+                    history=history,
+                    action_history=action_history,
+                    alignment_verdict=alignment_verdict,
+                    alignment_attempt=alignment_attempt,
+                )
         )
         prompt_programs.append(composer_program)
         try:
+            with trace_span("composer.build_agent", stage=composer_stage):
+                composer_agent = self._build_agent(composer_stage)
             result, composer_execution = await run_crewai_kickoff(
-                self._build_agent(composer_stage),
+                composer_agent,
                 composer_program,
                 timeout_seconds=self.settings.llm_timeout_seconds,
             )
@@ -640,12 +740,13 @@ class CrewAIReplyRuntime:
         except Exception as exc:
             raise AgentRuntimeError("CrewAI composer failed") from exc
 
-        composer_output = coerce_composer_output(result)
-        response = (
-            composer_output.to_reply_response()
-            if composer_output is not None
-            else coerce_agent_response(result)
-        )
+        with trace_span("composer.coerce_response"):
+            composer_output = coerce_composer_output(result)
+            response = (
+                composer_output.to_reply_response()
+                if composer_output is not None
+                else coerce_agent_response(result)
+            )
         if response is None:
             raise AgentRuntimeError("CrewAI composer returned an invalid ReplyResponse contract")
         if directive.mode == "action" and directive.action_intents:
@@ -653,18 +754,19 @@ class CrewAIReplyRuntime:
             reply = response.reply.model_copy(update={"text": reply_text})
             if composer_output is not None:
                 composer_output = composer_output.model_copy(update={"reply": reply})
-            rendered = render_directive(
-                directive.model_copy(
-                    update={
-                        "text": reply_text,
-                        "requires_knowledge_composer": False,
-                        "composer_stage": None,
-                    }
-                ),
-                plan,
-                business_facts,
-                evidence_facts,
-            )
+            with trace_span("reply.render_action_from_composer"):
+                rendered = render_directive(
+                    directive.model_copy(
+                        update={
+                            "text": reply_text,
+                            "requires_knowledge_composer": False,
+                            "composer_stage": None,
+                        }
+                    ),
+                    plan,
+                    business_facts,
+                    evidence_facts,
+                )
             return ReplyResponse(reply=reply, actions=rendered.actions), composer_output
         return response, composer_output
 
@@ -724,6 +826,12 @@ class CrewAIReplyRuntime:
             domain_context=domain_context,
             composer_output=composer_output,
             output_decision=output_decision,
+        )
+        trace_event(
+            "state.reply_validated",
+            valid=reply_validation.valid,
+            issue_count=len(reply_validation.issues),
+            output_guard_outcome=output_decision.outcome,
         )
         return RuntimeAttemptResult(
             plan=plan,
@@ -790,46 +898,26 @@ class CrewAIReplyRuntime:
             attempt: int,
     ) -> ReplyAlignmentVerdict:
         if self.alignment_verifier is not None:
-            verdict = await self.alignment_verifier.verify(
-                request=request,
-                canonical_context=canonical_context,
-                domain_context=candidate.domain_context,
-                plan=candidate.plan,
-                directive=candidate.directive,
-                evidence_facts=candidate.evidence_facts,
-                business_facts=candidate.business_facts,
-                response=candidate.response,
-                guardrail_decisions=candidate.guardrail_decisions,
-                attempt=attempt,
-            )
+            with trace_span("alignment.external_verifier", attempt=attempt):
+                verdict = await self.alignment_verifier.verify(
+                    request=request,
+                    canonical_context=canonical_context,
+                    domain_context=candidate.domain_context,
+                    plan=candidate.plan,
+                    directive=candidate.directive,
+                    evidence_facts=candidate.evidence_facts,
+                    business_facts=candidate.business_facts,
+                    response=candidate.response,
+                    guardrail_decisions=candidate.guardrail_decisions,
+                    attempt=attempt,
+                )
             return ReplyAlignmentVerdict.model_validate(verdict)
 
-        verifier_context = self._project_context(
-            stage="alignment_verifier",
-            request=request,
-            canonical_context=canonical_context,
-            domain_context=candidate.domain_context,
-            policy=policy,
-            intent_gate=intent_gate,
-            execution_plan=candidate.plan,
-            plan_validation=candidate.plan_validation,
-            preflight=candidate.preflight,
-            evidence_facts=candidate.evidence_facts,
-            business_facts=candidate.business_facts,
-            answerability_assessment=candidate.answerability,
-            guardrail_decisions=candidate.guardrail_decisions,
-            history=history,
-            action_history=action_history,
-            candidate_response=candidate.response,
-            alignment_attempt=attempt,
-        )
-        verifier_program = select_prompt_program(
-            PromptAssemblyContext(
+        with trace_span("alignment.project_context", attempt=attempt):
+            verifier_context = self._project_context(
                 stage="alignment_verifier",
-                model_family=model_family,
                 request=request,
                 canonical_context=canonical_context,
-                model_visible_context=verifier_context,
                 domain_context=candidate.domain_context,
                 policy=policy,
                 intent_gate=intent_gate,
@@ -845,11 +933,36 @@ class CrewAIReplyRuntime:
                 candidate_response=candidate.response,
                 alignment_attempt=attempt,
             )
+        with trace_span("alignment.assemble_prompt", attempt=attempt):
+            verifier_program = select_prompt_program(
+                PromptAssemblyContext(
+                    stage="alignment_verifier",
+                    model_family=model_family,
+                    request=request,
+                    canonical_context=canonical_context,
+                    model_visible_context=verifier_context,
+                    domain_context=candidate.domain_context,
+                    policy=policy,
+                    intent_gate=intent_gate,
+                    execution_plan=candidate.plan,
+                    plan_validation=candidate.plan_validation,
+                    preflight=candidate.preflight,
+                    evidence_facts=candidate.evidence_facts,
+                    business_facts=candidate.business_facts,
+                    answerability_assessment=candidate.answerability,
+                    guardrail_decisions=candidate.guardrail_decisions,
+                    history=history,
+                    action_history=action_history,
+                    candidate_response=candidate.response,
+                    alignment_attempt=attempt,
+                )
         )
         prompt_programs.append(verifier_program)
         try:
+            with trace_span("alignment.build_agent", attempt=attempt):
+                verifier_agent = self._build_alignment_verifier_agent()
             result, verifier_execution = await run_crewai_kickoff(
-                self._build_alignment_verifier_agent(),
+                verifier_agent,
                 verifier_program,
                 timeout_seconds=self.settings.llm_timeout_seconds,
             )
@@ -859,11 +972,20 @@ class CrewAIReplyRuntime:
         except Exception as exc:
             raise AgentRuntimeError("CrewAI alignment verifier failed") from exc
 
-        verdict = coerce_alignment_verdict(result)
+        with trace_span("alignment.coerce_verdict", attempt=attempt):
+            verdict = coerce_alignment_verdict(result)
         if verdict is None:
             raise AgentRuntimeError(
                 "CrewAI alignment verifier returned an invalid ReplyAlignmentVerdict contract"
             )
+        trace_event(
+            "state.alignment_verdict",
+            attempt=attempt,
+            aligned=verdict.aligned,
+            safe_to_return=verdict.safe_to_return,
+            remediation=verdict.remediation,
+            failure_code=verdict.failure_code,
+        )
         return verdict
 
     def _fallback_attempt(
@@ -935,6 +1057,7 @@ class CrewAIReplyRuntime:
             llm_executions: list[dict] | None = None,
             alignment_verdicts: list[ReplyAlignmentVerdict] | None = None,
             alignment_remediations: list[dict] | None = None,
+            runtime_trace: dict | None = None,
     ) -> None:
         self.audit_store.record(
             build_audit_trace(
@@ -959,12 +1082,14 @@ class CrewAIReplyRuntime:
                 llm_executions=llm_executions,
                 alignment_verdicts=alignment_verdicts,
                 alignment_remediations=alignment_remediations,
+                runtime_trace=runtime_trace,
             )
         )
 
     def _project_context(self, **kwargs):
         try:
-            return self.context_projection_manager.project_for_stage(**kwargs)
+            with trace_span("context.project", stage=kwargs.get("stage")):
+                return self.context_projection_manager.project_for_stage(**kwargs)
         except ProjectionLimitError as exc:
             raise AgentRuntimeError("model context projection exceeded token budget") from exc
 

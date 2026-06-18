@@ -8,7 +8,6 @@ from market_support_crewai_agent.runtime.domain.business_facts import BusinessFa
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.knowledge.approved_knowledge import approved_image_markers
 from market_support_crewai_agent.runtime.domain.capabilities import (
-    capability_by_action_type,
     resolve_type_for_action,
 )
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
@@ -63,7 +62,6 @@ ValidationCode = Literal[
     "sent_claim_without_ledger_evidence",
     "unsupported_report_scope_claim",
     "unsupported_report_content_claim",
-    "report_action_strategy_unavailable",
     "plan_spec_contract_failed",
 ]
 
@@ -376,7 +374,6 @@ def _validate_actions(
                 )
             )
         issues.extend(_validate_action_resolve(action, business_facts))
-        issues.extend(_validate_report_action(action, candidate, business_facts))
 
     if response.actions and response.reply.text.strip():
         directive_text = directive.text.strip()
@@ -462,53 +459,6 @@ def _validate_action_resolve(action, business_facts: BusinessFacts) -> list[Vali
                 },
             )
         ]
-    return []
-
-
-def _validate_report_action(
-    action,
-    candidate: ActionIntentSpec | None,
-    business_facts: BusinessFacts,
-) -> list[ValidationIssue]:
-    action_type = getattr(action, "type", "")
-    capability = capability_by_action_type(action_type)
-    if capability is None or not capability.is_report or capability.resolve_type is None:
-        return []
-
-    report_state = business_facts.report_state(capability.resolve_type)
-    if report_state is not None and report_state.resolvable:
-        if report_state.scope_status == "excluded" or report_state.contains_strategy is False:
-            return [
-                ValidationIssue(
-                    code="report_action_strategy_unavailable",
-                    message="report action is not allowed when adapter evidence excludes the requested strategy",
-                    metadata={
-                        "action_type": action_type,
-                        "resolve_type": capability.resolve_type,
-                        "strategy": report_state.strategy,
-                        "period": report_state.period,
-                        "scope_status": report_state.scope_status,
-                        "contains_strategy": report_state.contains_strategy,
-                    },
-                )
-            ]
-        if (
-            candidate is not None
-            and candidate.report_scope == "strategy"
-            and report_state.contains_strategy is not True
-            and report_state.scope_status != "included"
-        ):
-            return [
-                ValidationIssue(
-                    code="report_action_strategy_unavailable",
-                    message="strategy-scoped report action lacks positive inclusion evidence",
-                    metadata={
-                        "action_type": action_type,
-                        "resolve_type": capability.resolve_type,
-                        "strategy": candidate.strategy,
-                    },
-                )
-            ]
     return []
 
 
@@ -646,13 +596,9 @@ def _matching_action_intent(action, candidates: list[ActionIntentSpec]) -> Actio
     for candidate in candidates:
         if action.type != candidate.action_type:
             continue
-        candidate_strategy = getattr(candidate, "strategy", None)
-        action_strategy = getattr(action, "strategy", None)
-        if candidate_strategy and action_strategy and candidate_strategy != action_strategy:
-            continue
-        candidate_scope = getattr(candidate, "report_scope", "none")
-        action_scope = getattr(action, "report_scope", "none")
-        if candidate_scope != "none" and action_scope != candidate_scope:
+        candidate_option = getattr(candidate, "material_pack_option", None)
+        action_option = getattr(action, "material_pack_option", None)
+        if candidate_option and action_option and candidate_option != action_option:
             continue
         return candidate
     return None

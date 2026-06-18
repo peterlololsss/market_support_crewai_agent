@@ -20,13 +20,12 @@ def _fact(fact_type: str, value: str) -> EvidenceFact:
 
 
 def _manager() -> ContextProjectionManager:
-    # Default policy: 6000 compact inline limit, 16000 answer limit.
     return ContextProjectionManager(policy=ContextProjectionPolicy())
 
 
 def test_document_context_value_is_inlined_in_full_above_compact_limit():
     manager = _manager()
-    big = "净" * 14000  # > 6000 compact, < 16000 answer budget
+    big = "净" * 14000  # > compact limit, < answer budget
     fact = _fact("document_context", big)
 
     output, previews = manager._replace_large_evidence(
@@ -52,8 +51,10 @@ def test_non_answer_evidence_value_is_previewed_above_compact_limit():
 
 
 def test_answer_evidence_is_still_bounded_above_the_answer_budget():
-    manager = _manager()
-    huge = "净" * 17000  # > 16000 answer budget -> still previewed (fail safe)
+    manager = ContextProjectionManager(
+        policy=ContextProjectionPolicy(max_answer_evidence_chars_inline=16000)
+    )
+    huge = "净" * 17000  # > custom answer budget -> still previewed
     fact = _fact("document_context", huge)
 
     output, previews = manager._replace_large_evidence(
@@ -66,5 +67,5 @@ def test_answer_evidence_is_still_bounded_above_the_answer_budget():
 
 def test_inline_value_limit_tracks_policy():
     manager = _manager()
-    assert manager._inline_value_limit(_fact("document_context", "x")) == 16000
+    assert manager._inline_value_limit(_fact("document_context", "x")) == 1_000_000
     assert manager._inline_value_limit(_fact("report_scope_summary", "x")) == 6000
