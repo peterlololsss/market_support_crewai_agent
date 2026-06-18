@@ -284,6 +284,62 @@ def test_validate_reply_allows_action_reply_text_from_knowledge_composer_with_ev
     assert result.valid is True
 
 
+def test_validate_reply_checks_send_action_evidence_outside_composer_citations():
+    request = make_request(message="介绍策略，然后发周报", material_pack_options=[])
+    plan = make_plan(
+        request,
+        plan_units=[
+            {
+                "artifact_kind": "knowledge_answer",
+                "action_intent": "answer",
+                "requested_capabilities": ["document_context"],
+                "evidence_query": "介绍策略",
+            },
+            {
+                "artifact_kind": "weekly_report",
+                "action_intent": "send",
+            },
+        ],
+    )
+    response = ReplyResponse(
+        response_id="resp-1",
+        reply=PrimaryReply(kind="answer", text="策略说明。"),
+        actions=[weekly_action()],
+    )
+    facts = [
+        resolved_fact("weekly_report", "weekly:ref"),
+        EvidenceFact(
+            fact_type="document_context",
+            value="策略说明。",
+            source_type="document_mcp",
+            source_id="doc-1",
+            artifact_type="document_context",
+        ),
+    ]
+    composer_output = ComposerReplyOutput(
+        response_mode="answer",
+        claims=["策略说明。"],
+        evidence_ids=["document_mcp:doc-1:document_context"],
+        reply=response.reply,
+    )
+
+    result = validate_reply(
+        response,
+        make_directive(
+            plan,
+            requires_knowledge_composer=True,
+            composer_stage="knowledge_composer",
+        ),
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request, doc_mcp_enabled=True),
+        composer_output=composer_output,
+    )
+
+    assert result.valid is True
+
+
 def test_validate_reply_allows_report_action_without_report_scope_selector():
     request = make_request(message="请发中证1000周报")
     plan = make_plan(

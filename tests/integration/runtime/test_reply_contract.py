@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -253,6 +254,68 @@ def test_runtime_times_out_slow_crewai_planner_before_composer_runs():
         raise AssertionError("slow planner should time out")
 
     assert str(error) == "CrewAI planner timed out"
+
+
+def test_runtime_retries_invalid_planner_contract_with_feedback():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+
+    class RetryPlannerAgent:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            self.prompts.append(prompt)
+            if len(self.prompts) == 1:
+                return SimpleNamespace(pydantic=None, raw=_invalid_weekly_plan_raw())
+            return SimpleNamespace(pydantic=make_weekly_plan_spec(), raw="")
+
+    planner = RetryPlannerAgent()
+    runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+
+    assert response.actions[0].type == "send_weekly_report"
+    assert len(planner.prompts) == 2
+    assert "Previous PlanSpec validation error" in planner.prompts[1]
+    assert "plan_units.0" in planner.prompts[1]
+    assert "evidence_contract_ref or inline evidence_contract" in planner.prompts[1]
+
+
+def test_runtime_invalid_planner_contract_error_includes_field_feedback():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+
+    class InvalidPlannerAgent:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            self.prompts.append(prompt)
+            return SimpleNamespace(pydantic=None, raw=_invalid_weekly_plan_raw())
+
+    planner = InvalidPlannerAgent()
+    runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
+
+    try:
+        asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    except AgentRuntimeError as exc:
+        error = exc
+    else:
+        raise AssertionError("invalid planner output should raise")
+
+    assert len(planner.prompts) == 2
+    assert "Previous PlanSpec validation error" in planner.prompts[1]
+    assert "plan_units.0" in str(error)
+    assert "evidence_contract_ref or inline evidence_contract" in str(error)
 
 
 def test_reply_requires_api_key_when_configured(monkeypatch):
@@ -1738,6 +1801,13 @@ def test_max_sessions_cap_prevents_unbounded_growth():
 
 def _test_settings() -> Settings:
     return Settings(llm_api_key="test-key", reply_alignment_verifier_enabled=False)
+
+
+def _invalid_weekly_plan_raw() -> str:
+    payload = make_weekly_plan_spec().model_dump(mode="json")
+    payload["plan_units"][0].pop("evidence_contract_ref", None)
+    payload["plan_units"][0]["evidence_contract"] = None
+    return json.dumps(payload, ensure_ascii=False)
 
 
 class ReplyRequestShim:

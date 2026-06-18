@@ -252,7 +252,10 @@ def _check_evidence_contract(
     ):
         return []
 
-    cited_ids = tuple(cited_evidence_ids or _cited_evidence_ids(payload))
+    cited_ids = _cited_ids_for_unit(
+        unit,
+        tuple(cited_evidence_ids or _cited_evidence_ids(payload)),
+    )
     if contract.citation_required and not cited_ids:
         return [
             PlanSpecValidationIssue(
@@ -639,6 +642,16 @@ def _facts_by_ids(
         for fact in evidence_facts
         if fact.source_id in wanted or evidence_id(fact) in wanted
     ]
+
+
+def _cited_ids_for_unit(
+    unit: PlanUnit,
+    cited_ids: tuple[str, ...],
+) -> tuple[str, ...]:
+    if unit.answerability_policy == "answer":
+        return cited_ids
+    return ()
+
 
 def _cited_evidence_ids(payload: dict[str, object]) -> tuple[str, ...]:
     values: list[str] = []
