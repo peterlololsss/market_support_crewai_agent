@@ -213,15 +213,6 @@ class DomainContextBuilder:
         products = _product_map(base_context)
         artifacts = _artifact_map(base_context)
 
-        for strategy_name in _string_list(payload.get("available_strategies")):
-            strategy = _strategy(
-                channel.id,
-                strategy_name,
-                source_id="adapter_channel.available_strategies",
-                provenance="adapter_channel_payload",
-            )
-            strategies.setdefault(strategy.id, strategy)
-
         for material_type in _string_list(payload.get("available_materials")):
             artifact_type = _ARTIFACT_TYPES_BY_MATERIAL.get(material_type, "unknown")
             scope = ArtifactScope(
@@ -249,6 +240,9 @@ class DomainContextBuilder:
                 artifacts.setdefault(artifact.id, artifact)
 
         metadata = dict(base_context.metadata) if base_context is not None else {}
+        material_pack_options = _string_list(payload.get("material_pack_options"))
+        if material_pack_options:
+            metadata["material_pack_options"] = material_pack_options
         metadata.update(
             {
                 str(key): value

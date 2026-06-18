@@ -103,17 +103,12 @@ class ContextProjectionPolicy:
     recent_turns_verbatim_count: int = 4
     max_history_message_chars_inline: int = 1200
     max_evidence_chars_inline: int = 6000
-    # Answer-bearing evidence (e.g. a selected knowledge document) is the
-    # material the composer must actually read, so it gets a larger inline
-    # budget than incidental evidence. Keep this aligned with the Document MCP
-    # per-document cap so a selected document is not re-truncated here after it
-    # was already bounded upstream. The token-budget pressure check remains the
-    # total backstop. Which fact types count as answer-bearing is structural
-    # (see projection._ANSWER_EVIDENCE_FACT_TYPES), not an operational tunable.
-    max_answer_evidence_chars_inline: int = 16000
+    # Answer evidence is small today and models have room; inline it unless it
+    # is truly pathological.
+    max_answer_evidence_chars_inline: int = 1_000_000
     max_metadata_chars_inline: int = 2000
     large_result_preview_chars: int = 1200
-    token_budget: int = 24000
+    token_budget: int = 900_000
     warning_threshold: float = 0.75
     hard_threshold: float = 0.92
     allow_history_as_evidence: bool = False
@@ -136,15 +131,14 @@ class ContextProjectionPolicy:
                 getattr(settings, "agent_context_max_evidence_chars_inline", 6000)
             ),
             max_answer_evidence_chars_inline=int(
-                getattr(settings, "agent_context_max_answer_evidence_chars_inline", 16000)
+                getattr(settings, "agent_context_max_answer_evidence_chars_inline", 1_000_000)
             ),
             large_result_preview_chars=int(
                 getattr(settings, "agent_context_large_result_preview_chars", 1200)
             ),
             token_budget=int(
                 getattr(settings, "agent_context_token_budget", None)
-                or getattr(settings, "llm_max_tokens", 24000)
-                or 24000
+                or 900_000
             ),
             warning_threshold=float(
                 getattr(settings, "agent_context_warning_threshold", 0.75)

@@ -123,20 +123,22 @@ def fact(
     source_id: str = "source-1",
     artifact_type: str = "adapter_context",
     channel_id: str = "channel-1",
-    strategy_id: str | None = None,
+    material_pack_option: str | None = None,
     value=True,
     metadata: dict | None = None,
 ) -> EvidenceFact:
+    fact_metadata = dict(metadata or {})
+    if material_pack_option is not None:
+        fact_metadata["material_pack_option"] = material_pack_option
     return EvidenceFact(
         fact_type=fact_type,  # type: ignore[arg-type]
         value=value,
         source_type=source_type,  # type: ignore[arg-type]
         source_id=source_id,
-        metadata=metadata or {},
+        metadata=fact_metadata,
         artifact_type=artifact_type,  # type: ignore[arg-type]
         scope=ArtifactScope(
             channel_id=channel_id,
-            strategy_id=strategy_id,
             provenance=source_type,
             source_id=source_id,
         ),
@@ -253,19 +255,19 @@ def test_plan_spec_allow_history_false_fails_when_using_history_evidence():
     assert "history_evidence_not_allowed" in {issue.code for issue in result.issues}
 
 
-def test_plan_spec_rejects_output_with_evidence_from_wrong_strategy():
+def test_plan_spec_rejects_output_with_evidence_from_wrong_material_pack_option():
     spec = plan_spec(
         domain_scope={
             "channel_id": "channel-1",
             "channel_kind": "bank",
-            "strategy_id": "strategy-a",
+            "material_pack_option": "option-a",
             "product_ids": [],
         },
         evidence_contract=EvidenceContract(
             required_evidence_types=["dummy_fact"],
             allowed_source_types=["adapter_resolve"],
             allowed_artifact_types=["adapter_context"],
-            required_scope_match=["strategy_id"],
+            required_scope_match=["material_pack_option"],
             minimum_evidence_count=1,
         ),
         evidence_contract_ref=None,
@@ -275,7 +277,7 @@ def test_plan_spec_rejects_output_with_evidence_from_wrong_strategy():
         spec,
         registry=CapabilityRegistry([dummy_manifest()]),
         output_payload=reply_payload(),
-        evidence_facts=[fact(strategy_id="strategy-b")],
+        evidence_facts=[fact(material_pack_option="option-b")],
         cited_evidence_ids=["source-1"],
     )
 
@@ -311,6 +313,43 @@ def test_plan_spec_accepts_abstention_when_required_artifacts_are_missing():
         output_payload=reply_payload(
             kind="unable_to_answer",
             text="当前没有足够证据安全回复。",
+        ),
+        evidence_facts=[],
+        abstained=True,
+    )
+
+    assert result.valid is True
+
+
+def test_plan_spec_accepts_handoff_abstention_when_sales_mention_is_missing():
+    spec = plan_spec(
+        selected_capability_id="sales.handoff",
+        user_intent_summary="route to sales support",
+        required_artifacts=["adapter_context"],
+        allowed_artifacts=["adapter_context"],
+        forbidden_artifacts=["material_pack", "weekly_report", "monthly_report"],
+        required_tools=["adapter_resolve.sales_mention"],
+        answerability_policy="handoff",
+        output_schema_ref="sales.handoff:output_schema",
+        evidence_contract_ref="sales.handoff:evidence_contract",
+        steps=[
+            {
+                "step_id": "step-1",
+                "description": "handoff when sales mention is available",
+                "uses_artifacts": [],
+                "required_artifacts": ["adapter_context"],
+                "allowed_artifacts": ["adapter_context"],
+                "forbidden_artifacts": ["material_pack", "weekly_report", "monthly_report"],
+                "required_tools": ["adapter_resolve.sales_mention"],
+            }
+        ],
+    )
+
+    result = verify_plan_spec(
+        spec,
+        output_payload=reply_payload(
+            kind="unable_to_answer",
+            text="当前渠道暂未配置可用负责人。",
         ),
         evidence_facts=[],
         abstained=True,

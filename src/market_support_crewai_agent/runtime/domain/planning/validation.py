@@ -5,7 +5,6 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
     capability_by_action_type,
 )
 from market_support_crewai_agent.runtime.domain.planning.models import (
-    ActionIntentSpec,
     ExecutionPlan,
     PlanValidationIssue,
     PlanValidationResult,
@@ -71,6 +70,8 @@ def validate_execution_plan(
                     metadata={"capability": capability},
                 )
             )
+
+    issues.extend(_validate_material_pack_scope(plan, policy))
 
     evidence_call_count = len(plan.adapter_resolves) + (
         1 if "document_context" in plan.capabilities else 0
@@ -139,8 +140,6 @@ def validate_execution_plan(
                     },
                 )
             )
-        if capability is not None and capability.is_report:
-            issues.extend(_validate_report_action_selector(action))
 
     if plan.compliance.is_compliant is False:
         if plan.response_mode != "refusal":
@@ -205,34 +204,33 @@ def validate_execution_plan(
     return PlanValidationResult(valid=not issues, issues=tuple(issues))
 
 
-def _validate_report_action_selector(
-    action: ActionIntentSpec,
+def _validate_material_pack_scope(
+    plan: ExecutionPlan,
+    policy: PolicyManifest,
 ) -> list[PlanValidationIssue]:
-    if action.report_scope == "none":
-        return [
-            PlanValidationIssue(
-                code="report_action_selector_missing",
-                message=f"{action.action_type} must declare report_scope",
-                metadata={"action_type": action.action_type},
-            )
-        ]
-    if action.report_scope == "strategy" and not action.strategy:
-        return [
-            PlanValidationIssue(
-                code="report_action_strategy_selector_missing_strategy",
-                message=f"{action.action_type} with report_scope=strategy must include a strategy",
-                metadata={"action_type": action.action_type},
-            )
-        ]
-    if action.report_scope == "channel_all" and action.strategy:
-        return [
-            PlanValidationIssue(
-                code="report_action_channel_all_selector_has_strategy",
-                message=f"{action.action_type} with report_scope=channel_all must not include a strategy",
-                metadata={
-                    "action_type": action.action_type,
-                    "strategy": action.strategy,
-                },
-            )
-        ]
-    return []
+    if "material_pack" not in plan.capabilities:
+        return []
+    selected = {plan.material_pack_option or ""}
+    selected.update(
+        action.material_pack_option or ""
+        for action in plan.action_intents
+        if action.capability == "material_pack"
+    )
+    selected.discard("")
+    if not selected:
+        return []
+    allowed = set(policy.material_pack_options)
+    invalid = sorted(value for value in selected if value not in allowed)
+    if not invalid:
+        return []
+    return [
+        PlanValidationIssue(
+            code="material_pack_scope_not_allowed",
+            message="material_pack_option must be one of request.material_pack_options",
+            severity="fatal",
+            metadata={
+                "invalid_scope": invalid,
+                "material_pack_options": list(policy.material_pack_options),
+            },
+        )
+    ]

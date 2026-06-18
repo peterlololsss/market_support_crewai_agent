@@ -1,6 +1,6 @@
 # Evaluation Plan
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 The eval suite runs before prompt, model, tool, policy, or broad MCP changes.
 
@@ -49,9 +49,9 @@ Cases:
 - response text does not claim successful send before adapter execution;
 - multiple sendables requested in one message remain valid or clarify.
 - validated ambiguous plan cannot return send actions even if adapter resolve is available.
-- report send plans must distinguish `report_scope=channel_all` from `report_scope=strategy`;
-- strategy-scoped report plans pass the chosen strategy into adapter resolve and block if evidence excludes it;
-- report send candidates with unknown selector ask clarification rather than sending.
+- report send plans never include report-scope selectors;
+- weekly/monthly report sends carry only the adapter-resolved whole-report action fields;
+- report-content questions use adapter report-scope evidence and do not become scoped send actions.
 
 ## Weekly/report tests
 

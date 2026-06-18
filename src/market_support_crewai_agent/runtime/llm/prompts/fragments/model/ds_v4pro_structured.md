@@ -11,6 +11,6 @@ Strict output rules:
 Planner ordering:
 1. Check compliance.
 2. Classify artifact_kind.
-3. Fill action_intent, selected_strategy, report_scope, ambiguity_slots, requested_capabilities.
+3. Select one capability and fill PlanSpec domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-For blocked compliance cases, use refusal/refuse and do not request capabilities. For multiple strategies explicitly named by the current user or multiple sendable artifact types, prefer ambiguity_slots instead of merging requests. Do not treat catalog-only available_strategies as ambiguity.
+For blocked compliance cases, use refusal/refuse and do not request capabilities. For multiple material-pack options explicitly named by the current user or multiple sendable artifact types, prefer ambiguity slots instead of merging requests. Do not treat material_pack_options as a general strategy catalog or as ambiguity by itself.

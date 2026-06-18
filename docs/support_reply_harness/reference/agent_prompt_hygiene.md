@@ -1,6 +1,6 @@
 # Agent Prompt and Documentation Hygiene
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 This guide is for writing repo instructions that coding agents can follow without absorbing stale design debris.
 

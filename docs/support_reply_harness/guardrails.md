@@ -1,6 +1,6 @@
 # Guardrail Design
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 Guardrails are part of the runtime skeleton. They are not a final safety prompt.
 
@@ -15,7 +15,7 @@ Request
  -> Evidence Executor
     -> Tool Input Guardrail
     -> Adapter resolve/preflight wrapper
-    -> MCP/material wrapper when enabled
+    -> Document MCP, report-scope, or approved-knowledge wrapper when enabled
     -> Tool Output Guardrail
  -> EvidenceFacts / BusinessFacts
  -> Reply Composer
@@ -33,7 +33,7 @@ Purpose:
 - ensure group/sender/channel context exists;
 - enforce message length limits when configured.
 
-Strict Pydantic models and contract tests carry the first implementation.
+Strict Pydantic models and contract tests carry the request boundary.
 
 Current runtime guardrail: `AGENT_INPUT_MAX_MESSAGE_CHARS` is optional. When configured, `/reply` rejects oversized
 messages before CrewAI planner/composer execution, and direct runtime calls apply the same check before LLM
@@ -180,7 +180,7 @@ Adapter resolve packaging rule:
 
 ```text
 resolve_type: material_pack | weekly_report | monthly_report | sales_mention
-status: resolved | missing | ambiguous | temporarily_unavailable
+status: resolved | missing | ambiguous | forbidden | temporarily_unavailable
 display_name
 candidates
 reason_code
@@ -238,9 +238,8 @@ Examples:
 material_pack_resolvable=false blocks send_material_pack
 weekly_report_resolvable=false blocks send_weekly_report
 monthly_report_resolvable=false blocks send_monthly_report
-weekly_contains_strategy=false supports a report-non-inclusion claim
-weekly_scope_status=excluded supports a generation-scope exclusion claim
-weekly_scope_status=unknown supports conservative escalation/clarification
+report_scope_summary/report_scope_match/report_scope_products support report-content answers
+missing report-scope evidence supports conservative abstention/clarification
 sales_mention_resolvable=true supports reply.mentions
 non-expired recent_executed_action facts ground “just sent” references
 ```

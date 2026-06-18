@@ -20,7 +20,7 @@ AlignmentFailureCode = Literal[
     "wrong_intent",
     "wrong_artifact",
     "wrong_action",
-    "wrong_strategy",
+    "wrong_material_pack_option",
     "wrong_report_scope",
     "missing_answer",
     "missing_evidence",

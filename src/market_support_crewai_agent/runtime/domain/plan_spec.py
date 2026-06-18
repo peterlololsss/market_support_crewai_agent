@@ -22,8 +22,7 @@ AnswerabilityPolicy = Literal[
 ScopeMatchField = Literal[
     "channel_id",
     "channel_kind",
-    "strategy_id",
-    "strategy_name",
+    "material_pack_option",
     "time_range",
     "product_id",
     "product_ids",
@@ -41,8 +40,7 @@ class PlanTimeRange(StrictModel):
 class PlanDomainScope(StrictModel):
     channel_id: str = Field(min_length=1)
     channel_kind: ChannelType
-    strategy_id: str | None = None
-    strategy_name: str | None = None
+    material_pack_option: str | None = None
     product_ids: list[str] = Field(default_factory=list)
     time_range: PlanTimeRange | None = None
 

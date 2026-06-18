@@ -74,6 +74,9 @@ ALLOWED_FUNCTIONS = {
     "runtime/validation/guardrail_common.py:marker_in_trusted_document_context": (
         "exact image marker evidence validator"
     ),
+    "runtime/state/runtime_trace.py:_looks_sensitive": (
+        "audit redaction key filter, not semantic business routing"
+    ),
 }
 
 

@@ -144,10 +144,12 @@ Examples:
 Use the phase-specific guard function directly:
 
 ```text
-input_guard              SendScope and requested destination/scope checks
-retrieval_source_guard   evidence-source, artifact, channel, strategy, history checks
+request_input_guard      raw /reply request checks
+input_scope_guard        requested destination/scope checks
+evidence_source_guard    evidence-source, artifact, channel, strategy, history checks
 execution_tool_guard     fixed-wrapper/tool and artifact-id checks
 output_guard             composer evidence-id and source-scope checks
+reply_validator          final ReplyResponse and action postconditions
 ```
 
 Guardrails return machine-readable reason codes. They do not repair unsafe model

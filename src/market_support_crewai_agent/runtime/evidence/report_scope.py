@@ -24,6 +24,7 @@ from market_support_crewai_agent.runtime.evidence.adapter_client import (
 from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightSnapshot,
 )
+from market_support_crewai_agent.runtime.state.runtime_trace import trace_span
 from market_support_crewai_agent.schemas import (
     AdapterReportScopeRequest,
     AdapterReportScopeResult,
@@ -128,7 +129,7 @@ class ReportScopeEvidenceService:
         for resolve_spec in report_resolves:
             material_type = _material_type(resolve_spec.resolve_type)
             period = _period_from_preflight(preflight, resolve_spec.resolve_type)
-            query = _scope_query(plan, resolve_spec.strategy)
+            query = _scope_query(plan)
             summary_only = query == _REPORT_SCOPE_SUMMARY_QUERY
             products_requested = query == _REPORT_SCOPE_PRODUCTS_QUERY
             if not query:
@@ -465,12 +466,8 @@ def _scope(resolve_type: AdapterResolveType, metadata: dict) -> object:
     )
 
 
-def _scope_query(plan: ExecutionPlan, strategy: str | None) -> str:
-    for value in (strategy, plan.selected_strategy, plan.evidence_query):
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""
+def _scope_query(plan: ExecutionPlan) -> str:
+    return str(plan.evidence_query or "").strip()
 
 
 def _period_from_preflight(
@@ -551,10 +548,16 @@ async def _run_selector_llm(
         max_retry_limit=settings.crewai_max_retry_limit,
         planning=False,
     )
-    result = await asyncio.wait_for(
-        agent.kickoff_async(prompt, response_format=ReportScopeSelection),
-        timeout=timeout_seconds,
-    )
+    with trace_span(
+        "llm.selector",
+        stage="report_scope_selector",
+        prompt_chars=len(prompt),
+        response_format="ReportScopeSelection",
+    ):
+        result = await asyncio.wait_for(
+            agent.kickoff_async(prompt, response_format=ReportScopeSelection),
+            timeout=timeout_seconds,
+        )
     if result.pydantic is not None:
         return ReportScopeSelection.model_validate(result.pydantic)
     return ReportScopeSelection.model_validate_json(result.raw)

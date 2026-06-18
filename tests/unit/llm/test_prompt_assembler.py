@@ -43,7 +43,7 @@ def make_request(message: str = "发一下中证1000材料", **overrides) -> Rep
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证1000"],
+        "material_pack_options": ["中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -216,7 +216,7 @@ def test_knowledge_composer_prompt_includes_runtime_boundary_block_snapshot():
     assert program.prompt_text.count("Runtime Capability & Evidence Boundary JSON:") == 1
     assert '"answerability_assessment": {' in program.prompt_text
     assert '"current_channel": {' in program.prompt_text
-    assert '"current_strategy": {' in program.prompt_text
+    assert '"material_pack_routing": {' in program.prompt_text
     assert '"available_artifacts": [' in program.prompt_text
     assert '"capability_id": "material_pack.product_list"' in program.prompt_text
     assert (
@@ -232,7 +232,7 @@ def test_knowledge_composer_prompt_includes_runtime_boundary_block_snapshot():
 def test_knowledge_composer_prompt_separates_allowed_evidence_from_disallowed_context():
     request = make_request(
         "材料包里有哪些产品",
-        available_strategies=["指增"],
+        material_pack_options=["指增"],
     )
     canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
@@ -243,7 +243,6 @@ def test_knowledge_composer_prompt_separates_allowed_evidence_from_disallowed_co
         artifact_kind="knowledge_answer",
         action_intent="answer",
         requested_capabilities=["material_pack"],
-        report_scope="none",
         compliance={
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -259,7 +258,7 @@ def test_knowledge_composer_prompt_separates_allowed_evidence_from_disallowed_co
         resolve_type="material_pack",
         metadata={
             "status": "resolved",
-            "strategy": "指增",
+            "material_pack_option": "指增",
             "products": [{"product_name": "Current Product"}],
         },
         artifact_type="material_pack",
@@ -316,8 +315,6 @@ def test_alignment_verifier_prompt_uses_compact_schema_and_candidate_response():
                 action_id="act-1",
                 resolve_type="weekly_report",
                 resolve_ref="weekly:resolve-ref",
-                report_scope="channel_all",
-                strategy=None,
                 period="20260529",
                 report_date="2026-05-29",
             )

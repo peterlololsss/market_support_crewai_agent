@@ -46,7 +46,10 @@ def route_intent(
     return IntentGateResult(
         artifact_hint="unclear",
         side_effect_hint=False,
-        named_strategy_count=_named_strategy_count(request, canonical_context),
+        material_pack_option_count=_material_pack_option_count(
+            request,
+            canonical_context,
+        ),
         compliance_hint="unknown",
         confidence=0.0,
     )
@@ -113,13 +116,9 @@ def _model_fragment(model_family: ModelFamily) -> str:
     return "model.generic.structured"
 
 
-def _named_strategy_count(
+def _material_pack_option_count(
     request: ReplyRequest,
     canonical_context: CanonicalContext,
 ) -> int:
     del request
-    if canonical_context.strategy_status == "resolved":
-        return 1
-    if canonical_context.strategy_status == "ambiguous":
-        return len(canonical_context.strategy_candidates)
-    return 0
+    return len(canonical_context.material_pack_options)

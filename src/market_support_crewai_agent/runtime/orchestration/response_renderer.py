@@ -55,7 +55,9 @@ def _render_action(
 
     resolve_state = business_facts.resolve_state(resolve_type)
     resolve_ref = resolve_state.resolve_ref or ""
-    strategy = action_intent.strategy or resolve_state.strategy
+    material_pack_option = (
+        action_intent.material_pack_option or resolve_state.material_pack_option
+    )
     capability = capability_by_resolve_type(resolve_type)
 
     if action_intent.action_type == "send_material_pack":
@@ -63,25 +65,18 @@ def _render_action(
             type="send_material_pack",
             resolve_type="material_pack",
             resolve_ref=resolve_ref,
-            strategy=strategy,
+            material_pack_option=material_pack_option,
         )
 
     if capability is not None and capability.is_report:
         report_state = business_facts.report_state(resolve_type)
         period = report_state.period if report_state is not None else None
         report_date = report_state.report_date if report_state is not None else None
-        report_scope = (
-            action_intent.report_scope
-            if action_intent.report_scope in {"channel_all", "strategy"}
-            else "channel_all"
-        )
         if action_intent.action_type == "send_weekly_report":
             return SendWeeklyReportAction(
                 type="send_weekly_report",
                 resolve_type="weekly_report",
                 resolve_ref=resolve_ref,
-                report_scope=report_scope,
-                strategy=strategy,
                 period=period,
                 report_date=report_date,
             )
@@ -90,8 +85,6 @@ def _render_action(
                 type="send_monthly_report",
                 resolve_type="monthly_report",
                 resolve_ref=resolve_ref,
-                report_scope=report_scope,
-                strategy=strategy,
                 period=period,
                 report_date=report_date,
             )

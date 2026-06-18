@@ -117,7 +117,7 @@ Run a real LLM-backed action eval with live adapter preflight. Start the xiaoyan
 command in `docs/adapter/xiaoyan_adapter_contract.md`.
 
 ```bash
-MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:18112 \
+MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:8011 \
 MARKET_AGENT_LIVE_ADAPTER_API_KEY=scope-secret \
 uv run python scripts/eval_reply_live_adapter.py --message "请发一下周报"
 ```
@@ -130,7 +130,11 @@ YANFU_LLM_PROVIDER=openai
 YANFU_LLM_MODEL=deepseek-v4-pro
 YANFU_LLM_API_KEY=your-key
 YANFU_LLM_TIMEOUT_SECONDS=90
+YANFU_LLM_TEMPERATURE=0.1
 YANFU_LLM_MAX_TOKENS=6000
+CREWAI_VERBOSE=false
+CREWAI_MAX_ITER=5
+CREWAI_MAX_EXECUTION_TIME=120
 CREWAI_MAX_RETRY_LIMIT=2
 ```
 
@@ -154,10 +158,22 @@ Before each planner/composer/verifier model call, runtime state is projected int
 AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT=4
 AGENT_CONTEXT_MAX_HISTORY_MESSAGE_CHARS_INLINE=1200
 AGENT_CONTEXT_MAX_EVIDENCE_CHARS_INLINE=6000
+AGENT_CONTEXT_MAX_ANSWER_EVIDENCE_CHARS_INLINE=1000000
 AGENT_CONTEXT_LARGE_RESULT_PREVIEW_CHARS=1200
-AGENT_CONTEXT_TOKEN_BUDGET=24000
+AGENT_CONTEXT_TOKEN_BUDGET=900000
 AGENT_CONTEXT_WARNING_THRESHOLD=0.75
 AGENT_CONTEXT_HARD_THRESHOLD=0.92
+```
+
+## Reply alignment and trace configuration
+
+```bash
+MARKET_AGENT_REPLY_ALIGNMENT_VERIFIER_ENABLED=true
+MARKET_AGENT_REPLY_ALIGNMENT_MAX_REPLANS=1
+MARKET_AGENT_REPLY_ALIGNMENT_MAX_EVIDENCE_REFETCHES=1
+MARKET_AGENT_REPLY_ALIGNMENT_MAX_RECOMPOSES=1
+MARKET_AGENT_REPLY_ALIGNMENT_MAX_TOTAL_REMEDIATIONS=2
+MARKET_AGENT_TRACE_LOG_EVENTS=false
 ```
 
 ## Adapter resolve/preflight configuration
@@ -178,10 +194,14 @@ MARKET_AGENT_DOC_MCP_BASE_URL=http://192.168.209.195:23000
 MARKET_AGENT_DOC_MCP_TIMEOUT_SECONDS=5
 MARKET_AGENT_DOC_MCP_ENABLED=false
 MARKET_AGENT_DOC_MCP_ALLOWED_CHANNEL_TYPES=bank,non_bank
+MARKET_AGENT_DOC_MCP_MAX_CHARS_PER_DOCUMENT=1000000
+MARKET_AGENT_DOC_MCP_CACHE_TTL_SECONDS=300
+MARKET_AGENT_DOC_MCP_BASELINE_CATEGORIES=常见问答
 ```
 
 The current document MCP server responds as streamable HTTP on `/mcp`, requires `Accept: application/json, text/event-stream`,
-and exposes wrapper-only tools `list_products` and `get_documents`.
+and exposes wrapper-only tools `list_products` and `get_documents`. The wrapper ranks relevant docs first, then appends
+the remaining small corpus so the composer can use the full approved knowledge base without offset paging.
 
 ## Incoming request authentication
 
@@ -219,14 +239,14 @@ action proposals after its own validation.
 - `docs/agent-architecture.md`: current agent architecture, capability registry, DomainContext, PlanSpec, EvidenceContract, guardrails, answerability, and prompt layers.
 - `docs/add-a-capability.md`: manifest-first capability extension guide with a full example.
 - `docs/domain-model.md`: 渠道/策略/产品/材料包/周报/月报 hierarchy, artifact distinctions, and source precedence.
-- `docs/guardrails.md`: input, retrieval/evidence, execution/tool, output, SendScope, and audit reason-code guidance.
+- `docs/guardrails.md`: input, retrieval/evidence, execution/tool, output, input-scope, and audit reason-code guidance.
 - `docs/keyword-matching-cleanup.md`: banned semantic matching patterns and CI enforcement.
 - `docs/support_reply_harness/README.md`: harness doc index and active source-of-truth map.
 - `docs/support_reply_harness/adr/0001-support-reply-harness.md`: architecture decision record.
 - `docs/support_reply_harness/architecture.md`: runtime shape, source hierarchy, and internal concepts.
 - `docs/support_reply_harness/guardrails.md`: deterministic guardrail pipeline and validator behavior.
 - `docs/support_reply_harness/eval_plan.md`: regression, adversarial, and golden eval plan.
-- `docs/support_reply_harness/roadmap.md`: phased implementation plan.
+- `docs/support_reply_harness/roadmap.md`: historical phased implementation plan.
 - `docs/support_reply_harness/next_session.md`: immediate coding-session handoff.
 - `docs/support_reply_harness/reference/agent_prompt_hygiene.md`: prompt/context hygiene for Codex-style coding agents.
 - `docs/adapter/xiaoyan_adapter_contract.md`: xiaoyan WeCom adapter contract and live eval commands.

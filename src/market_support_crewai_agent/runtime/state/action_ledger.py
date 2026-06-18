@@ -182,7 +182,7 @@ def _feedback_record_key(
         execution.action_type,
         execution.status,
         execution.material_type or "",
-        execution.strategy or "",
+        execution.material_pack_option or "",
         execution.material_id or "",
         execution.version or "",
     )

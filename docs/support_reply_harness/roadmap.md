@@ -1,8 +1,9 @@
 # Multi-Session Roadmap
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
-This roadmap is split into phases so future coding sessions can continue safely.
+Historical phased plan. It is retained for implementation context only; use
+`next_session.md` for the current handoff and current TODOs.
 
 ## Phase 0: decision freeze and baseline
 

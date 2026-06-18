@@ -6,7 +6,6 @@ from pydantic import Field
 
 from market_support_crewai_agent.runtime.domain.capabilities import (
     CAPABILITY_MANIFEST_REGISTRY,
-    capability_by_name,
 )
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
@@ -97,16 +96,6 @@ class AnswerabilityGate:
             canonical_context=canonical_context,
             plan=plan,
         )
-        missing_strategy = _requires_missing_strategy(
-            manifest.runtime_capability,
-            request=request,
-            canonical_context=canonical_context,
-            domain_context=domain_context,
-            plan=plan,
-        )
-        if missing_strategy and "canonical_context.selected_strategy" not in missing_runtime_inputs:
-            missing_runtime_inputs.append("canonical_context.selected_strategy")
-
         required_artifacts = list(manifest.required_artifacts)
         available_matching_artifacts = _matching_artifacts(selection.accepted)
         missing_artifacts = _missing_artifacts(required_artifacts, selection.accepted)
@@ -126,11 +115,7 @@ class AnswerabilityGate:
         ambiguity: AnswerabilityAmbiguity = "none"
         recommended: AnswerabilityResponseMode = "answer"
         reason = ""
-        if missing_strategy:
-            ambiguity = "missing_strategy"
-            recommended = "clarify"
-            reason = _strategy_reason(request)
-        elif plan.response_mode == "clarification" or plan.ambiguity_slots:
+        if plan.response_mode == "clarification" or plan.ambiguity_slots:
             ambiguity = "other"
             recommended = "clarify"
             reason = "我需要再确认一下具体需求后再处理。"
@@ -192,43 +177,6 @@ def _missing_runtime_inputs(
         for input_name in required_inputs
         if is_missing(lookup_path(runtime_inputs, input_name))
     ]
-
-
-def _requires_missing_strategy(
-    runtime_capability: str | None,
-    *,
-    request: ReplyRequest,
-    canonical_context: CanonicalContext,
-    domain_context: DomainContext,
-    plan: ExecutionPlan,
-) -> bool:
-    capability = capability_by_name(str(runtime_capability or ""))
-    if capability is None or not capability.requires_strategy_for_bank_material:
-        return False
-    if domain_context.channel_kind != "bank" and request.channel_type != "bank":
-        return False
-    if plan.selected_strategy or canonical_context.selected_strategy:
-        return False
-    strategies = _known_strategy_names(request, domain_context)
-    return len(strategies) > 1
-
-
-def _known_strategy_names(
-    request: ReplyRequest,
-    domain_context: DomainContext,
-) -> tuple[str, ...]:
-    values: list[str] = []
-    values.extend(strategy.name for strategy in domain_context.strategies)
-    values.extend(request.available_strategies)
-    seen: set[str] = set()
-    output: list[str] = []
-    for value in values:
-        text = str(value or "").strip()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        output.append(text)
-    return tuple(output)
 
 
 def _matching_artifacts(facts: tuple[EvidenceFact, ...]) -> list[str]:
@@ -332,17 +280,6 @@ def _contract_disallowed_reason(manifest, fact: EvidenceFact) -> str:
     if not fact.value:
         return "evidence_value_empty"
     return ""
-
-def _strategy_reason(request: ReplyRequest) -> str:
-    candidates = [
-        strategy.strip()
-        for strategy in request.available_strategies
-        if strategy.strip()
-    ]
-    if candidates:
-        return "材料包需要先确认具体策略：{}。".format("、".join(candidates))
-    return "材料包需要先确认具体策略。"
-
 
 def _missing_artifact_reason(manifest, missing_artifacts: list[str]) -> str:
     label = _artifact_label(missing_artifacts[0] if missing_artifacts else "")

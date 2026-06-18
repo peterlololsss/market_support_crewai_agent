@@ -21,7 +21,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -33,7 +33,6 @@ def make_plan(request: ReplyRequest, **overrides):
         "user_need": "send weekly report",
         "artifact_kind": "weekly_report",
         "action_intent": "send",
-        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -90,6 +89,31 @@ def test_decision_and_renderer_build_report_action_from_business_facts():
     assert response.actions[0].period == "20260612"
 
 
+def test_decision_adds_weekly_report_rationale_for_dynamic_metric_send():
+    request = make_request(message="500最近回撤修复得怎么样")
+    plan = make_plan(
+        request,
+        user_need="send weekly report for recent drawdown recovery",
+        risk_flags=["weekly_report_rationale_required"],
+    )
+    policy = compile_policy(request)
+    facts = [
+        resolved_fact(
+            "weekly_report",
+            "weekly:ref",
+            period="20260612",
+            report_date="2026-06-12",
+        ),
+    ]
+    business_facts = derive_business_facts(facts, request)
+
+    directive = DecisionEngine().decide(plan, business_facts, facts, request, policy)
+    response = render_directive(directive, plan, business_facts, facts)
+
+    assert response.reply.text == "这个问题需要看最新周报里的近期表现数据，我先把周报发你，具体以报告为准。"
+    assert response.actions[0].type == "send_weekly_report"
+
+
 def test_decision_requires_knowledge_composer_only_with_document_context():
     request = make_request(message="介绍一下衍复")
     policy = compile_policy(request, doc_mcp_enabled=True)
@@ -98,7 +122,6 @@ def test_decision_requires_knowledge_composer_only_with_document_context():
         user_need="answer knowledge question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["document_context"],
     )
     document_fact = EvidenceFact(
@@ -140,7 +163,6 @@ def test_decision_allows_knowledge_composer_with_report_scope_evidence():
         user_need="answer report scope question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["weekly_report"],
     )
     report_fact = EvidenceFact(
@@ -172,7 +194,6 @@ def test_decision_renders_report_period_duration_without_composer():
         user_need="answer report period question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["weekly_report"],
     )
     report_fact = EvidenceFact(
@@ -248,7 +269,6 @@ def test_decision_uses_llm_composer_for_smalltalk_without_actions():
         user_need="greeting",
         artifact_kind="smalltalk",
         action_intent="none",
-        report_scope="none",
         compliance={
             "is_compliant": True,
             "reason_code": "unrelated_request",

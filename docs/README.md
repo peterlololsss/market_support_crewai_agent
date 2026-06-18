@@ -20,6 +20,6 @@ Use `../AGENTS.md` as the short repo-wide coding contract. The files below provi
 - `support_reply_harness/architecture.md` - harness architecture.
 - `support_reply_harness/guardrails.md` - postcondition validation behavior.
 - `support_reply_harness/eval_plan.md` - evaluation plan.
-- `support_reply_harness/roadmap.md` - implementation roadmap.
+- `support_reply_harness/roadmap.md` - historical implementation roadmap.
 - `support_reply_harness/adr/0001-support-reply-harness.md` - architecture decision record.
 - `support_reply_harness/reference/agent_prompt_hygiene.md` - prompt and documentation hygiene notes.

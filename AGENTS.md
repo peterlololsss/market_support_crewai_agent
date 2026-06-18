@@ -1,6 +1,6 @@
 # Repository Agent Instructions
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 This repository contains `market-support-crewai-agent`, an external FastAPI/CrewAI reasoning service for an existing WeCom adapter. Coding agents should treat this file as the short operational contract. Use linked docs for detail only when the task touches that area.
 
@@ -87,16 +87,17 @@ Canonical implementation path: validators before planner autonomy
 
 Do not turn every past mistake into an active prompt token. For recurring failure modes, encode them as schema constraints, validators, or tests.
 
-## First safe build order
+## Current implementation baseline
 
-1. Internal enums/models for capability categories and validation results.
-2. Public `ReplyResponse` models for `reply.kind`, `reply.mentions`, and canonical typed actions.
-3. `AdapterResolveResult` and lightweight `EvidenceFact`.
-4. `compile_policy(request, ledger_summary=None)`.
-5. `PlanSpec`/`EvidenceContract` plus generic plan/reply validation.
-6. Deterministic decision engine and response renderer.
-7. Wire directive rendering/composer gating and reply validation in `reply_agent.py`.
-8. Tests that monkeypatch unsafe planner/composer/renderer outputs and verify error-on-invalid plus audit.
+The production-shaped harness path is in place:
+
+```text
+Planner LLM -> PlanSpec -> validated ExecutionPlan -> EvidenceExecutor -> EvidenceFacts
+-> BusinessFacts -> ResponseDirective -> deterministic renderer or bounded composer
+-> reply/action postcondition validator -> optional alignment verifier -> audit/runtime trace
+```
+
+When changing behavior, extend the existing manifest/policy/evidence/validator path instead of adding a parallel path.
 
 ## Test expectations
 

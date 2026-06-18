@@ -85,11 +85,11 @@ def _resolve_response(payload):
         "candidates": [],
         "channel_type": "bank",
         "available_materials": ["material", "weekly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "resolved_at": 1,
         "resolve_ref": "wecom-adapter:test",
+        "material_pack_option": payload.get("material_pack_option"),
         "period": "20260529",
-        "scope_status": "unknown",
     }
 
 
@@ -222,14 +222,11 @@ def test_adapter_resolve_schema_accepts_adapter_contract():
             "candidates": [],
             "channel_type": "non_bank",
             "available_materials": ["weekly"],
-            "available_strategies": [],
+            "material_pack_options": [],
             "resolved_at": 1,
             "resolve_ref": "wecom-adapter:test",
             "period": "20260529",
             "report_date": "2026-05-29",
-            "contains_strategy": False,
-            "generated_strategies": ["指增"],
-            "scope_status": "unknown",
             "detail": "weekly report artifact unavailable",
         }
     )
@@ -237,8 +234,6 @@ def test_adapter_resolve_schema_accepts_adapter_contract():
     assert result.status == "resolved"
     assert result.period == "20260529"
     assert result.report_date == "2026-05-29"
-    assert result.contains_strategy is False
-    assert result.generated_strategies == ["指增"]
     assert result.detail == "weekly report artifact unavailable"
 
 
@@ -254,7 +249,7 @@ def test_adapter_resolve_schema_rejects_raw_locator_detail():
                 "candidates": [],
                 "channel_type": "non_bank",
                 "available_materials": [],
-                "available_strategies": [],
+                "material_pack_options": [],
                 "resolved_at": 1,
                 "detail": "CSV file not found: /Users/ivan/private/portfolio_url_info.csv",
             }
@@ -273,7 +268,7 @@ def test_adapter_resolve_schema_rejects_raw_locator_resolve_ref():
                 "candidates": [],
                 "channel_type": "non_bank",
                 "available_materials": ["weekly"],
-                "available_strategies": [],
+                "material_pack_options": [],
                 "resolved_at": 1,
                 "resolve_ref": "https://drive.weixin.qq.com/s?k=secret",
             }
@@ -292,7 +287,7 @@ def test_adapter_resolve_schema_rejects_resolved_without_resolve_ref():
                 "candidates": [],
                 "channel_type": "non_bank",
                 "available_materials": ["weekly"],
-                "available_strategies": [],
+                "material_pack_options": [],
                 "resolved_at": 1,
             }
         )
@@ -311,7 +306,7 @@ def test_adapter_resolve_schema_rejects_removed_locator_field():
                 "candidates": [],
                 "channel_type": "non_bank",
                 "available_materials": ["weekly"],
-                "available_strategies": [],
+                "material_pack_options": [],
                 "resolved_at": 1,
                 "resolve_ref": "wecom-adapter:test",
                 removed_locator_field: "removed-locator",
@@ -331,7 +326,7 @@ def test_adapter_resolve_schema_rejects_unowned_metadata_bucket():
                 "candidates": [],
                 "channel_type": "non_bank",
                 "available_materials": ["weekly"],
-                "available_strategies": [],
+                "material_pack_options": [],
                 "resolved_at": 1,
                 "resolve_ref": "wecom-adapter:test",
                 "metadata": {"report_url": "https://drive.weixin.qq.com/s?k=secret"},
@@ -459,9 +454,9 @@ def test_adapter_client_posts_bearer_auth_and_validates_result():
         client = AdapterResolveClient(settings)
         result = client.resolve(
             AdapterResolveRequest(
-                resolve_type="weekly_report",
+                resolve_type="material_pack",
                 dist_name="测试渠道",
-                strategy="指增",
+                material_pack_option="指增",
             )
         )
     finally:
@@ -472,8 +467,8 @@ def test_adapter_client_posts_bearer_auth_and_validates_result():
     assert result.status == "resolved"
     assert result.resolve_ref == "wecom-adapter:test"
     assert ResolveHandler.payloads[0]["authorization"] == "Bearer secret"
-    assert ResolveHandler.payloads[0]["payload"]["resolve_type"] == "weekly_report"
-    assert ResolveHandler.payloads[0]["payload"]["strategy"] == "指增"
+    assert ResolveHandler.payloads[0]["payload"]["resolve_type"] == "material_pack"
+    assert ResolveHandler.payloads[0]["payload"]["material_pack_option"] == "指增"
 
 
 def test_adapter_client_posts_batch_resolve_request():

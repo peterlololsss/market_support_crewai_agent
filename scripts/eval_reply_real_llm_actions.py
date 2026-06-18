@@ -27,7 +27,7 @@ class FakePreflightService:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
         del canonical_context
         from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
@@ -36,7 +36,7 @@ class FakePreflightService:
         )
         from market_support_crewai_agent.schemas import AdapterResolveResult
 
-        resolve_strategies = resolve_strategies or {}
+        resolve_material_pack_options = resolve_material_pack_options or {}
         requested = resolve_types or [
             "material_pack",
             "weekly_report",
@@ -45,7 +45,7 @@ class FakePreflightService:
         ]
         items = []
         for resolve_type in requested:
-            strategy = resolve_strategies.get(resolve_type)
+            material_pack_option = resolve_material_pack_options.get(resolve_type)
             items.append(
                 AdapterPreflightItem(
                     resolve_type=resolve_type,
@@ -56,13 +56,13 @@ class FakePreflightService:
                             "status": "resolved",
                             "display_name": request.dist_channel_name,
                             "reason_code": "ok",
-                            "candidates": request.available_strategies,
+                            "candidates": request.material_pack_options,
                             "channel_type": request.channel_type,
                             "available_materials": request.available_materials,
-                            "available_strategies": request.available_strategies,
+                            "material_pack_options": request.material_pack_options,
+                            "material_pack_option": material_pack_option,
                             "resolved_at": 1,
                             "resolve_ref": f"{resolve_type}:eval-ref",
-                            "strategy": strategy,
                             "period": (
                                 "20260529"
                                 if resolve_type == "weekly_report"
@@ -75,16 +75,6 @@ class FakePreflightService:
                                 if resolve_type == "weekly_report"
                                 else "2026-05-31"
                                 if resolve_type == "monthly_report"
-                                else None
-                            ),
-                            "scope_status": (
-                                "included"
-                                if resolve_type in {"weekly_report", "monthly_report"} and strategy
-                                else "unknown"
-                            ),
-                            "contains_strategy": (
-                                True
-                                if resolve_type in {"weekly_report", "monthly_report"} and strategy
                                 else None
                             ),
                         }
@@ -108,7 +98,7 @@ def _request(message: str, **overrides):
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证500", "中证1000"],
+        "material_pack_options": ["中证500", "中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -142,10 +132,10 @@ async def main() -> None:
     scenarios = [
         (
             "weekly_report_action",
-            _request("请发一下周报", available_strategies=[]),
+            _request("请发一下周报", material_pack_options=[]),
         ),
         (
-            "bank_material_requires_strategy_confirmation",
+            "bank_material_default_action",
             _request("发一下材料包"),
         ),
         (
@@ -192,17 +182,17 @@ def _validate_results(results: list[dict]) -> list[dict]:
             }
         )
 
-    ambiguous = by_name.get("bank_material_requires_strategy_confirmation", {})
-    ambiguous_response = ambiguous.get("response", {})
+    bank_material = by_name.get("bank_material_default_action", {})
+    bank_material_response = bank_material.get("response", {})
     if (
-        ambiguous_response.get("reply", {}).get("kind") != "clarification"
-        or ambiguous_response.get("actions") != []
+        _action_types(bank_material_response) != ["send_material_pack"]
+        or bank_material_response.get("reply", {}).get("text") != ""
     ):
         failures.append(
             {
-                "scenario": "bank_material_requires_strategy_confirmation",
-                "reason": "expected clarification with no actions",
-                "response": ambiguous_response,
+                "scenario": "bank_material_default_action",
+                "reason": "expected resolved bank material-pack request to send material_pack",
+                "response": bank_material_response,
             }
         )
 
@@ -244,12 +234,12 @@ def _validate_results(results: list[dict]) -> list[dict]:
     if (
         _action_types(weekly_metric_response) != ["send_weekly_report"]
         or weekly_metric_actions[0].get("strategy") != "中证500"
-        or weekly_metric_response.get("reply", {}).get("text") != ""
+        or "最新周报" not in weekly_metric_response.get("reply", {}).get("text", "")
     ):
         failures.append(
             {
                 "scenario": "semantic_weekly_metric_action",
-                "reason": "expected recent drawdown-recovery metric question to route to weekly report send for 中证500",
+                "reason": "expected recent drawdown-recovery metric question to send weekly report for 中证500 with rationale text",
                 "response": weekly_metric_response,
             }
         )

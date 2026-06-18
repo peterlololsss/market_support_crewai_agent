@@ -64,12 +64,15 @@ def main() -> None:
     )
     parser.add_argument("--message", default="请发一下周报")
     parser.add_argument("--dist-name", default=os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "ScopeTest"))
-    parser.add_argument("--strategy", default=os.getenv("MARKET_AGENT_LIVE_ADAPTER_STRATEGY", "指增"))
+    parser.add_argument(
+        "--material-pack-option",
+        default=os.getenv("MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION", "指增"),
+    )
     parser.add_argument("--channel-type", choices=["bank", "non_bank"], default="bank")
     parser.add_argument("--adapter-base-url", default=_adapter_base_url())
     parser.add_argument("--adapter-api-key", default=_adapter_api_key())
     parser.add_argument("--available-materials", default="material,weekly,monthly")
-    parser.add_argument("--available-strategies", default="")
+    parser.add_argument("--material-pack-options", default="")
     parser.add_argument("--llm-timeout-seconds", default=os.getenv("YANFU_LLM_TIMEOUT_SECONDS", "90"))
     parser.add_argument("--llm-max-tokens", default=os.getenv("YANFU_LLM_MAX_TOKENS", "6000"))
     args = parser.parse_args()
@@ -84,9 +87,9 @@ def main() -> None:
 
     from market_support_crewai_agent.server.main import app
 
-    available_strategies = _csv_values(args.available_strategies)
-    if not available_strategies and args.strategy:
-        available_strategies = [args.strategy]
+    material_pack_options = _csv_values(args.material_pack_options)
+    if not material_pack_options and args.material_pack_option:
+        material_pack_options = [args.material_pack_option]
 
     payload = {
         "context_id": "live-adapter-eval-1",
@@ -99,7 +102,7 @@ def main() -> None:
         "dist_channel_name": args.dist_name,
         "sender_nickname": "live adapter eval user",
         "available_materials": _csv_values(args.available_materials),
-        "available_strategies": available_strategies,
+        "material_pack_options": material_pack_options,
         "channel_type": args.channel_type,
     }
 

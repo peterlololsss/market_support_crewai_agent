@@ -118,8 +118,6 @@ def test_reply_returns_runtime_response_without_business_rewrite(monkeypatch):
                 action_id="act-1",
                 resolve_type="weekly_report",
                 resolve_ref="weekly:ref",
-                report_scope="channel_all",
-                strategy=None,
                 period="20260529",
                 report_date="2026-05-29",
             )
@@ -148,7 +146,6 @@ def test_reply_returns_runtime_response_without_business_rewrite(monkeypatch):
                 "type": "send_weekly_report",
                 "resolve_type": "weekly_report",
                 "resolve_ref": "weekly:ref",
-                "report_scope": "channel_all",
                 "period": "20260529",
                 "report_date": "2026-05-29",
             }
@@ -331,8 +328,6 @@ def test_report_action_requires_period_and_report_date():
                 "action_id": "act-1",
                 "resolve_type": "weekly_report",
                 "resolve_ref": "weekly:ref",
-                "report_scope": "channel_all",
-                "strategy": None,
             }
         )
     except ValidationError:
@@ -341,7 +336,7 @@ def test_report_action_requires_period_and_report_date():
     raise AssertionError("report send actions must include period and report_date")
 
 
-def test_strategy_scoped_report_action_requires_strategy():
+def test_report_action_rejects_report_scope_selector():
     from pydantic import ValidationError
 
     try:
@@ -351,7 +346,7 @@ def test_strategy_scoped_report_action_requires_strategy():
                 "action_id": "act-1",
                 "resolve_type": "weekly_report",
                 "resolve_ref": "weekly:ref",
-                "report_scope": "strategy",
+                "report_scope": "channel_all",
                 "period": "20260529",
                 "report_date": "2026-05-29",
             }
@@ -359,7 +354,7 @@ def test_strategy_scoped_report_action_requires_strategy():
     except ValidationError:
         return
 
-    raise AssertionError("strategy-scoped report actions must include strategy")
+    raise AssertionError("report send actions must not include report_scope")
 
 
 def test_build_reply_uses_custom_settings_for_default_runtime_services(monkeypatch):
@@ -431,7 +426,6 @@ def test_runtime_does_not_force_send_when_planner_returns_unclear_no_action():
             user_need="unclear request meaning",
             artifact_kind="unclear",
             action_intent="none",
-            report_scope="none",
             ambiguity_slots=["request_meaning"],
             requested_capabilities=[],
         ),
@@ -457,7 +451,7 @@ def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
                 make_payload(
                     "在各个策略上的规模是怎么分布呢  然后发我个月报",
                     dist_channel_name="浦发银行",
-                    available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+                    material_pack_options=["中证1000指增", "中证A500指增", "中证全指指增"],
                 )
             )
         )
@@ -469,7 +463,7 @@ def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
     assert response.actions[0].resolve_ref == "monthly:ref"
 
 
-def test_runtime_preserves_planner_report_strategy_clarification():
+def test_runtime_preserves_planner_report_clarification():
     runtime = CrewAIReplyRuntime(
         _test_settings(),
         conversation_store=ConversationStore(),
@@ -477,7 +471,7 @@ def test_runtime_preserves_planner_report_strategy_clarification():
     )
     install_fake_planner(
         runtime,
-        make_weekly_plan_spec(report_scope="ambiguous", ambiguity_slots=["strategy"]),
+        make_weekly_plan_spec(ambiguity_slots=["report_query"]),
     )
 
     response = asyncio.run(
@@ -485,7 +479,7 @@ def test_runtime_preserves_planner_report_strategy_clarification():
             ReplyRequest.model_validate(
                 make_payload(
                     "[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
-                    available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+                    material_pack_options=["中证1000指增", "中证A500指增", "中证全指指增"],
                 )
             )
         )
@@ -495,7 +489,7 @@ def test_runtime_preserves_planner_report_strategy_clarification():
     assert response.actions == []
 
 
-def test_runtime_uses_planner_resolved_strategy_followup_for_weekly_action():
+def test_runtime_uses_planner_resolved_followup_for_weekly_action():
     store = ConversationStore(max_messages=12)
     store.save_turn(
         "wecom:group-1:sender-1",
@@ -515,9 +509,7 @@ def test_runtime_uses_planner_resolved_strategy_followup_for_weekly_action():
     install_fake_planner(
         runtime,
         make_weekly_plan_spec(
-            user_need="send prior weekly report request for clarified strategy",
-            report_scope="strategy",
-            selected_strategy="中证1000指增",
+            user_need="send prior weekly report request after clarification",
             requested_capabilities=["weekly_report"],
             ambiguity_slots=[],
         ),
@@ -528,17 +520,15 @@ def test_runtime_uses_planner_resolved_strategy_followup_for_weekly_action():
             ReplyRequest.model_validate(
                 make_payload(
                     "中证1000的",
-                    available_strategies=["中证1000指增", "中证A500指增", "中证全指指增"],
+                    material_pack_options=["中证1000指增", "中证A500指增", "中证全指指增"],
                 )
             )
         )
     )
 
-    assert preflight.resolve_strategies == {"weekly_report": "中证1000指增"}
+    assert preflight.resolve_material_pack_options == {}
     assert response.reply.kind == "answer"
     assert response.actions[0].type == "send_weekly_report"
-    assert response.actions[0].report_scope == "strategy"
-    assert response.actions[0].strategy == "中证1000指增"
 
 def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch):
     audit_store = AuditStore()
@@ -561,8 +551,6 @@ def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch
                     action_id="act-1",
                     resolve_type="weekly_report",
                     resolve_ref="weekly:ref",
-                    report_scope="channel_all",
-                    strategy=None,
                     period="20260529",
                     report_date="2026-05-29",
                 )
@@ -621,7 +609,6 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
             artifact_kind="knowledge_answer",
             action_intent="answer",
             requested_capabilities=["document_context"],
-            report_scope="none",
             ambiguity_slots=[],
         ),
     )
@@ -754,7 +741,6 @@ def test_alignment_verifier_replan_path_includes_feedback():
             action_intent="answer",
             requested_capabilities=["document_context"],
             evidence_query="月报 年化收益率 展示规则",
-            report_scope="none",
             ambiguity_slots=[],
         ),
     ]
@@ -791,8 +777,6 @@ def test_alignment_verifier_replan_path_includes_feedback():
                             resolve_ref="weekly:ref",
                             period="20260529",
                             report_date="2026-05-29",
-                            scope_status="included",
-                            contains_strategy=True,
                         )
                     ]
                 )
@@ -863,7 +847,6 @@ def test_alignment_verifier_refetches_document_context_with_refined_query():
             action_intent="answer",
             requested_capabilities=["document_context"],
             evidence_query="年化收益率",
-            report_scope="none",
             ambiguity_slots=[],
         ),
     )
@@ -949,7 +932,6 @@ def test_alignment_verifier_refetches_report_scope_products_from_typed_refetch()
             action_intent="answer",
             requested_capabilities=["weekly_report"],
             evidence_query=None,
-            report_scope="none",
             ambiguity_slots=[],
         ),
     )
@@ -1116,7 +1098,6 @@ def test_alignment_verifier_failure_preserves_non_compliant_refusal_text():
             user_need="refuse private contact request",
             artifact_kind="refusal",
             action_intent="refuse",
-            report_scope="none",
             ambiguity_slots=[],
             requested_capabilities=[],
             compliance={
@@ -1159,7 +1140,6 @@ def test_alignment_verifier_recompose_once():
             action_intent="answer",
             requested_capabilities=["document_context"],
             evidence_query="衍复 公司介绍",
-            report_scope="none",
             ambiguity_slots=[],
         ),
     )
@@ -1245,7 +1225,6 @@ def test_runtime_uses_smalltalk_composer_for_triggered_greeting():
             user_need="greeting",
             artifact_kind="smalltalk",
             action_intent="none",
-            report_scope="none",
             ambiguity_slots=[],
             compliance={
                 "is_compliant": True,
@@ -1301,7 +1280,6 @@ def test_runtime_skips_knowledge_composer_without_document_evidence():
             artifact_kind="knowledge_answer",
             action_intent="answer",
             requested_capabilities=["document_context"],
-            report_scope="none",
             ambiguity_slots=[],
         ),
     )
@@ -1347,7 +1325,6 @@ def test_runtime_raises_when_composer_returns_invalid_reply_contract():
             artifact_kind="knowledge_answer",
             action_intent="answer",
             requested_capabilities=["document_context"],
-            report_scope="none",
             ambiguity_slots=[],
         ),
     )

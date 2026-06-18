@@ -7,8 +7,7 @@ PlanSpec compact schema:
   "domain_scope": {
     "channel_id": "DomainContext channel id or unknown",
     "channel_kind": "bank|non_bank|unknown",
-    "strategy_id": null or "DomainContext strategy id",
-    "strategy_name": null or "canonical strategy name",
+    "material_pack_option": null or "exact value from request.material_pack_options",
     "product_ids": [],
     "time_range": null or {"period": null, "start": null, "end": null, "label": null}
   },
@@ -44,4 +43,4 @@ Rules:
 - Knowledge answers: answerability_policy=answer and selected_capability_id should be an answer or summary capability whose manifest evidence contract can support the requested answer.
 - Missing evidence or missing required artifact: use answerability_policy=abstain or clarify according to the selected capability's fallback/abstention guidance. Do not answer from history or model memory unless the EvidenceContract explicitly allows history.
 - Handoff, refusal, smalltalk, and no-reply: use the matching handoff/general capability from Capability registry JSON.
-- EvidenceContract required_scope_match names structured fields only: channel_id, channel_kind, strategy_id, strategy_name, time_range, product_id, product_ids, artifact_type.
+- EvidenceContract required_scope_match names structured fields only: channel_id, channel_kind, material_pack_option, time_range, product_id, product_ids, artifact_type.

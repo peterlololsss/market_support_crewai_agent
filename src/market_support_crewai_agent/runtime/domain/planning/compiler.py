@@ -20,7 +20,6 @@ from market_support_crewai_agent.runtime.domain.plan_spec import (
 )
 from market_support_crewai_agent.runtime.domain.planning.models import (
     ActionIntentSpec,
-    ActionReportScope,
     AdapterResolveSpec,
     ComplianceDecision,
     ExecutionPlan,
@@ -36,9 +35,9 @@ def compile_plan_spec(
     policy: PolicyManifest,
     domain_context: DomainContext | None = None,
 ) -> ExecutionPlan:
-    del request, canonical_context, policy
+    del request, canonical_context, policy, domain_context
     manifest = CAPABILITY_MANIFEST_REGISTRY.find(spec.selected_capability_id)
-    selected_strategy = spec.domain_scope.strategy_name or spec.domain_scope.strategy_id
+    material_pack_option = spec.domain_scope.material_pack_option
     compliance_reason_code = _compliance_reason_code_for_plan_spec(spec)
     compliance = ComplianceDecision(
         is_compliant=False if spec.answerability_policy == "refuse" else True,
@@ -56,7 +55,7 @@ def compile_plan_spec(
             answer_capabilities=[],
             adapter_resolves=[],
             action_intents=[],
-            selected_strategy=selected_strategy,
+            material_pack_option=material_pack_option,
             plan_spec=spec,
         )
 
@@ -79,20 +78,17 @@ def compile_plan_spec(
                 _adapter_resolves_from_plan_spec(
                     spec,
                     capability.name,
-                    selected_strategy,
+                    material_pack_option,
                 )
             )
         if answerability == "send" and capability.side_effect_action_type is not None:
-            report_scope = _report_scope_from_plan_spec(capability.name, selected_strategy)
             action_intents.append(
                 ActionIntentSpec(
                     action_type=capability.side_effect_action_type,
                     capability=capability.name,
-                    report_scope=report_scope,
-                    strategy=_action_strategy(
+                    material_pack_option=_action_material_pack_option(
                         capability.name,
-                        selected_strategy,
-                        report_scope,
+                        material_pack_option,
                     ),
                 )
             )
@@ -106,11 +102,6 @@ def compile_plan_spec(
         adapter_resolves = []
         action_intents = []
 
-    if domain_context is not None and selected_strategy:
-        resolved = domain_context.strategy_by_name(selected_strategy)
-        if resolved is not None:
-            selected_strategy = resolved.name
-
     return ExecutionPlan(
         user_need=spec.user_intent_summary,
         artifact_kind=artifact_kind,
@@ -121,7 +112,7 @@ def compile_plan_spec(
         answer_capabilities=_unique_capabilities(answer_capabilities),
         adapter_resolves=_unique_adapter_resolves(adapter_resolves),
         action_intents=action_intents,
-        selected_strategy=selected_strategy,
+        material_pack_option=material_pack_option,
         plan_spec=spec,
     )
 
@@ -174,7 +165,7 @@ def _artifact_kind_for_manifest(manifest, response_mode: ResponseMode) -> Artifa
 def _adapter_resolves_from_plan_spec(
     spec: PlanSpec,
     capability_name: CapabilityName,
-    selected_strategy: str | None,
+    material_pack_option: str | None,
 ) -> list[AdapterResolveSpec]:
     tools = list(spec.required_tools)
     if not tools:
@@ -186,34 +177,21 @@ def _adapter_resolves_from_plan_spec(
             continue
         resolve_type = tool.removeprefix("adapter_resolve.")
         capability = capability_by_name(capability_name)
-        strategy = (
-            selected_strategy
+        option = (
+            material_pack_option
             if capability is not None
-            and (
-                capability.is_report
-                or capability.requires_strategy_for_bank_material
-            )
+            and capability.supports_material_pack_option
             else None
         )
         resolves.append(
             AdapterResolveSpec(
                 resolve_type=resolve_type,  # type: ignore[arg-type]
-                strategy=strategy,
+                material_pack_option=option,
             )
         )
     if not resolves:
-        resolves.extend(_adapter_resolves(capability_name, selected_strategy))
+        resolves.extend(_adapter_resolves(capability_name, material_pack_option))
     return resolves
-
-
-def _report_scope_from_plan_spec(
-    capability_name: CapabilityName,
-    selected_strategy: str | None,
-) -> ActionReportScope:
-    capability = capability_by_name(capability_name)
-    if capability is None or not capability.is_report:
-        return "none"
-    return "strategy" if selected_strategy else "channel_all"
 
 
 def _evidence_query_from_plan_spec(spec: PlanSpec) -> str | None:
@@ -223,22 +201,19 @@ def _evidence_query_from_plan_spec(spec: PlanSpec) -> str | None:
     return None
 
 
-def _action_strategy(
+def _action_material_pack_option(
     capability_name: CapabilityName,
-    selected_strategy: str | None,
-    report_scope: ActionReportScope,
+    material_pack_option: str | None,
 ) -> str | None:
     capability = capability_by_name(capability_name)
     if capability is None:
         return None
-    if capability.is_report:
-        return selected_strategy if report_scope == "strategy" else None
-    return selected_strategy
+    return material_pack_option if capability.supports_material_pack_option else None
 
 
 def _adapter_resolves(
     capability_name: CapabilityName,
-    strategy: str | None,
+    material_pack_option: str | None,
 ) -> list[AdapterResolveSpec]:
     capability = capability_by_name(capability_name)
     if capability is None or capability.resolve_type is None:
@@ -246,7 +221,9 @@ def _adapter_resolves(
     return [
         AdapterResolveSpec(
             resolve_type=capability.resolve_type,
-            strategy=strategy,
+            material_pack_option=(
+                material_pack_option if capability.supports_material_pack_option else None
+            ),
         )
     ]
 
@@ -271,7 +248,7 @@ def _unique_adapter_resolves(
     seen = set()
     output: list[AdapterResolveSpec] = []
     for value in values:
-        key = (value.resolve_type, value.strategy)
+        key = (value.resolve_type, value.material_pack_option)
         if key in seen:
             continue
         seen.add(key)

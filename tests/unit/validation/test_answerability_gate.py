@@ -50,7 +50,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -61,7 +61,7 @@ def knowledge_plan(
     request: ReplyRequest,
     capability: str,
     *,
-    selected_strategy: str | None = "指增",
+    material_pack_option: str | None = "指增",
     evidence_query: str | None = None,
 ) -> ExecutionPlan:
     resolve_type = capability if capability in {"weekly_report", "monthly_report"} else None
@@ -82,7 +82,7 @@ def knowledge_plan(
             if resolve_type
             else []
         ),
-        selected_strategy=selected_strategy,
+        material_pack_option=material_pack_option,
     )
     return plan.model_copy(
         update={
@@ -96,7 +96,7 @@ def knowledge_plan(
 
 def material_product_fact(
     *products: str,
-    strategy: str | None = "指增",
+    material_pack_option: str | None = "指增",
     source_type: str = "adapter_material_pack_content",
     artifact_type: str = "material_pack",
 ) -> EvidenceFact:
@@ -104,8 +104,8 @@ def material_product_fact(
         "status": "resolved",
         "products": [{"product_name": product} for product in products],
     }
-    if strategy:
-        metadata["strategy"] = strategy
+    if material_pack_option:
+        metadata["material_pack_option"] = material_pack_option
     return EvidenceFact(
         fact_type="material_pack_product_list",
         value=True,
@@ -201,27 +201,26 @@ def test_material_pack_product_list_answers_from_material_pack_artifact():
     assert directive.text == "材料包包含：Product A、Product B。"
 
 
-def test_bank_material_pack_with_multiple_strategies_requires_clarification():
+def test_bank_material_pack_options_do_not_force_local_strategy_clarification():
     request = make_request(
-        available_strategies=["中证1000指增", "中证A500指增"],
+        material_pack_options=["中证1000指增", "中证A500指增"],
         channel_type="bank",
     )
-    plan = knowledge_plan(request, "material_pack", selected_strategy=None)
-    facts = [material_product_fact("Product A", strategy=None)]
+    plan = knowledge_plan(request, "material_pack", material_pack_option=None)
+    facts = [material_product_fact("Product A", material_pack_option=None)]
     assessment = assess(request, plan, facts)
 
-    assert assessment.can_answer is False
-    assert assessment.recommended_response_mode == "clarify"
-    assert assessment.ambiguity == "missing_strategy"
-    assert "具体策略" in assessment.user_facing_reason
+    assert assessment.can_answer is True
+    assert assessment.recommended_response_mode == "answer"
+    assert assessment.ambiguity == "none"
 
 
 def test_non_bank_single_strategy_material_pack_can_answer():
     request = make_request(
-        available_strategies=["指增"],
+        material_pack_options=["指增"],
         channel_type="non_bank",
     )
-    plan = knowledge_plan(request, "material_pack", selected_strategy=None)
+    plan = knowledge_plan(request, "material_pack", material_pack_option=None)
     assessment = assess(request, plan, [material_product_fact("Product A")])
 
     assert assessment.can_answer is True
@@ -233,7 +232,7 @@ def test_weekly_report_performance_question_answers_when_weekly_report_exists():
     plan = knowledge_plan(
         request,
         "weekly_report",
-        selected_strategy=None,
+        material_pack_option=None,
         evidence_query="performance",
     )
     assessment = assess(request, plan, [weekly_report_fact()])
@@ -353,7 +352,7 @@ def test_allow_history_uses_history_only_when_scope_matches():
     plan = _allow_history_material_plan(
         request,
         channel_id=domain_context.channel.id,
-        strategy_name="指增",
+        material_pack_option="指增",
         time_range=TimeRange(period="202606"),
     )
     fact = material_product_fact(
@@ -366,7 +365,7 @@ def test_allow_history_uses_history_only_when_scope_matches():
             **fact.__dict__,
             "metadata": {
                 **fact.metadata,
-                "strategy": "指增",
+                "material_pack_option": "指增",
             },
             "scope": ArtifactScope(
                 channel_id=domain_context.channel.id,
@@ -477,7 +476,7 @@ def _allow_history_material_plan(
     request: ReplyRequest,
     *,
     channel_id: str | None = None,
-    strategy_name: str | None = None,
+    material_pack_option: str | None = None,
     time_range: TimeRange | None = None,
 ) -> ExecutionPlan:
     plan = knowledge_plan(request, "material_pack")
@@ -488,7 +487,7 @@ def _allow_history_material_plan(
     scope = plan_spec.domain_scope.model_copy(
         update={
             "channel_id": channel_id or plan_spec.domain_scope.channel_id,
-            "strategy_name": strategy_name,
+            "material_pack_option": material_pack_option,
             "time_range": time_range,
         }
     )
@@ -505,8 +504,8 @@ def _allow_history_material_plan(
                         required_scope_match=[
                             "channel_id",
                             *(
-                                ["strategy_name"]
-                                if strategy_name is not None
+                                ["material_pack_option"]
+                                if material_pack_option is not None
                                 else []
                             ),
                             *(["time_range"] if time_range is not None else []),

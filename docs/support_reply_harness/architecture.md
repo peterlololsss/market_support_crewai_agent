@@ -1,6 +1,6 @@
 # Support Reply Harness Architecture
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 ## Problem restatement
 
@@ -23,7 +23,7 @@ group_name
 dist_channel_name
 sender_nickname
 available_materials
-available_strategies
+material_pack_options
 channel_type
 ```
 
@@ -31,6 +31,8 @@ channel_type
 registry-backed, but it is not the source of truth for weekly or monthly report availability. Report sendability is
 established by adapter resolve/preflight facts such as `weekly_report_resolvable` and `monthly_report_resolvable`,
 because existing WeCom report send paths may resolve generated report artifacts outside the distributor CSV.
+`material_pack_options` is only the adapter-provided list of material-pack routing options. It is not a general strategy
+catalog. An empty list means the current channel has no extra material-pack scope to choose before adapter resolve.
 
 `ReplyResponse` separates reply semantics, primary user-visible text, customer-visible mentions, and outbound action proposals.
 
@@ -73,7 +75,7 @@ POST /reply
   -> Evidence executor
       -> Tool input validation
       -> Adapter resolve/preflight wrapper
-      -> Material/MCP wrapper when enabled
+      -> Document MCP, report-scope, or approved-knowledge wrapper when enabled
       -> Tool output validation
   -> EvidenceFact derivation
   -> BusinessFacts derivation
@@ -82,7 +84,7 @@ POST /reply
   -> Deterministic renderer for action/refusal/clarification/handoff/unable/no_reply
   -> Reply composer LLM only for document-backed knowledge_answer
   -> Reply/action postcondition validator
-  -> Save conversation + audit trace
+  -> Save conversation + audit/runtime trace
   -> Return ReplyResponse
   -> Adapter validation before real execution
 ```
@@ -145,10 +147,14 @@ Report-specific fields when relevant:
 ```text
 period
 report_date
-strategy
-contains_strategy
-generated_strategies
-scope_status: included | excluded | unknown
+period_start
+period_end
+period_label
+scope_complete
+expected_product_count
+generated_product_count
+missing_product_count
+report_sections
 ```
 
 Adapter resolve results are business-safe structured data. They omit raw send targets, filesystem paths, tokens, phone numbers, internal notes, and adapter execution records.
@@ -158,13 +164,17 @@ Adapter resolve results are business-safe structured data. They omit raw send ta
 Lightweight internal fact records derived from adapter resolve and deterministic evidence. Initial fact types:
 
 ```text
-report_contains_strategy
-report_scope_status
 material_pack_resolvable
 weekly_report_resolvable
 monthly_report_resolvable
 sales_mention_resolvable
+report_scope_summary
+report_scope_match
+report_scope_products
+report_period
 recent_executed_action
+document_context
+document_context_unavailable
 ```
 
 The initial harness uses these facts to validate high-risk claims and actions, without building full per-sentence claim mapping.
@@ -256,7 +266,7 @@ weekly_report
 monthly_report
 sales_mention
 recent_executed_actions
-requested_strategy_status
+requested_material_pack_option_status
 user_permission
 ```
 
@@ -330,28 +340,21 @@ available tools: list_products, get_documents
 
 These tools remain wrapper-only. They are not attached directly to CrewAI agents.
 
-## Weekly report absence semantics
+## Weekly report content semantics
 
-If deterministic report evidence has `contains_strategy=false`, the reply may state that the report does not include the strategy.
+Report-scope evidence answers questions about what products or sections are inside a weekly/monthly report. It is read evidence for knowledge answers, not a selector for sending a partial report.
 
-If adapter-provided generated-strategy/scope metadata explicitly has `scope_status=excluded`, the reply may state that the strategy is outside the report generation scope.
-
-If scope metadata is unavailable, the reply should use conservative wording and escalate or clarify according to policy.
-
-The current xiaoyan adapter returns positive report-scope evidence when generated markdown explicitly matches the requested strategy. It does not emit negative exclusion evidence yet, so absent matches remain `unknown`.
+If adapter-provided report-scope evidence is unavailable, the reply should use conservative wording and abstain, clarify, or hand off according to policy. The harness must not infer report contents from free-form query text.
 
 ## Material pack and report sending semantics
 
 `send_material_pack`, `send_weekly_report`, and `send_monthly_report` are distinct action proposals.
 
-Report actions carry the execution selector in the public action payload:
-`report_scope=channel_all` means send the adapter-resolved channel report package, and
-`report_scope=strategy` means the user asked for a specific strategy/product that must be confirmed as covered by the
-report. Send actions always include adapter-safe `resolve_ref`; report actions also include optional `period` and
-`report_date` when the adapter supplied them. Unknown or multi-strategy report ranges must clarify or hand off instead
-of sending.
+Weekly and monthly report actions send the whole adapter-resolved report. They do not carry `report_scope`, `strategy`, or `material_pack_option`. Send actions always include adapter-safe `resolve_ref`; report actions also include `period` and `report_date` when the adapter supplied them. Questions about report contents use report-scope evidence and a knowledge answer instead of scoped send actions.
 
-A channel may have multiple strategies. A material pack may cover multiple strategies. Non-bank channels may have one default pack; bank channels may split strategies across multiple packs. If a bank-channel material-pack request does not specify enough strategy or pack information to resolve one pack, the harness asks for clarification.
+A material pack may be default-scoped or split across adapter-owned material-pack options. The harness proposes a typed
+material-pack send for clear send requests, and the adapter resolve result decides whether the request is resolved,
+ambiguous, or unavailable. If adapter resolve returns ambiguous candidates, the harness asks for clarification.
 
 The adapter is the source of truth for channel-scoped sendability and fetching. The harness waits for adapter resolve/preflight feedback before composing a final reply/action.
 
@@ -361,11 +364,12 @@ The adapter-to-harness request exposes harness-oriented identity fields:
 
 ```text
 conversation_key
-inbound_message_id
-sender_id
-receiver_id / bot_id when needed
-send_time
 context_id optional trace id
+group_id
+sender_id
+group_name
+dist_channel_name
+sender_nickname
 ```
 
 The adapter validates the full `ReplyResponse`, creates persistent outbox/execution records, executes the primary reply and actions, derives operation keys from inbound message identity plus reply/action identity, and writes adapter execution results for ledger/audit.

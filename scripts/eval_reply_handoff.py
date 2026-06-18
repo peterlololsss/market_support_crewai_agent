@@ -30,7 +30,7 @@ class FakePreflightService:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
         del canonical_context
         from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
@@ -39,7 +39,7 @@ class FakePreflightService:
         )
         from market_support_crewai_agent.schemas import AdapterResolveResult
 
-        resolve_strategies = resolve_strategies or {}
+        resolve_material_pack_options = resolve_material_pack_options or {}
         requested = resolve_types or [
             "material_pack",
             "weekly_report",
@@ -49,7 +49,7 @@ class FakePreflightService:
         items = []
         for resolve_type in requested:
             status = self.status_by_type.get(resolve_type, "resolved")
-            strategy = resolve_strategies.get(resolve_type)
+            material_pack_option = resolve_material_pack_options.get(resolve_type)
             items.append(
                 AdapterPreflightItem(
                     resolve_type=resolve_type,
@@ -60,23 +60,22 @@ class FakePreflightService:
                             "status": status,
                             "display_name": request.dist_channel_name,
                             "reason_code": "ok" if status == "resolved" else "not_found",
-                            "candidates": request.available_strategies,
+                            "candidates": request.material_pack_options,
                             "channel_type": request.channel_type,
                             "available_materials": request.available_materials,
-                            "available_strategies": request.available_strategies,
+                            "material_pack_options": request.material_pack_options,
+                            "material_pack_option": material_pack_option,
                             "resolved_at": 1,
                             "resolve_ref": (
                                 f"{resolve_type}:eval-ref"
                                 if status == "resolved"
                                 else None
                             ),
-                            "strategy": strategy,
                             "period": (
                                 "20260529"
                                 if resolve_type == "weekly_report"
                                 else None
                             ),
-                            "scope_status": "unknown",
                         }
                     ),
                 )
@@ -98,7 +97,7 @@ def _request(message: str, **overrides):
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证500", "中证1000"],
+        "material_pack_options": ["中证500", "中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -132,12 +131,12 @@ async def main() -> None:
     scenarios = [
         (
             "customer_service_handoff",
-            _request("我要找顾总帮忙对接一下", available_strategies=[]),
+            _request("我要找顾总帮忙对接一下", material_pack_options=[]),
             FakePreflightService(),
         ),
         (
             "unavailable_material_pack_handoff",
-            _request("请发一下中证1000材料包", available_strategies=["中证1000"]),
+            _request("请发一下中证1000材料包", material_pack_options=["中证1000"]),
             FakePreflightService({"material_pack": "missing"}),
         ),
     ]

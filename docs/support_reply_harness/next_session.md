@@ -1,6 +1,6 @@
 # Next Coding Session Handoff
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 This file is the practical starting point for the next coding agent session.
 
@@ -32,6 +32,7 @@ deterministic response renderer
 conversation history
 adapter execution feedback ledger
 audit trace with compact CrewAI stage usage metadata
+runtime trace spans/events in audit and optional live logs
 ContextProjectionManager and ModelVisibleContext before planner/composer/verifier prompts
 configurable input message length guardrail
 CrewAI planner/composer timeout budget
@@ -44,7 +45,8 @@ Runtime fake-dependency check script at `scripts/check_reply_runtime_fake_deps.p
 Document MCP is not attached directly to CrewAI agents. It is enabled only when
 `MARKET_AGENT_DOC_MCP_ENABLED=true` and `MARKET_AGENT_DOC_MCP_BASE_URL` is configured. The planner sees only the
 policy-allowed capability name `query_internal_company_info`; the fixed wrapper calls `/mcp` with `list_products` and
-`get_documents`, then passes bounded `document_context` EvidenceFacts to the composer.
+`get_documents`, ranks relevant docs first, appends the remaining small corpus, then passes bounded `document_context`
+EvidenceFacts to the composer.
 
 ## Module ownership
 
@@ -80,24 +82,26 @@ tests/unit/evidence/test_report_scope_evidence.py
 tests/integration/runtime/test_reply_contract.py
 ```
 
-## Minimal first implementation shape
+## Current implementation focus
 
-The first code change should make the current runtime safer even if the LLM is still simple.
+The bootstrap path is complete. New work should be a small extension to one of these existing seams:
 
-Recommended order:
+```text
+CapabilityManifest / EvidenceContract
+PolicyManifest / PlanSpec compiler
+EvidenceExecutor wrapper
+BusinessFacts derivation
+ResponseDirective / renderer
+reply, output, answerability, or alignment validator
+ContextProjectionManager / prompt assembly
+ledger, audit, or runtime trace
+```
 
-1. Add internal enums/models for capability categories and validation results.
-2. Add/confirm response enums/models: `reply.kind`, `reply.mentions`, `send_material_pack`, `send_weekly_report`, `send_monthly_report`.
-3. Add `AdapterResolveResult` and lightweight `EvidenceFact`.
-4. Add `compile_policy(request, ledger_summary=None)`.
-5. Add `validate_reply(response, directive, plan, business_facts, evidence_facts, policy)`.
-6. Add deterministic decision engine and response renderer.
-7. Wire directive rendering/composer gating and reply validation in `reply_agent.py`.
-8. Add tests that monkeypatch fake agent outputs and renderer outputs to ensure unsafe responses raise and audit is recorded.
+Do not add a second planner, renderer, validator pipeline, or adapter contract shape.
 
-## First validator cases
+## Current validator floor
 
-Start with deterministic checks:
+Keep these deterministic checks green before adding model autonomy:
 
 ```text
 outbound actions match public schema
@@ -106,40 +110,12 @@ send_material_pack requires material_pack_resolvable=true
 send_weekly_report requires weekly_report_resolvable=true
 send_monthly_report requires monthly_report_resolvable=true
 reply.mentions requires sales_mention_resolvable=true
-generation-scope exclusion text requires report_scope_status=excluded
-report-non-inclusion text requires report_contains_strategy=false
+report-content claims require report_scope_summary/report_scope_match/report_scope_products evidence
 action type is allowed by compiled policy
+source/artifact/history use matches selected EvidenceContract
 ```
 
-Use no LLM judge for action legality in the first pass.
-
-## First refusal cases
-
-Unavailable material:
-
-```text
-reply.kind=human_handoff
-reply.text="目前这个渠道下我没有看到可发送的对应材料，我帮你 @销售 确认。"
-reply.mentions=[sales]
-actions=[]
-```
-
-Ambiguous request:
-
-```text
-reply.kind=clarification
-reply.text="我需要再确认一下你指的是哪一个材料或策略。"
-actions=[]
-```
-
-No-reply response:
-
-```text
-reply.kind=no_reply
-reply.text=""
-reply.mentions=[]
-actions=[]
-```
+Use no LLM judge for action legality.
 
 ## Planner boundary
 
@@ -172,7 +148,7 @@ Ledger facts now feed evidence/business state before composition. The runtime co
 - Text/action mismatch is caught.
 - Unsupported report-scope claims are caught.
 - Deterministic renderer exists.
-- Audit trace or structured validation result is available for debugging.
+- Audit/runtime trace or structured validation result is available for debugging.
 - `knowledge_answer` reply text requires document MCP evidence when that response mode is used.
 
 ## Context Is A Projection

@@ -41,7 +41,7 @@ def make_request(message: str = "发一下中证1000材料", **overrides) -> Rep
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证1000"],
+        "material_pack_options": ["中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -107,8 +107,6 @@ def test_alignment_verifier_prompt_snapshot():
                 action_id="act-1",
                 resolve_type="weekly_report",
                 resolve_ref="weekly:resolve-ref",
-                report_scope="channel_all",
-                strategy=None,
                 period="20260529",
                 report_date="2026-05-29",
             )

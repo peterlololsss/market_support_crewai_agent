@@ -95,7 +95,6 @@ def test_validate_reply_blocks_action_not_in_execution_plan():
         request,
         user_need="send monthly report",
         artifact_kind="monthly_report",
-        report_scope="channel_all",
     )
     response = ReplyResponse(
         response_id="resp-1",
@@ -144,7 +143,7 @@ def test_validate_reply_blocks_resolve_ref_mismatch():
 def test_validate_reply_does_not_use_send_claim_keywords_as_final_guard():
     request = make_request(
         message="材料包里有哪些产品",
-        available_strategies=["指增"],
+        material_pack_options=["指增"],
     )
     plan = material_answer_plan(request)
     response = ReplyResponse(
@@ -285,28 +284,20 @@ def test_validate_reply_allows_action_reply_text_from_knowledge_composer_with_ev
     assert result.valid is True
 
 
-def test_validate_reply_blocks_report_action_when_evidence_excludes_strategy():
+def test_validate_reply_allows_report_action_without_report_scope_selector():
     request = make_request(message="请发中证1000周报")
     plan = make_plan(
         request,
-        user_need="send weekly report covering 中证1000",
+        user_need="send weekly report",
         artifact_kind="weekly_report",
-        report_scope="strategy",
-        selected_strategy="中证1000",
     )
     response = ReplyResponse(
         response_id="resp-1",
         reply=PrimaryReply(kind="answer", text=""),
-        actions=[weekly_action(report_scope="strategy", strategy="中证1000")],
+        actions=[weekly_action()],
     )
     facts = [
-        resolved_fact("weekly_report", "weekly:ref", strategy="中证1000"),
-        EvidenceFact(
-            fact_type="report_contains_strategy",
-            value=False,
-            resolve_type="weekly_report",
-            metadata={"strategy": "中证1000"},
-        ),
+        resolved_fact("weekly_report", "weekly:ref"),
     ]
 
     result = validate_reply(
@@ -318,11 +309,7 @@ def test_validate_reply_blocks_report_action_when_evidence_excludes_strategy():
         compile_policy(request),
     )
 
-    assert result.valid is False
-    assert any(
-        issue.code == "report_action_strategy_unavailable"
-        for issue in result.issues
-    )
+    assert result.valid is True
 
 
 def test_validate_reply_blocks_non_compliant_response_shape():
@@ -332,7 +319,6 @@ def test_validate_reply_blocks_non_compliant_response_shape():
         user_need="refuse expected return request",
         artifact_kind="refusal",
         action_intent="refuse",
-        report_scope="none",
         compliance={
             "is_compliant": False,
             "reason_code": "expected_or_target_return",
@@ -374,7 +360,6 @@ def test_validate_reply_requires_document_evidence_for_knowledge_answer():
         user_need="answer knowledge question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["document_context"],
         compliance={
             "is_compliant": True,
@@ -410,7 +395,7 @@ def test_validate_reply_requires_document_evidence_for_knowledge_answer():
 def test_retrieval_guard_blocks_weekly_evidence_for_material_pack_question():
     request = make_request(
         message="材料包里有哪些产品",
-        available_strategies=["指增"],
+        material_pack_options=["指增"],
     )
     plan = material_answer_plan(request)
     weekly_fact = EvidenceFact(
@@ -435,7 +420,7 @@ def test_retrieval_guard_blocks_weekly_evidence_for_material_pack_question():
 
 
 def test_retrieval_guard_blocks_wrong_channel_evidence():
-    request = make_request(available_strategies=["指增"])
+    request = make_request(material_pack_options=["指增"])
     plan = material_answer_plan(request)
     fact = material_product_fact(
         "Product A",
@@ -453,10 +438,12 @@ def test_retrieval_guard_blocks_wrong_channel_evidence():
     assert decision.reason_code == "channel_scope_mismatch"
 
 
-def test_retrieval_guard_blocks_wrong_strategy_evidence():
-    request = make_request(available_strategies=["指增"])
-    plan = material_answer_plan(request).model_copy(update={"selected_strategy": "指增"})
-    fact = material_product_fact("Product A", strategy="中证500")
+def test_retrieval_guard_blocks_wrong_material_pack_option_evidence():
+    request = make_request(material_pack_options=["指增"])
+    plan = material_answer_plan(request).model_copy(
+        update={"material_pack_option": "指增"}
+    )
+    fact = material_product_fact("Product A", material_pack_option="中证500")
 
     decision = retrieval_source_guard(
         plan=plan,
@@ -466,11 +453,11 @@ def test_retrieval_guard_blocks_wrong_strategy_evidence():
     )
 
     assert decision.outcome == "abstain"
-    assert decision.reason_code == "strategy_scope_mismatch"
+    assert decision.reason_code == "material_pack_option_scope_mismatch"
 
 
 def test_retrieval_guard_blocks_history_when_current_material_artifact_required():
-    request = make_request(available_strategies=["指增"])
+    request = make_request(material_pack_options=["指增"])
     plan = material_answer_plan(request)
     fact = material_product_fact(
         "Product A",
@@ -490,9 +477,9 @@ def test_retrieval_guard_blocks_history_when_current_material_artifact_required(
 
 
 def test_retrieval_guard_allows_valid_material_pack_artifact():
-    request = make_request(available_strategies=["指增"])
+    request = make_request(material_pack_options=["指增"])
     plan = material_answer_plan(request)
-    fact = material_product_fact("Product A", strategy="指增")
+    fact = material_product_fact("Product A", material_pack_option="指增")
 
     decision = retrieval_source_guard(
         plan=plan,
@@ -587,7 +574,7 @@ def test_execution_tool_guard_allows_document_tool_through_capability_policy():
 
 
 def test_output_guard_does_not_use_product_keyword_scan_as_final_authority():
-    request = make_request(available_strategies=["指增"])
+    request = make_request(material_pack_options=["指增"])
     plan = material_answer_plan(request)
     fact = material_product_fact("Product A")
     response = ReplyResponse(
@@ -616,7 +603,7 @@ def test_output_guard_does_not_use_product_keyword_scan_as_final_authority():
 
 
 def test_runtime_keeps_output_when_only_old_product_keyword_scan_would_fail():
-    request = make_request(available_strategies=["指增"])
+    request = make_request(material_pack_options=["指增"])
     plan = material_answer_plan(request)
     fact = material_product_fact("Product A")
     directive = make_directive(
@@ -657,7 +644,7 @@ def test_runtime_keeps_output_when_only_old_product_keyword_scan_would_fail():
 
 
 def test_output_guard_requires_composer_to_cite_allowed_evidence_ids():
-    request = make_request(available_strategies=["指增"])
+    request = make_request(material_pack_options=["指增"])
     plan = material_answer_plan(request)
     fact = material_product_fact("Product A")
     response = ReplyResponse(
@@ -698,7 +685,7 @@ def test_output_guard_requires_composer_to_cite_allowed_evidence_ids():
 def test_validate_reply_rejects_claim_citing_history_source():
     request = make_request(
         message="材料包里有哪些产品",
-        available_strategies=["指增"],
+        material_pack_options=["指增"],
     )
     plan = material_answer_plan(request)
     history_fact = material_product_fact(
@@ -750,7 +737,6 @@ def test_validate_reply_allows_report_scope_evidence_for_knowledge_answer():
         user_need="answer report scope question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["weekly_report"],
         compliance={
             "is_compliant": True,
@@ -797,7 +783,6 @@ def test_validate_reply_allows_report_period_evidence_for_knowledge_answer():
         user_need="answer report period question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["weekly_report"],
         compliance={
             "is_compliant": True,
@@ -849,7 +834,6 @@ def test_validate_reply_allows_knowledge_composer_to_downgrade_to_unable():
         user_need="answer company question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["document_context"],
         compliance={
             "is_compliant": True,
@@ -888,7 +872,6 @@ def test_validate_reply_allows_whitelisted_image_marker_from_evidence():
         user_need="answer WeChat public account question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["document_context"],
         compliance={
             "is_compliant": True,
@@ -935,7 +918,6 @@ def test_validate_reply_blocks_image_marker_outside_whitelist():
         user_need="answer image question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["document_context"],
         compliance={
             "is_compliant": True,
@@ -983,7 +965,6 @@ def test_validate_reply_blocks_image_marker_missing_from_evidence():
         user_need="answer WeChat public account question",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["document_context"],
         compliance={
             "is_compliant": True,

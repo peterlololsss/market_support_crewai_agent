@@ -1,6 +1,6 @@
 # Support Reply Harness Docs
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-17.
 
 This directory is the active design source for the evidence-grounded support reply harness in `market-support-crewai-agent`.
 
@@ -13,6 +13,7 @@ This directory is the active design source for the evidence-grounded support rep
 - Current runtime file: `src/market_support_crewai_agent/runtime/orchestration/reply_agent.py`.
 - Public contracts: `src/market_support_crewai_agent/schemas.py`.
 - Conversation store: `src/market_support_crewai_agent/runtime/state/conversation_store.py`.
+- Runtime trace: `src/market_support_crewai_agent/runtime/state/runtime_trace.py`.
 - Existing tests: `tests/integration/runtime/test_reply_contract.py`, `tests/contract/test_adapter_preflight.py`, `tests/unit/validation/test_structured_guardrails.py`, `tests/unit/state/test_action_feedback.py`.
 
 ## Active decision
@@ -36,7 +37,7 @@ Focused references:
 architecture.md                      runtime shape and source hierarchy
 guardrails.md                        guardrail/validator details
 eval_plan.md                         eval cases and acceptance checks
-roadmap.md                           phase plan and open decisions
+roadmap.md                           historical phase plan
 adr/0001-support-reply-harness.md     frozen architecture decision
 reference/agent_prompt_hygiene.md    agent prompt/context hygiene
 ../adapter/xiaoyan_adapter_contract.md adapter contract and live eval

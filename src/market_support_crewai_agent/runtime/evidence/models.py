@@ -29,8 +29,6 @@ EvidenceFactType = Literal[
     "monthly_report_resolvable",
     "sales_mention_resolvable",
     "report_period",
-    "report_contains_strategy",
-    "report_scope_status",
     "report_scope_summary",
     "report_scope_match",
     "report_scope_products",
@@ -142,8 +140,8 @@ def evidence_facts_from_preflight(
                         "reason_code": (
                             result.reason_code if result is not None else ""
                         ),
-                        "strategy": (
-                            result.strategy if result is not None else None
+                        "material_pack_option": (
+                            result.material_pack_option if result is not None else None
                         ),
                         "period": (
                             result.period if result is not None else None
@@ -209,36 +207,6 @@ def evidence_facts_from_preflight(
                         result=result,
                     )
                 )
-            if result.contains_strategy is not None:
-                facts.append(
-                    _fact(
-                        fact_type="report_contains_strategy",
-                        value=result.contains_strategy,
-                        source_id=result.resolve_type,
-                        resolve_type=result.resolve_type,
-                        metadata={
-                            "strategy": result.strategy,
-                            "period": result.period,
-                            "report_date": result.report_date,
-                        },
-                        result=result,
-                    )
-                )
-            if result.scope_status is not None:
-                facts.append(
-                    _fact(
-                        fact_type="report_scope_status",
-                        value=result.scope_status,
-                        source_id=result.resolve_type,
-                        resolve_type=result.resolve_type,
-                        metadata={
-                            "strategy": result.strategy,
-                            "period": result.period,
-                            "report_date": result.report_date,
-                        },
-                        result=result,
-                    )
-                )
     return facts
 
 
@@ -264,7 +232,7 @@ def evidence_facts_from_action_history(
                     "resolve_ref": execution.resolve_ref,
                     "resolve_ref_available": bool(execution.resolve_ref),
                     "material_type": execution.material_type,
-                    "strategy": execution.strategy,
+                    "material_pack_option": execution.material_pack_option,
                     "version": execution.version,
                     "material_ref_available": bool(execution.material_id),
                     "received_at": record.received_at.isoformat(),

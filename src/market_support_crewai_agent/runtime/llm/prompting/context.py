@@ -54,7 +54,7 @@ class IntentGateResult(StrictModel):
         "smalltalk",
     ]
     side_effect_hint: bool = False
-    named_strategy_count: int = 0
+    material_pack_option_count: int = 0
     compliance_hint: Literal["clean", "risky", "blocked", "unknown"] = "unknown"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 

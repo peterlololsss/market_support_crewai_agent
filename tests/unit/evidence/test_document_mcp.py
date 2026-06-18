@@ -34,7 +34,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证500", "中证1000"],
+        "material_pack_options": ["中证500", "中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -64,7 +64,9 @@ class FakeDocumentClient:
         self.calls = []
 
     async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
-        self.calls.append((request.message, canonical_context.selected_strategy, evidence_query))
+        self.calls.append(
+            (request.message, canonical_context.material_pack_options, evidence_query)
+        )
         return [
             DocumentEvidenceChunk(
                 document_id="衍复中证1000指数增强策略",
@@ -151,7 +153,7 @@ def test_document_mcp_evidence_service_returns_document_context_when_enabled():
     )
 
     assert fake_client.calls == [
-        ("介绍一下中证1000指增的因子贡献", "中证1000", None)
+        ("介绍一下中证1000指增的因子贡献", ("中证500", "中证1000"), None)
     ]
     assert facts[0].fact_type == "document_context"
     assert facts[0].artifact_type == "document_context"
@@ -326,7 +328,7 @@ def test_parse_mcp_sse_message():
 def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
     request = make_request(
         message="最新规模情况",
-        available_strategies=[],
+        material_pack_options=[],
         channel_type="non_bank",
     )
     canonical_context = canonicalize_request(request)
@@ -368,13 +370,15 @@ def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
 
     assert selector.calls[0]["evidence_query"] == "最新规模情况"
     assert selector.calls[0]["products"][0]["id"] == "衍复万得小市值指数增强策略"
-    assert client.requested_document_ids == [("衍复公司介绍(简介)",)]
+    assert client.requested_document_ids == [
+        ("衍复公司介绍(简介)", "衍复万得小市值指数增强策略")
+    ]
     assert [chunk.document_id for chunk in chunks] == ["衍复公司介绍(简介)"]
     assert "2026年一季度末规模" in chunks[0].text
 
 
 def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
-    request = make_request(message="最新规模情况", available_strategies=[])
+    request = make_request(message="最新规模情况", material_pack_options=[])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(
         DocumentProductSelection(
@@ -399,8 +403,8 @@ def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
     assert [chunk.document_id for chunk in chunks] == ["company"]
 
 
-def test_document_mcp_client_returns_no_context_when_selector_declines():
-    request = make_request(message="最新规模情况", available_strategies=[])
+def test_document_mcp_client_reads_all_context_when_selector_declines():
+    request = make_request(message="最新规模情况", material_pack_options=[])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
@@ -411,8 +415,8 @@ def test_document_mcp_client_returns_no_context_when_selector_declines():
 
     chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
 
-    assert chunks == []
-    assert client.requested_document_ids == []
+    assert client.requested_document_ids == [("company",)]
+    assert [chunk.document_id for chunk in chunks] == ["company"]
 
 
 def test_document_mcp_product_selection_no_active_lexical_helpers():
@@ -521,8 +525,8 @@ def test_document_mcp_evidence_service_keeps_full_document_under_raised_default_
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
     )
-    # ~12k chars: above the legacy 6000 cap, below the 16000 default ceiling, so
-    # a real-sized FAQ document is now delivered whole instead of head-truncated.
+    # ~12k chars: above the legacy 6000 cap, below the default ceiling, so a
+    # real-sized FAQ document is delivered whole instead of head-truncated.
     service = DocumentMcpEvidenceService(settings, client=LargeDocumentClient(12000))
 
     facts = asyncio.run(
@@ -540,8 +544,8 @@ def test_document_mcp_evidence_service_keeps_full_document_under_raised_default_
     assert len(str(facts[0].value)) > 6000
 
 
-def test_document_mcp_client_falls_back_to_baseline_when_selector_declines():
-    request = make_request(message="什么是过拟合？", available_strategies=[])
+def test_document_mcp_client_reads_baseline_first_when_selector_declines():
+    request = make_request(message="什么是过拟合？", material_pack_options=[])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
@@ -561,15 +565,17 @@ def test_document_mcp_client_falls_back_to_baseline_when_selector_declines():
 
     chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
 
-    # Topic absent from the FAQ summary metadata still resolves to the FAQ
-    # instead of dropping to no evidence.
-    assert client.requested_document_ids == [("常见q&a",)]
+    # Topic absent from metadata still reads broadly instead of dropping to no
+    # evidence; baseline categories are loaded first.
+    assert client.requested_document_ids == [
+        ("常见q&a", "衍复中证500指数增强策略")
+    ]
     assert [chunk.document_id for chunk in chunks] == ["常见q&a"]
     assert "过拟合" in chunks[0].text
 
 
-def test_document_mcp_client_baseline_fallback_can_be_disabled():
-    request = make_request(message="什么是过拟合？", available_strategies=[])
+def test_document_mcp_client_reads_all_docs_even_without_baseline_categories():
+    request = make_request(message="什么是过拟合？", material_pack_options=[])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
@@ -581,8 +587,8 @@ def test_document_mcp_client_baseline_fallback_can_be_disabled():
 
     chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
 
-    assert chunks == []
-    assert client.requested_document_ids == []
+    assert client.requested_document_ids == [("常见q&a",)]
+    assert [chunk.document_id for chunk in chunks] == ["常见q&a"]
 
 
 def _text_tool_result(payload: dict) -> dict:

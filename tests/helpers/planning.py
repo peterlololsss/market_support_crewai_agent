@@ -24,7 +24,7 @@ def make_plan_spec(
     answerability_policy: str | None = None,
     user_intent_summary: str | None = None,
     evidence_query: str | None = None,
-    selected_strategy: str | None = None,
+    material_pack_option: str | None = None,
     **intent_like,
 ) -> PlanSpec:
     request = request or make_request()
@@ -34,7 +34,11 @@ def make_plan_spec(
         capability_id,
         intent_like,
     )
-    strategy = _strategy_for_scope(request, manifest.runtime_capability, selected_strategy, intent_like)
+    selected_option = _material_pack_option_for_scope(
+        manifest.runtime_capability,
+        material_pack_option,
+        intent_like,
+    )
     step = {
         "step_id": "step-1",
         "description": user_intent_summary
@@ -47,7 +51,8 @@ def make_plan_spec(
         "required_tools": list(manifest.required_tools),
         "evidence_query": evidence_query or intent_like.get("evidence_query"),
     }
-    risk_flags = list(intent_like.get("ambiguity_slots") or [])
+    risk_flags = list(intent_like.get("risk_flags") or [])
+    risk_flags.extend(intent_like.get("ambiguity_slots") or [])
     compliance = intent_like.get("compliance")
     if isinstance(compliance, dict) and compliance.get("reason_code"):
         risk_flags.append(compliance["reason_code"])
@@ -59,8 +64,7 @@ def make_plan_spec(
             "domain_scope": {
                 "channel_id": request.group_id or request.conversation_key,
                 "channel_kind": request.channel_type,
-                "strategy_id": strategy,
-                "strategy_name": strategy,
+                "material_pack_option": selected_option,
                 "product_ids": [],
             },
             "required_artifacts": list(manifest.required_artifacts),
@@ -112,7 +116,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -126,7 +130,7 @@ def _capability_id_from_payload(payload: dict) -> str:
     artifact_kind = payload.get("artifact_kind", "unclear")
     action_intent = payload.get("action_intent", "none")
     requested = list(payload.get("requested_capabilities") or [])
-    if payload.get("ambiguity_slots") or payload.get("report_scope") == "ambiguous":
+    if payload.get("ambiguity_slots") or payload.get("report_query") == "ambiguous":
         return "general.clarification"
     if action_intent == "send":
         if artifact_kind == "material_pack":
@@ -173,19 +177,12 @@ def _answerability_from_capability_id(capability_id: str, payload: dict) -> str:
     return "answer"
 
 
-def _strategy_for_scope(
-    request: ReplyRequest,
+def _material_pack_option_for_scope(
     runtime_capability: str | None,
-    selected_strategy: str | None,
+    material_pack_option: str | None,
     payload: dict,
 ) -> str | None:
-    if payload.get("report_scope") == "channel_all":
+    if runtime_capability != "material_pack":
         return None
-    strategy = selected_strategy or payload.get("selected_strategy")
-    if strategy:
-        return strategy
-    if runtime_capability == "material_pack" and request.channel_type == "bank":
-        return request.available_strategies[0] if request.available_strategies else None
-    if payload.get("report_scope") == "strategy":
-        return request.available_strategies[0] if request.available_strategies else None
-    return None
+    option = material_pack_option or payload.get("material_pack_option")
+    return str(option).strip() if option else None
