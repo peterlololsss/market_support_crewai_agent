@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
 from market_support_crewai_agent.runtime.llm.prompting.profiles import prompt_profile_by_stage
-from market_support_crewai_agent.runtime.orchestration.crewai_io import run_crewai_kickoff
+from market_support_crewai_agent.runtime.orchestration.crewai_io import (
+    plan_spec_error_summary,
+    run_crewai_kickoff,
+)
 from tests.helpers.reply_contract import make_weekly_plan_spec
 
 
-def test_run_crewai_kickoff_uses_gemini_structured_schema():
+def test_run_crewai_kickoff_uses_gemini_structured_schema(caplog):
     class FakeModels:
         def generate_content(self, *, model, contents, config):
             self.model = model
@@ -46,12 +50,15 @@ def test_run_crewai_kickoff_uses_gemini_structured_schema():
 
     agent = FakeAgent()
 
+    caplog.set_level("INFO", logger="market_support_crewai_agent.runtime.orchestration.crewai_io")
     result, _ = asyncio.run(run_crewai_kickoff(agent, _program(), timeout_seconds=10))
 
     config = agent.llm.client.models.config
     assert config.response_mime_type == "application/json"
     assert config.response_json_schema["properties"]["plan_units"]["type"] == "array"
     assert result.pydantic is not None
+    assert "stage=planner_intent mode=gemini_structured" in caplog.text
+    assert "model=gemini-3-flash-preview" in caplog.text
 
 
 def test_run_crewai_kickoff_keeps_response_format_for_default_provider():
@@ -67,6 +74,21 @@ def test_run_crewai_kickoff_keeps_response_format_for_default_provider():
     asyncio.run(run_crewai_kickoff(agent, _program(), timeout_seconds=1))
 
     assert agent.kwargs["response_format"].__name__ == "PlanSpec"
+
+
+def test_plan_spec_error_summary_names_invalid_unit_path():
+    payload = make_weekly_plan_spec().model_dump(mode="json")
+    payload["plan_units"][0].pop("evidence_contract_ref", None)
+    payload["plan_units"][0]["evidence_contract"] = None
+    result = SimpleNamespace(
+        pydantic=None,
+        raw=json.dumps(payload, ensure_ascii=False),
+    )
+
+    summary = plan_spec_error_summary(result)
+
+    assert "plan_units.0" in summary
+    assert "evidence_contract_ref or inline evidence_contract" in summary
 
 
 def _program():

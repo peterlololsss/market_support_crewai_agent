@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from market_support_crewai_agent.runtime.state.action_ledger import (
     ActionLedger,
@@ -55,6 +56,7 @@ from market_support_crewai_agent.runtime.orchestration.crewai_io import (
     coerce_alignment_verdict,
     coerce_composer_output,
     coerce_planner_plan,
+    plan_spec_error_summary,
     run_crewai_kickoff,
 )
 from market_support_crewai_agent.runtime.orchestration.alignment_loop import (
@@ -453,7 +455,7 @@ class CrewAIReplyRuntime:
             raise AgentRuntimeError("CrewAI planner failed") from exc
 
         with trace_span("planner.coerce_compile"):
-            plan = coerce_planner_plan(
+            plan, error_summary = _coerce_planner_plan_with_error(
                 frame_result,
                 request,
                 canonical_context,
@@ -462,7 +464,35 @@ class CrewAIReplyRuntime:
                 history=history,
             )
         if plan is None:
-            raise AgentRuntimeError("CrewAI planner returned an invalid PlanSpec contract")
+            trace_event("planner.invalid_plan_spec", error=error_summary)
+            retry_program = _planner_retry_program(planner_program, error_summary)
+            prompt_programs.append(retry_program)
+            try:
+                frame_result, planner_execution = await run_crewai_kickoff(
+                    planner_agent,
+                    retry_program,
+                    timeout_seconds=self.settings.llm_timeout_seconds,
+                )
+                llm_executions.append(planner_execution)
+            except asyncio.TimeoutError as exc:
+                raise AgentRuntimeError("CrewAI planner retry timed out") from exc
+            except Exception as exc:
+                raise AgentRuntimeError("CrewAI planner retry failed") from exc
+            with trace_span("planner.retry_coerce_compile"):
+                plan, error_summary = _coerce_planner_plan_with_error(
+                    frame_result,
+                    request,
+                    canonical_context,
+                    policy,
+                    domain_context=domain_context,
+                    history=history,
+                )
+        if plan is None:
+            trace_event("planner.invalid_plan_spec", error=error_summary, retry=True)
+            raise AgentRuntimeError(
+                "CrewAI planner returned an invalid PlanSpec contract: "
+                f"{error_summary}"
+            )
         trace_event(
             "state.plan_compiled",
             response_mode=plan.response_mode,
@@ -852,6 +882,9 @@ class CrewAIReplyRuntime:
             "state.reply_validated",
             valid=reply_validation.valid,
             issue_count=len(reply_validation.issues),
+            error=_reply_validation_error_summary(reply_validation)
+            if not reply_validation.valid
+            else "",
             output_guard_outcome=output_decision.outcome,
         )
         return RuntimeAttemptResult(
@@ -1128,8 +1161,64 @@ def _validation_error_summary(validation: PlanValidationResult) -> str:
     return "; ".join(issue.code for issue in validation.issues) or "unknown"
 
 
+def _coerce_planner_plan_with_error(
+    frame_result,
+    request: ReplyRequest,
+    canonical_context: CanonicalContext,
+    policy: PolicyManifest,
+    *,
+    domain_context: DomainContext,
+    history: list,
+) -> tuple[ExecutionPlan | None, str]:
+    try:
+        plan = coerce_planner_plan(
+            frame_result,
+            request,
+            canonical_context,
+            policy,
+            domain_context=domain_context,
+            history=history,
+        )
+    except ValueError as exc:
+        return None, f"PlanSpec compile error: {exc}"
+    if plan is not None:
+        return plan, ""
+    return None, plan_spec_error_summary(frame_result)
+
+
+def _planner_retry_program(program: PromptProgram, error_summary: str) -> PromptProgram:
+    feedback = (
+        "\n\n<prompt_layer id=\"ephemeral\">\n"
+        "Previous PlanSpec validation error:\n"
+        f"{error_summary}\n\n"
+        "Rewrite the full PlanSpec JSON only. Do not output explanations. "
+        "Fix the listed contract errors; every plan_units item must include "
+        "evidence_contract_ref or evidence_contract from its selected capability.\n"
+        "</prompt_layer>"
+    )
+    prompt_text = program.prompt_text + feedback
+    layers = program.layers
+    if "ephemeral" not in layers:
+        layers = (*layers, "ephemeral")
+    return replace(
+        program,
+        prompt_text=prompt_text,
+        prompt_hash="sha256:" + hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
+        layers=layers,
+    )
+
+
 def _reply_validation_error_summary(validation) -> str:
-    return "; ".join(issue.code for issue in validation.issues) or "unknown"
+    parts = []
+    for issue in validation.issues:
+        detail_values = [
+            issue.metadata.get("contract_issue_code"),
+            issue.metadata.get("unit_id"),
+            issue.metadata.get("selected_capability_id"),
+        ]
+        detail = ",".join(str(value) for value in detail_values if value) or issue.message
+        parts.append(f"{issue.code}({detail})")
+    return "; ".join(dict.fromkeys(parts)) or "unknown"
 
 
 def _guardrail_decisions_from_directive(
