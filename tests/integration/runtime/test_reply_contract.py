@@ -100,6 +100,10 @@ def test_crewai_agents_disable_execution_planning_without_delegation():
             llm_timeout_seconds=7,
             crewai_max_retry_limit=4,
             reply_alignment_verifier_enabled=False,
+            planner_llm_base_url="http://planner.local/gemini",
+            planner_llm_provider="gemini",
+            planner_llm_model="gemini-3-flash-preview",
+            planner_llm_api_key="planner-key",
         )
     )
 
@@ -109,10 +113,18 @@ def test_crewai_agents_disable_execution_planning_without_delegation():
     assert planner.planning is False
     assert planner.allow_delegation is False
     assert planner.inject_date is True
-    assert planner.llm.timeout == 7
+    assert planner.llm.model == "gemini-3-flash-preview"
+    assert planner.llm.provider == "gemini"
+    assert planner.llm.client_params["http_options"]["base_url"] == (
+        "http://planner.local/gemini"
+    )
+    assert planner.llm.client_params["http_options"]["timeout"] == 7000
+    assert planner.llm.api_key == "planner-key"
+    assert planner.llm.max_output_tokens == 6000
     assert planner.max_retry_limit == 4
     assert composer.planning is False
     assert composer.allow_delegation is False
+    assert composer.llm.model == "deepseek-v4-pro"
     assert composer.llm.timeout == 7
     assert composer.max_retry_limit == 4
 

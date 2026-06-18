@@ -323,6 +323,8 @@ def _compact_model(settings: Settings) -> dict:
     return {
         "provider": settings.llm_provider,
         "model": settings.llm_model,
+        "planner_provider": settings.planner_llm_provider,
+        "planner_model": settings.planner_llm_model,
         "temperature": settings.llm_temperature,
         "max_tokens": settings.llm_max_tokens,
     }

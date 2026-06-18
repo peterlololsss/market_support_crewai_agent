@@ -116,3 +116,13 @@ def test_ds_v4pro_model_selects_ds_structured_fragment():
 
     assert "model.ds_v4pro.structured" in program.fragment_ids
     assert "model.generic.structured" not in program.fragment_ids
+
+
+def test_planner_override_model_family_is_stage_scoped():
+    settings = Settings(
+        llm_model="deepseek-v4-pro",
+        planner_llm_model="gemini-3-flash-preview",
+    )
+
+    assert model_family_from_settings(settings) == "ds_v4pro"
+    assert model_family_from_settings(settings, stage="planner_intent") == "generic"
