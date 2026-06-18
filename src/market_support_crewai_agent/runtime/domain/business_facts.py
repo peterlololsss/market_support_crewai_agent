@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from market_support_crewai_agent.runtime.domain.capabilities import (
-    CAPABILITY_REGISTRY,
-    CapabilitySpec,
     capability_by_business_state_field,
     capability_by_resolve_type,
     resolvable_fact_type_for_resolve,
@@ -15,7 +13,6 @@ from market_support_crewai_agent.runtime.evidence import EvidenceFact, find_fact
 from market_support_crewai_agent.schemas import AdapterResolveType, ReplyRequest
 
 AvailabilityStatus = Literal["available", "ambiguous", "unavailable", "unknown"]
-ReportScopeStatus = Literal["included", "excluded", "unknown"]
 UserPermissionStatus = Literal["allowed", "denied", "unknown"]
 
 
@@ -26,7 +23,7 @@ class ResolvableState:
     reason_code: str = ""
     source_id: str = ""
     resolve_ref: str | None = None
-    strategy: str | None = None
+    material_pack_option: str | None = None
 
     @property
     def resolvable(self) -> bool:
@@ -35,9 +32,6 @@ class ResolvableState:
 
 @dataclass(frozen=True)
 class ReportState(ResolvableState):
-    contains_strategy: bool | None = None
-    scope_status: ReportScopeStatus = "unknown"
-    strategy: str | None = None
     period: str | None = None
     report_date: str | None = None
     period_start: str | None = None
@@ -56,7 +50,7 @@ class ExecutedActionState:
     resolve_ref: str | None = None
     resolve_ref_available: bool = False
     material_type: str | None = None
-    strategy: str | None = None
+    material_pack_option: str | None = None
     version: str | None = None
     action_id: str | None = None
     response_id: str | None = None
@@ -72,7 +66,7 @@ class BusinessFacts:
     monthly_report: ReportState = field(default_factory=ReportState)
     sales_mention: ResolvableState = field(default_factory=ResolvableState)
     recent_executed_actions: tuple[ExecutedActionState, ...] = ()
-    requested_strategy_status: AvailabilityStatus = "unknown"
+    requested_material_pack_option_status: AvailabilityStatus = "unknown"
     user_permission: UserPermissionStatus = "unknown"
     evidence_fact_count: int = 0
 
@@ -105,7 +99,9 @@ class BusinessFacts:
                 _executed_action_dict(action)
                 for action in self.recent_executed_actions
             ],
-            "requested_strategy_status": self.requested_strategy_status,
+            "requested_material_pack_option_status": (
+                self.requested_material_pack_option_status
+            ),
             "user_permission": self.user_permission,
             "evidence_fact_count": self.evidence_fact_count,
             }
@@ -125,7 +121,7 @@ def derive_business_facts(
         monthly_report=_state_for_field(states, "monthly_report", ReportState),
         sales_mention=_state_for_field(states, "sales_mention", ResolvableState),
         recent_executed_actions=_derive_recent_executed_actions(evidence_facts),
-        requested_strategy_status=_derive_requested_strategy_status(
+        requested_material_pack_option_status=_derive_requested_material_pack_option_status(
             request,
             states,
         ),
@@ -167,7 +163,9 @@ def _derive_recent_executed_actions(
                 resolve_ref=_optional_str(metadata.get("resolve_ref")),
                 resolve_ref_available=bool(metadata.get("resolve_ref_available")),
                 material_type=_optional_str(metadata.get("material_type")),
-                strategy=_optional_str(metadata.get("strategy")),
+                material_pack_option=_optional_str(
+                    metadata.get("material_pack_option")
+                ),
                 version=_optional_str(metadata.get("version")),
                 action_id=_optional_str(metadata.get("action_id")),
                 response_id=_optional_str(metadata.get("response_id")),
@@ -190,16 +188,6 @@ def _derive_report_state(
         if base_fact_type is not None
         else None
     )
-    contains_fact = find_fact(
-        evidence_facts,
-        "report_contains_strategy",
-        resolve_type,
-    )
-    scope_fact = find_fact(
-        evidence_facts,
-        "report_scope_status",
-        resolve_type,
-    )
     period_fact = find_fact(
         evidence_facts,
         "report_period",
@@ -210,10 +198,6 @@ def _derive_report_state(
         metadata.update(base_fact.metadata)
     if period_fact is not None:
         metadata.update(period_fact.metadata)
-    if contains_fact is not None:
-        metadata.update(contains_fact.metadata)
-    if scope_fact is not None:
-        metadata.update(scope_fact.metadata)
 
     return ReportState(
         status=base_state.status,
@@ -221,13 +205,7 @@ def _derive_report_state(
         reason_code=base_state.reason_code,
         source_id=base_state.source_id,
         resolve_ref=base_state.resolve_ref,
-        contains_strategy=(
-            contains_fact.value if isinstance(contains_fact.value, bool) else None
-        )
-        if contains_fact is not None
-        else None,
-        scope_status=_normalize_scope_status(scope_fact.value if scope_fact else None),
-        strategy=_optional_str(metadata.get("strategy")) or base_state.strategy,
+        material_pack_option=base_state.material_pack_option,
         period=_optional_str(metadata.get("period")),
         report_date=_optional_str(metadata.get("report_date")),
         period_start=_optional_str(metadata.get("period_start")),
@@ -271,43 +249,20 @@ def _derive_resolvable_state(
         reason_code=str(fact.metadata.get("reason_code") or ""),
         source_id=fact.source_id,
         resolve_ref=_optional_str(fact.metadata.get("resolve_ref")),
-        strategy=_optional_str(fact.metadata.get("strategy")),
+        material_pack_option=_optional_str(fact.metadata.get("material_pack_option")),
     )
 
 
-def _derive_requested_strategy_status(
+def _derive_requested_material_pack_option_status(
         request: ReplyRequest | None,
         states: dict[str, ResolvableState],
 ) -> AvailabilityStatus:
     if request is None:
         return "unknown"
-    for capability in _strategy_status_capabilities(is_report=False):
-        if capability.business_state_field is None:
-            continue
-        state = states.get(capability.business_state_field)
-        if state is not None and state.status in {"available", "ambiguous", "unavailable"}:
-            return state.status
-    for capability in _strategy_status_capabilities(is_report=True):
-        if capability.business_state_field is None:
-            continue
-        report = states.get(capability.business_state_field)
-        if not isinstance(report, ReportState):
-            continue
-        if report.contains_strategy is True or report.scope_status == "included":
-            return "available"
-        if report.contains_strategy is False or report.scope_status == "excluded":
-            return "unavailable"
+    state = states.get("material_pack")
+    if state is not None and state.status in {"available", "ambiguous", "unavailable"}:
+        return state.status
     return "unknown"
-
-
-def _strategy_status_capabilities(*, is_report: bool) -> tuple[CapabilitySpec, ...]:
-    return tuple(
-        capability
-        for capability in CAPABILITY_REGISTRY
-        if capability.business_state_field is not None
-        and capability.resolve_type is not None
-        and capability.is_report is is_report
-    )
 
 
 def _state_for_field(
@@ -328,12 +283,6 @@ def _availability_from_fact(value: object, status: str) -> AvailabilityStatus:
         return "ambiguous"
     if value is False:
         return "unavailable"
-    return "unknown"
-
-
-def _normalize_scope_status(value: object) -> ReportScopeStatus:
-    if value in {"included", "excluded"}:
-        return value
     return "unknown"
 
 
@@ -361,14 +310,11 @@ def _state_dict(state: ResolvableState) -> dict:
         "reason_code": state.reason_code,
         "source_id": state.source_id,
         "resolve_ref_available": bool(state.resolve_ref),
-        "strategy": state.strategy,
+        "material_pack_option": state.material_pack_option,
     }
     if isinstance(state, ReportState):
         payload.update(
             {
-                "contains_strategy": state.contains_strategy,
-                "scope_status": state.scope_status,
-                "strategy": state.strategy,
                 "period": state.period,
                 "report_date": state.report_date,
                 "period_start": state.period_start,
@@ -389,7 +335,7 @@ def _executed_action_dict(action: ExecutedActionState) -> dict:
         "action_type": action.action_type,
         "resolve_ref_available": action.resolve_ref_available,
         "material_type": action.material_type,
-        "strategy": action.strategy,
+        "material_pack_option": action.material_pack_option,
         "version": action.version,
         "action_id": action.action_id,
         "response_id": action.response_id,

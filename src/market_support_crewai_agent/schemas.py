@@ -51,7 +51,6 @@ OutboundActionType = Literal[
     "send_monthly_report",
 ]
 SideEffectActionType = OutboundActionType
-ReportScope = Literal["channel_all", "strategy"]
 
 
 class StrictModel(BaseModel):
@@ -72,7 +71,7 @@ class ReplyRequest(StrictModel):
     dist_channel_name: str = Field(min_length=1)
     sender_nickname: str = Field(min_length=1)
     available_materials: list[MaterialType]
-    available_strategies: list[str]
+    material_pack_options: list[str]
     channel_type: ChannelType
     allowed_read_capabilities: list[ReadCapability] = Field(default_factory=list)
 
@@ -80,7 +79,7 @@ class ReplyRequest(StrictModel):
 class AdapterResolveRequest(StrictModel):
     resolve_type: AdapterResolveType
     dist_name: str = Field(min_length=1)
-    strategy: str | None = None
+    material_pack_option: str | None = None
 
 
 class ReportScopeSection(StrictModel):
@@ -108,20 +107,16 @@ class AdapterResolveResult(StrictModel):
     candidates: list[str] = Field(default_factory=list)
     channel_type: ChannelType = "unknown"
     available_materials: list[MaterialType] = Field(default_factory=list)
-    available_strategies: list[str] = Field(default_factory=list)
+    material_pack_options: list[str] = Field(default_factory=list)
     resolved_at: int
     detail: str | None = None
     resolve_ref: str | None = None
-    strategy: str | None = None
+    material_pack_option: str | None = None
     period: str | None = None
     report_date: str | None = None
     period_start: str | None = None
     period_end: str | None = None
     period_label: str | None = None
-    contains_strategy: bool | None = None
-    generated_strategies: list[str] = Field(default_factory=list)
-    scope_status: Literal["included", "excluded", "unknown"] | None = None
-    report_scope_schema_version: str | None = None
     source_trade_date: str | None = None
     scope_complete: bool | None = None
     expected_product_count: int | None = Field(default=None, ge=0)
@@ -321,35 +316,21 @@ class SendActionBase(OutboundActionBase):
 class SendMaterialPackAction(SendActionBase):
     type: Literal["send_material_pack"]
     resolve_type: Literal["material_pack"]
-    strategy: str | None = None
+    material_pack_option: str | None = None
 
 
 class SendWeeklyReportAction(SendActionBase):
     type: Literal["send_weekly_report"]
     resolve_type: Literal["weekly_report"]
-    report_scope: ReportScope
-    strategy: str | None
     period: str = Field(min_length=1)
     report_date: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_report_selector_shape(self):
-        _validate_report_action_selector(self.report_scope, self.strategy)
-        return self
 
 
 class SendMonthlyReportAction(SendActionBase):
     type: Literal["send_monthly_report"]
     resolve_type: Literal["monthly_report"]
-    report_scope: ReportScope
-    strategy: str | None
     period: str = Field(min_length=1)
     report_date: str = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_report_selector_shape(self):
-        _validate_report_action_selector(self.report_scope, self.strategy)
-        return self
 
 
 OutboundAction = Annotated[
@@ -418,20 +399,13 @@ def _reject_raw_locator_text(value: str | None, field_name: str) -> None:
         raise ValueError(f"{field_name} contains raw locator values")
 
 
-def _validate_report_action_selector(report_scope: ReportScope, strategy: str | None) -> None:
-    if report_scope == "strategy" and not (strategy or "").strip():
-        raise ValueError("strategy-scoped report actions must include strategy")
-    if report_scope == "channel_all" and (strategy or "").strip():
-        raise ValueError("channel-wide report actions must not include strategy")
-
-
 class ActionExecutionFeedback(StrictModel):
     action_type: ActionExecutionType
     status: ActionExecutionStatus
     action_id: str | None = None
     resolve_ref: str | None = None
     material_type: MaterialType | None = None
-    strategy: str | None = None
+    material_pack_option: str | None = None
     material_id: str | None = None
     version: str | None = None
     adapter_result: dict[str, Any] = Field(default_factory=dict)

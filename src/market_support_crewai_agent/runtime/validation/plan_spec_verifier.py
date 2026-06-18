@@ -501,7 +501,7 @@ def _missing_evidence_abstention_allowed(
     allowed_abstention_kinds: list[str],
     contract: EvidenceContract,
 ) -> bool:
-    if spec.answerability_policy not in {"answer", "send", "abstain", "clarify"}:
+    if spec.answerability_policy not in {"answer", "send", "abstain", "clarify", "handoff"}:
         return False
     if contract.fallback_policy not in {"abstain", "clarify", "handoff"}:
         return False
@@ -532,19 +532,9 @@ def _scope_field_mismatch(field: str, spec: PlanSpec, fact: EvidenceFact) -> boo
         expected = scope.channel_kind
         actual = str(fact.metadata.get("channel_kind") or fact.metadata.get("channel_type") or "")
         return bool(expected and expected != "unknown" and actual and actual != expected)
-    if field == "strategy_id":
-        expected = scope.strategy_id
-        actual = (
-            (source_metadata.strategy_id if source_metadata is not None else None)
-            or fact.scope.strategy_id
-            or str(fact.metadata.get("strategy_id") or "")
-        )
-        if not expected or expected == "unknown" or not actual:
-            return False
-        return actual != expected
-    if field == "strategy_name":
-        expected = scope.strategy_name
-        actual = str(fact.metadata.get("strategy") or fact.metadata.get("strategy_name") or "")
+    if field == "material_pack_option":
+        expected = scope.material_pack_option
+        actual = str(fact.metadata.get("material_pack_option") or "")
         if not expected or not actual:
             return False
         return actual != expected

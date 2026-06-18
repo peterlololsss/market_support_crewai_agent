@@ -56,29 +56,28 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["策略S1"],
+        "material_pack_options": ["策略S1"],
         "channel_type": "bank",
     }
     payload.update(overrides)
     return ReplyRequest.model_validate(payload)
 
 
-def material_plan(request: ReplyRequest, selected_strategy: str | None = "策略S1"):
+def material_plan(request: ReplyRequest, material_pack_option: str | None = "策略S1"):
     plan = compile_test_plan(
         request,
         user_need="answer material pack product list",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["material_pack"],
-        selected_strategy=selected_strategy,
+        material_pack_option=material_pack_option,
         compliance={
             "is_compliant": True,
             "reason_code": "compliant_product_request",
             "reason": "normal material question",
         },
     )
-    return plan.model_copy(update={"selected_strategy": selected_strategy})
+    return plan.model_copy(update={"material_pack_option": material_pack_option})
 
 
 def report_plan(request: ReplyRequest, capability: str):
@@ -87,7 +86,6 @@ def report_plan(request: ReplyRequest, capability: str):
         user_need=f"answer {capability} performance",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=[capability],
         evidence_query="performance",
         compliance={
@@ -100,7 +98,7 @@ def report_plan(request: ReplyRequest, capability: str):
 
 def material_products(
     *products: str,
-    strategy: str | None = "策略S1",
+    material_pack_option: str | None = "策略S1",
     source_id: str | None = None,
     source_type: str = "adapter_material_pack_content",
     artifact_type: str = "material_pack",
@@ -109,13 +107,13 @@ def material_products(
     metadata = {
         "products": [{"product_name": product} for product in products],
     }
-    if strategy:
-        metadata["strategy"] = strategy
+    if material_pack_option:
+        metadata["material_pack_option"] = material_pack_option
     return EvidenceFact(
         fact_type="material_pack_product_list",
         value=True,
         source_type=source_type,  # type: ignore[arg-type]
-        source_id=source_id or f"material_pack:{strategy or 'default'}",
+        source_id=source_id or f"material_pack:{material_pack_option or 'default'}",
         resolve_type="material_pack",
         artifact_type=artifact_type,  # type: ignore[arg-type]
         metadata=metadata,
@@ -170,7 +168,7 @@ def test_regression_original_bug_B_material_pack_answer_uses_material_pack_produ
     request = make_request()
     plan = material_plan(request)
     facts = [
-        material_products("产品B", strategy="策略S1"),
+        material_products("产品B", material_pack_option="策略S1"),
         report_products("weekly_report", "产品A"),
     ]
     domain_context = DomainContextBuilder().build(request, available_artifacts=facts)
@@ -188,37 +186,34 @@ def test_regression_original_bug_B_material_pack_answer_uses_material_pack_produ
     assert "产品A" not in directive.text
 
 
-def test_regression_original_bug_C_bank_material_pack_two_strategies_clarifies_strategy():
+def test_material_pack_options_do_not_force_local_strategy_clarification():
     request = make_request(
-        available_strategies=["策略S1", "策略S2"],
+        material_pack_options=["策略S1", "策略S2"],
         channel_type="bank",
     )
-    plan = material_plan(request, selected_strategy=None)
+    plan = material_plan(request, material_pack_option=None)
     facts = [
-        material_products("产品B", strategy="策略S1"),
-        material_products("产品A", strategy="策略S2"),
+        material_products("产品B", material_pack_option="策略S1"),
+        material_products("产品A", material_pack_option="策略S2"),
     ]
 
     assessment = assess(request, plan, facts)
     directive = directive_from_answerability(assessment, plan)
 
-    assert assessment.recommended_response_mode == "clarify"
-    assert assessment.ambiguity == "missing_strategy"
-    assert directive is not None
-    assert directive.reply_kind == "clarification"
-    assert "策略S1" in directive.text
-    assert "策略S2" in directive.text
+    assert assessment.recommended_response_mode == "answer"
+    assert assessment.ambiguity == "none"
+    assert directive is None
 
 
-def test_regression_original_bug_D_bank_selected_strategy_uses_only_that_material_pack():
+def test_regression_original_bug_D_bank_material_pack_option_uses_only_that_pack():
     request = make_request(
-        available_strategies=["策略S1", "策略S2"],
+        material_pack_options=["策略S1", "策略S2"],
         channel_type="bank",
     )
-    plan = material_plan(request, selected_strategy="策略S1")
+    plan = material_plan(request, material_pack_option="策略S1")
     facts = [
-        material_products("产品B", strategy="策略S1"),
-        material_products("产品A", strategy="策略S2"),
+        material_products("产品B", material_pack_option="策略S1"),
+        material_products("产品A", material_pack_option="策略S2"),
     ]
     domain_context = DomainContextBuilder().build(request, available_artifacts=facts)
 
@@ -237,25 +232,25 @@ def test_regression_original_bug_D_bank_selected_strategy_uses_only_that_materia
     assert "产品A" not in directive.text
 
 
-def test_regression_original_bug_E_non_bank_one_strategy_is_inferred_into_domain_scope():
+def test_non_bank_material_pack_option_is_not_inferred_into_domain_scope():
     request = make_request(
         channel_type="non_bank",
-        available_strategies=["策略S1"],
+        material_pack_options=["策略S1"],
     )
     domain_context = DomainContextBuilder().build(request)
     canonical_context = canonicalize_request(request, domain_context=domain_context)
 
     assert domain_context.channel.kind == "non_bank"
-    assert [strategy.name for strategy in domain_context.strategies] == ["策略S1"]
-    assert canonical_context.strategy_status == "resolved"
-    assert canonical_context.selected_strategy == "策略S1"
+    assert domain_context.strategies == ()
+    assert domain_context.metadata["material_pack_options"] == ("策略S1",)
+    assert canonical_context.material_pack_options == ("策略S1",)
 
 
 def test_regression_original_bug_F_monthly_performance_uses_monthly_report_not_material_pack():
     request = make_request(message="月报里产品A表现怎么样")
     plan = report_plan(request, "monthly_report")
     facts = [
-        material_products("产品B", strategy="策略S1"),
+        material_products("产品B", material_pack_option="策略S1"),
         report_products("monthly_report", "产品A"),
     ]
 
@@ -270,7 +265,7 @@ def test_regression_original_bug_G_weekly_performance_uses_weekly_report_not_mat
     request = make_request(message="周报里产品A表现怎么样")
     plan = report_plan(request, "weekly_report")
     facts = [
-        material_products("产品B", strategy="策略S1"),
+        material_products("产品B", material_pack_option="策略S1"),
         report_products("weekly_report", "产品A"),
     ]
 
@@ -292,7 +287,7 @@ def test_regression_original_bug_H_ambiguous_product_alias_across_strategies_cla
     result = CanonicalEntityResolver().resolve_request(
         make_request(
             message="产品A表现怎么样",
-            available_strategies=["策略S1", "策略S2"],
+            material_pack_options=["策略S1", "策略S2"],
         ),
         domain_context=domain_context,
     )
@@ -314,7 +309,7 @@ def test_regression_original_bug_I_unknown_product_mention_does_not_nearest_matc
     )
 
     result = CanonicalEntityResolver().resolve_request(
-        make_request(message="产品C表现怎么样", available_strategies=["策略S1"]),
+        make_request(message="产品C表现怎么样", material_pack_options=["策略S1"]),
         domain_context=domain_context,
     )
 
@@ -483,7 +478,7 @@ def material_history_plan_spec() -> PlanSpec:
     spec = make_plan_spec(
         request,
         selected_capability_id="material_pack.product_list",
-        selected_strategy="策略S1",
+        material_pack_option="策略S1",
         answerability_policy="answer",
         user_intent_summary="answer material product list from current material pack",
     )

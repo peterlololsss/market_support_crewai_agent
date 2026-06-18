@@ -13,7 +13,6 @@ from market_support_crewai_agent.runtime.domain.business_facts import (
 )
 from market_support_crewai_agent.runtime.domain.capabilities import (
     ResponseMode,
-    capability_by_action_type,
     capability_by_name,
     capability_by_resolve_type,
     resolve_type_for_action,
@@ -261,8 +260,8 @@ def _action_directive(
                 mode="clarification",
                 reply_kind="clarification",
                 text=_candidate_text(
-                    "我需要再确认一下你指的是哪一个材料或策略",
-                    resolve_state.candidates or tuple(request.available_strategies),
+                    "我需要再确认一下你指的是哪一个可发送内容",
+                    resolve_state.candidates or tuple(request.material_pack_options),
                 ),
                 reason_code="ambiguous_action_resolve",
             )
@@ -280,19 +279,6 @@ def _action_directive(
                 reply_kind="unable_to_answer",
                 text="当前可发送内容缺少 adapter resolve_ref。",
                 reason_code="missing_resolve_ref",
-            )
-
-        report_block = _report_action_block(
-            action_intent,
-            business_facts.report_state(resolve_type),
-        )
-        if report_block:
-            return _handoff_or_unable(
-                business_facts,
-                text=report_block + "我帮你请销售/支持同事确认。",
-                reason="report action blocked by adapter evidence",
-                reason_code="report_action_blocked",
-                unable_text=report_block,
             )
 
     if plan.answer_capabilities:
@@ -331,35 +317,23 @@ def _action_directive(
     return _directive(
         mode="action",
         reply_kind="answer",
+        text=_action_rationale_text(plan),
         action_intents=plan.action_intents,
         reason_code="action_ready",
     )
 
 
-def _report_action_block(
-    action_intent: ActionIntentSpec,
-    report_state: ReportState | None,
-) -> str:
-    capability = capability_by_action_type(action_intent.action_type)
-    if capability is None or not capability.is_report:
-        return ""
-    label = capability.prompt_label or "报告"
-    if report_state is None:
-        return "当前没有足够证据确认该报告可发送。"
-    strategy = report_state.strategy or action_intent.strategy or ""
-    if report_state.scope_status == "excluded":
-        return f"{label}未覆盖当前请求的策略，我不能直接发送该报告。"
-    if report_state.contains_strategy is False:
-        if strategy:
-            return f"{label}未包含{strategy}，我不能直接发送该报告。"
-        return f"{label}未覆盖当前请求的策略，我不能直接发送该报告。"
-    if (
-        action_intent.report_scope == "strategy"
-        and report_state.contains_strategy is not True
-        and report_state.scope_status != "included"
-    ):
-        return "当前没有足够证据确认该报告覆盖请求的策略。"
+def _action_rationale_text(plan: ExecutionPlan) -> str:
+    if _weekly_report_rationale_required(plan):
+        return "这个问题需要看最新周报里的近期表现数据，我先把周报发你，具体以报告为准。"
     return ""
+
+
+def _weekly_report_rationale_required(plan: ExecutionPlan) -> bool:
+    if not any(intent.action_type == "send_weekly_report" for intent in plan.action_intents):
+        return False
+    flags = set(plan.plan_spec.risk_flags if plan.plan_spec is not None else [])
+    return "weekly_report_rationale_required" in flags
 
 
 def _handoff_or_unable(
@@ -392,11 +366,11 @@ def _clarification_text(
     request: ReplyRequest,
 ) -> str:
     slots = set(plan.ambiguity_slots)
-    if "strategy" in slots:
+    if "material_pack_option" in slots:
         candidates = _best_candidates(business_facts, request)
-        return _candidate_text("我需要再确认一下具体策略", candidates)
-    if "report_scope" in slots:
-        return "我需要再确认是发送这个渠道的整体报告，还是某个策略对应的报告。"
+        return _candidate_text("我需要再确认一下具体材料包选项", candidates)
+    if "report_query" in slots:
+        return "我需要再确认你想查询报告里的哪个产品或栏目。"
     if "artifact" in slots:
         return "我需要再确认你需要的是材料包、周报、月报，还是文档信息。"
     return "我需要再确认一下具体需求后再处理。"
@@ -406,14 +380,9 @@ def _best_candidates(
     business_facts: BusinessFacts,
     request: ReplyRequest,
 ) -> tuple[str, ...]:
-    for state in (
-        business_facts.material_pack,
-        business_facts.weekly_report,
-        business_facts.monthly_report,
-    ):
-        if state.candidates:
-            return state.candidates
-    return tuple(strategy for strategy in request.available_strategies if strategy.strip())
+    if business_facts.material_pack.candidates:
+        return business_facts.material_pack.candidates
+    return tuple(option for option in request.material_pack_options if option.strip())
 
 
 def _candidate_text(prefix: str, candidates: tuple[str, ...] | list[str]) -> str:

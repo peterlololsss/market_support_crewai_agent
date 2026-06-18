@@ -9,6 +9,7 @@ from threading import RLock
 from typing import Literal
 
 from market_support_crewai_agent.runtime.state.action_ledger import ActionLedgerRecord
+from market_support_crewai_agent.runtime.state.runtime_trace import RUNTIME_TRACE_VERSION
 from market_support_crewai_agent.runtime.evidence.adapter_preflight import AdapterPreflightSnapshot
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
 from market_support_crewai_agent.runtime.domain.canonicalization import (
@@ -88,6 +89,7 @@ class AuditTrace:
     action_preconditions: list[dict]
     adapter_execution_status: str
     versions: dict
+    runtime_trace: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         payload = dict(self.__dict__)
@@ -184,6 +186,7 @@ def build_audit_trace(
         alignment_verdicts: list[ReplyAlignmentVerdict] | None = None,
         alignment_remediations: list[dict] | None = None,
         answerability_assessment: AnswerabilityAssessment | None = None,
+        runtime_trace: dict | None = None,
 ) -> AuditTrace:
     policy_payload = _compact_policy(policy)
     canonical_payload = _compact_canonical_context(
@@ -265,6 +268,7 @@ def build_audit_trace(
         ),
         versions={
             "audit_trace": AUDIT_TRACE_VERSION,
+            "runtime_trace": RUNTIME_TRACE_VERSION,
             "prompt_program_schema": PROMPT_PROGRAM_SCHEMA_VERSION,
             "prompt_profile_ids": _prompt_profile_ids(llm_executions or []),
             "capability_registry_hash": capability_registry_hash(),
@@ -275,6 +279,7 @@ def build_audit_trace(
             "reply_validator": REPLY_VALIDATOR_VERSION,
             "business_facts": BUSINESS_FACTS_VERSION,
         },
+        runtime_trace=runtime_trace or {},
     )
 
 
@@ -290,7 +295,7 @@ def _compact_request(request: ReplyRequest) -> dict:
         "dist_channel_name": request.dist_channel_name,
         "sender_nickname": request.sender_nickname,
         "available_materials": list(request.available_materials),
-        "available_strategies": list(request.available_strategies),
+        "material_pack_options": list(request.material_pack_options),
         "channel_type": request.channel_type,
     }
 
@@ -438,7 +443,7 @@ def _compact_action_record(record: ActionLedgerRecord) -> dict:
         "status": execution.status,
         "resolve_ref_available": bool(execution.resolve_ref),
         "material_type": execution.material_type,
-        "strategy": execution.strategy,
+        "material_pack_option": execution.material_pack_option,
         "version": execution.version,
         "received_at": record.received_at.isoformat(),
         "source_metadata": SourceMetadata(
@@ -477,13 +482,10 @@ def _compact_preflight(preflight: AdapterPreflightSnapshot) -> list[dict]:
                 "candidates": result.candidates,
                 "channel_type": result.channel_type,
                 "available_materials": result.available_materials,
-                "available_strategies": result.available_strategies,
-                "strategy": result.strategy,
+                "material_pack_options": result.material_pack_options,
+                "material_pack_option": result.material_pack_option,
                 "period": result.period,
                 "report_date": result.report_date,
-                "contains_strategy": result.contains_strategy,
-                "generated_strategies": result.generated_strategies,
-                "scope_status": result.scope_status,
             }
         )
     return items
@@ -516,16 +518,13 @@ def _compact_action_precondition(
         "action_type": action.type,
         "resolve_type": resolve_type,
         "resolve_status": item.status if item is not None else "missing_preflight",
-        "plan_report_scope": getattr(candidate, "report_scope", None),
-        "plan_strategy": getattr(candidate, "strategy", None),
-        "action_strategy": getattr(action, "strategy", None),
-        "adapter_strategy": result.strategy if result is not None else None,
+        "plan_material_pack_option": getattr(candidate, "material_pack_option", None),
+        "action_material_pack_option": getattr(action, "material_pack_option", None),
+        "adapter_material_pack_option": (
+            result.material_pack_option if result is not None else None
+        ),
         "adapter_ref_available": bool(result.resolve_ref) if result is not None else False,
         "action_ref_available": bool(getattr(action, "resolve_ref", None)),
-        "contains_strategy": (
-            result.contains_strategy if result is not None else None
-        ),
-        "scope_status": result.scope_status if result is not None else None,
         "period": result.period if result is not None else None,
         "report_date": result.report_date if result is not None else None,
     }
@@ -535,13 +534,9 @@ def _matching_plan_candidate(action, plan: ExecutionPlan):
     for candidate in plan.action_intents:
         if candidate.action_type != action.type:
             continue
-        candidate_strategy = getattr(candidate, "strategy", None)
-        action_strategy = getattr(action, "strategy", None)
-        if candidate_strategy and action_strategy and candidate_strategy != action_strategy:
-            continue
-        candidate_scope = getattr(candidate, "report_scope", "none")
-        action_scope = getattr(action, "report_scope", "none")
-        if candidate_scope != "none" and action_scope != candidate_scope:
+        candidate_option = getattr(candidate, "material_pack_option", None)
+        action_option = getattr(action, "material_pack_option", None)
+        if candidate_option and action_option and candidate_option != action_option:
             continue
         return candidate
     return None

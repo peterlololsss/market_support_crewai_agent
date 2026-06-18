@@ -67,7 +67,7 @@ class CapabilitySpec:
     side_effect_action_type: SideEffectActionType | None
     resolvable_fact_type: str | None
     business_state_field: str | None
-    requires_strategy_for_bank_material: bool = False
+    supports_material_pack_option: bool = False
     is_report: bool = False
     prompt_label: str = ""
 
@@ -81,7 +81,7 @@ CAPABILITY_REGISTRY: tuple[CapabilitySpec, ...] = (
         side_effect_action_type="send_material_pack",
         resolvable_fact_type="material_pack_resolvable",
         business_state_field="material_pack",
-        requires_strategy_for_bank_material=True,
+        supports_material_pack_option=True,
         prompt_label="材料包",
     ),
     CapabilitySpec(
@@ -255,13 +255,6 @@ def read_capability_for_resolve(
     return capability.read_capability if capability is not None else None
 
 
-def resolve_type_accepts_strategy(resolve_type: AdapterResolveType | str) -> bool:
-    capability = capability_by_resolve_type(resolve_type)
-    if capability is None:
-        return False
-    return capability.is_report or capability.requires_strategy_for_bank_material
-
-
 def resolve_type_for_read_capability(
     read_capability: ReadCapability | str,
 ) -> AdapterResolveType | None:
@@ -301,7 +294,7 @@ def capability_prompt_dict() -> list[dict]:
             "side_effect_action_type": capability.side_effect_action_type,
             "resolvable_fact_type": capability.resolvable_fact_type,
             "business_state_field": capability.business_state_field,
-            "requires_strategy_for_bank_material": capability.requires_strategy_for_bank_material,
+            "supports_material_pack_option": capability.supports_material_pack_option,
             "is_report": capability.is_report,
             "prompt_label": capability.prompt_label,
         }

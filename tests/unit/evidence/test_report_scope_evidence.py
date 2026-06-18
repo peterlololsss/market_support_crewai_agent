@@ -38,7 +38,6 @@ def test_report_scope_evidence_collects_summary_and_match_without_listing_produc
         capabilities=["weekly_report"],
         adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
         action_intents=[],
-        selected_strategy=None,
         ambiguity_slots=[],
         confidence=0.9,
     )
@@ -98,7 +97,6 @@ def test_report_period_answer_does_not_call_report_scope_endpoint():
         capabilities=["weekly_report"],
         adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
         action_intents=[],
-        selected_strategy=None,
         ambiguity_slots=[],
         confidence=0.9,
     )
@@ -155,7 +153,6 @@ def test_report_scope_summary_sentinel_collects_summary_only():
         capabilities=["weekly_report"],
         adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
         action_intents=[],
-        selected_strategy=None,
         ambiguity_slots=[],
         confidence=0.9,
     )
@@ -210,7 +207,6 @@ def test_report_scope_products_sentinel_collects_bounded_product_page():
         capabilities=["weekly_report"],
         adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
         action_intents=[],
-        selected_strategy=None,
         ambiguity_slots=[],
         confidence=0.9,
     )
@@ -277,7 +273,6 @@ def test_report_scope_evidence_for_mixed_action_uses_answer_capabilities_only():
             AdapterResolveSpec(resolve_type="weekly_report"),
         ],
         action_intents=[],
-        selected_strategy=None,
         ambiguity_slots=[],
         confidence=0.9,
     )
@@ -448,7 +443,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "TestDist",
         "sender_nickname": "tester",
         "available_materials": ["weekly", "monthly"],
-        "available_strategies": [],
+        "material_pack_options": [],
         "channel_type": "bank",
         "allowed_read_capabilities": [
             "resolve_weekly_report",

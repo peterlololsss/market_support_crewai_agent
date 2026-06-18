@@ -30,7 +30,7 @@ _DEFAULT_REPLY_MODES: frozenset[ResponseMode] = frozenset(
 class LedgerSummary:
     recent_executed_count: int = 0
     recent_material_types: tuple[MaterialType, ...] = ()
-    recent_strategies: tuple[str, ...] = ()
+    recent_material_pack_options: tuple[str, ...] = ()
     recent_versions: tuple[str, ...] = ()
 
     @property
@@ -42,7 +42,7 @@ class LedgerSummary:
             "has_recent_executed_actions": self.has_recent_executed_actions,
             "recent_executed_count": self.recent_executed_count,
             "recent_material_types": list(self.recent_material_types),
-            "recent_strategies": list(self.recent_strategies),
+            "recent_material_pack_options": list(self.recent_material_pack_options),
             "recent_versions": list(self.recent_versions),
         }
 
@@ -55,6 +55,7 @@ class PolicyManifest:
     allowed_side_effect_actions: frozenset[SideEffectActionType]
     allowed_read_capabilities: frozenset[ReadCapability]
     allowed_adapter_resolves: frozenset[AdapterResolveType]
+    material_pack_options: tuple[str, ...] = ()
     ledger_summary: LedgerSummary = field(default_factory=LedgerSummary)
     evidence_call_limit: int = 4
 
@@ -132,6 +133,13 @@ def compile_policy(
         allowed_side_effect_actions=frozenset(allowed_actions),
         allowed_read_capabilities=allowed_read_capabilities,
         allowed_adapter_resolves=allowed_adapter_resolves,
+        material_pack_options=tuple(
+            _ordered_unique(
+                option.strip()
+                for option in (request.material_pack_options if request else ())
+                if option and option.strip()
+            )
+        ),
         ledger_summary=ledger_summary or LedgerSummary(),
         evidence_call_limit=len(allowed_read_capabilities),
     )
@@ -154,11 +162,12 @@ def ledger_summary_from_action_history(
                 if execution.material_type is not None
             )
         ),
-        recent_strategies=tuple(
+        recent_material_pack_options=tuple(
             _ordered_unique(
-                execution.strategy.strip()
+                execution.material_pack_option.strip()
                 for execution in executed
-                if execution.strategy and execution.strategy.strip()
+                if execution.material_pack_option
+                and execution.material_pack_option.strip()
             )
         ),
         recent_versions=tuple(

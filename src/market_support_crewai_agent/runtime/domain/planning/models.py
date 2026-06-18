@@ -24,7 +24,6 @@ from market_support_crewai_agent.schemas import (
     StrictModel,
 )
 
-ActionReportScope = Literal["channel_all", "strategy", "none"]
 PlanValidationSeverity = Literal["error", "fatal"]
 PlanValidationCode = Literal[
     "response_mode_not_allowed",
@@ -34,15 +33,13 @@ PlanValidationCode = Literal[
     "action_not_allowed",
     "action_capability_mismatch",
     "action_missing_required_resolve",
-    "report_action_selector_missing",
-    "report_action_strategy_selector_missing_strategy",
-    "report_action_channel_all_selector_has_strategy",
     "non_compliant_plan_has_actions",
     "non_compliant_plan_not_refusal",
     "unknown_compliance_has_actions",
     "ambiguous_plan_has_actions",
     "ambiguous_plan_not_clarification",
     "knowledge_answer_missing_capability",
+    "material_pack_scope_not_allowed",
     "plan_spec_capability_not_found",
     "plan_spec_runtime_capability_not_allowed",
 ]
@@ -62,15 +59,14 @@ class ComplianceDecision(StrictModel):
 
 class AdapterResolveSpec(StrictModel):
     resolve_type: AdapterResolveType
-    strategy: str | None = None
+    material_pack_option: str | None = None
     artifact_id: str | None = None
 
 
 class ActionIntentSpec(StrictModel):
     action_type: SideEffectActionType
     capability: CapabilityName
-    report_scope: ActionReportScope = "none"
-    strategy: str | None = None
+    material_pack_option: str | None = None
 
 
 class ExecutionPlan(StrictModel):
@@ -84,7 +80,7 @@ class ExecutionPlan(StrictModel):
     answer_capabilities: list[CapabilityName] = Field(default_factory=list, max_length=4)
     adapter_resolves: list[AdapterResolveSpec] = Field(default_factory=list, max_length=8)
     action_intents: list[ActionIntentSpec] = Field(default_factory=list, max_length=4)
-    selected_strategy: str | None = None
+    material_pack_option: str | None = None
     requested_scope: RequestedScope | None = None
     plan_spec: PlanSpec | None = None
     guardrail_decisions: list[GuardrailDecision] = Field(default_factory=list)

@@ -39,7 +39,7 @@ def make_request(message: str = "请发一下周报", **overrides) -> ReplyReque
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证1000"],
+        "material_pack_options": ["中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -52,7 +52,6 @@ def make_weekly_plan_spec(**overrides) -> PlanSpec:
         "user_need": "send weekly report",
         "artifact_kind": "weekly_report",
         "action_intent": "send",
-        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -90,9 +89,9 @@ class ResolvedWeeklyPreflight:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_strategies
+        del request, canonical_context, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 AdapterPreflightItem(
@@ -107,13 +106,11 @@ class ResolvedWeeklyPreflight:
                             "candidates": [],
                             "channel_type": "bank",
                             "available_materials": ["weekly"],
-                            "available_strategies": ["中证1000"],
+                            "material_pack_options": ["中证1000"],
                             "resolved_at": 1,
                             "resolve_ref": "weekly:ref",
                             "period": "20260529",
                             "report_date": "2026-05-29",
-                            "scope_status": "included",
-                            "contains_strategy": True,
                         }
                     ),
                 )
@@ -200,7 +197,6 @@ def test_knowledge_answer_records_planner_and_composer_programs():
             artifact_kind="knowledge_answer",
             action_intent="answer",
             requested_capabilities=["document_context"],
-            report_scope="none",
         )
     )
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposerAgent()  # type: ignore[method-assign]
@@ -277,7 +273,6 @@ def test_audit_records_projection_metadata_without_large_payload():
             artifact_kind="knowledge_answer",
             action_intent="answer",
             requested_capabilities=["document_context"],
-            report_scope="none",
         )
     )
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposerAgent()  # type: ignore[method-assign]

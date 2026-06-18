@@ -30,7 +30,7 @@ def make_request(message: str) -> ReplyRequest:
             "dist_channel_name": "test channel",
             "sender_nickname": "test user",
             "available_materials": ["material", "weekly", "monthly"],
-            "available_strategies": [],
+            "material_pack_options": [],
             "channel_type": "bank",
             "allowed_read_capabilities": ["query_internal_company_info"],
         }
@@ -48,7 +48,6 @@ def make_plan(request: ReplyRequest):
         action_intent="answer",
         requested_capabilities=["document_context"],
         evidence_query=request.message,
-        report_scope="none",
         compliance={
             "is_compliant": True,
             "reason_code": "compliant_product_request",

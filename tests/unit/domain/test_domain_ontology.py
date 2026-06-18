@@ -24,7 +24,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["策略A", "策略B"],
+        "material_pack_options": ["策略A", "策略B"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -70,7 +70,6 @@ def material_answer_payload():
         "artifact_kind": "knowledge_answer",
         "action_intent": "answer",
         "requested_capabilities": ["material_pack"],
-        "report_scope": "none",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -87,7 +86,6 @@ def monthly_answer_payload():
         "action_intent": "answer",
         "requested_capabilities": ["monthly_report"],
         "evidence_query": "Product A performance",
-        "report_scope": "none",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -108,13 +106,14 @@ def compile_plan(request: ReplyRequest, payload: dict, facts=None):
     ), domain_context
 
 
-def test_domain_context_tracks_bank_strategy_cardinality_and_explicit_material_artifacts():
-    request = make_request(available_strategies=["策略A", "策略B"])
+def test_domain_context_tracks_material_pack_options_as_metadata_and_explicit_artifacts():
+    request = make_request(material_pack_options=["策略A", "策略B"])
 
     _, domain_context = compile_plan(request, material_answer_payload())
 
     assert domain_context.channel.kind == "bank"
-    assert len(domain_context.strategies) == 2
+    assert domain_context.strategies == ()
+    assert domain_context.metadata["material_pack_options"] == ("策略A", "策略B")
 
     _, resolved_context = compile_plan(
         request,
@@ -130,20 +129,21 @@ def test_domain_context_tracks_bank_strategy_cardinality_and_explicit_material_a
     assert len(explicit_material_artifacts) == 1
 
 
-def test_non_bank_single_strategy_is_represented_in_domain_context():
+def test_non_bank_single_material_pack_option_is_not_a_strategy_entity():
     request = make_request(
         channel_type="non_bank",
-        available_strategies=["策略A"],
+        material_pack_options=["策略A"],
     )
 
     _, domain_context = compile_plan(request, material_answer_payload())
 
     assert domain_context.channel.kind == "non_bank"
-    assert [strategy.name for strategy in domain_context.strategies] == ["策略A"]
+    assert domain_context.strategies == ()
+    assert domain_context.metadata["material_pack_options"] == ("策略A",)
 
 
 def test_weekly_report_product_evidence_cannot_answer_material_pack_product_question():
-    request = make_request(available_strategies=["策略A"])
+    request = make_request(material_pack_options=["策略A"])
     weekly_fact = report_products_fact("weekly_report", "Product A")
     plan, _ = compile_plan(request, material_answer_payload())
 
@@ -161,7 +161,7 @@ def test_weekly_report_product_evidence_cannot_answer_material_pack_product_ques
 
 
 def test_material_pack_product_answer_uses_material_pack_only_not_weekly_report():
-    request = make_request(available_strategies=["策略A"])
+    request = make_request(material_pack_options=["策略A"])
     material_fact = material_product_fact("Product B", strategy="策略A")
     weekly_fact = report_products_fact("weekly_report", "Product A")
     plan, _ = compile_plan(request, material_answer_payload(), [material_fact, weekly_fact])
@@ -184,7 +184,7 @@ def test_material_pack_product_answer_uses_material_pack_only_not_weekly_report(
 def test_monthly_report_performance_uses_monthly_report_not_material_pack_evidence():
     request = make_request(
         message="月报里Product A表现怎么样",
-        available_strategies=["策略A"],
+        material_pack_options=["策略A"],
     )
     material_fact = material_product_fact("Product B", strategy="策略A")
     monthly_fact = report_products_fact("monthly_report", "Product A")
@@ -213,15 +213,16 @@ def test_monthly_report_performance_uses_monthly_report_not_material_pack_eviden
     assert material_only_directive.mode == "unable"
 
 
-def test_unknown_channel_kind_preserves_unknown_and_does_not_assume_strategy_cardinality():
+def test_unknown_channel_kind_preserves_unknown_and_material_pack_options_metadata():
     request = make_request(
         channel_type="unknown",
-        available_strategies=["策略A", "策略B"],
+        material_pack_options=["策略A", "策略B"],
     )
 
     plan, domain_context = compile_plan(request, material_answer_payload())
 
     assert domain_context.channel.kind == "unknown"
-    assert len(domain_context.strategies) == 2
+    assert domain_context.strategies == ()
+    assert domain_context.metadata["material_pack_options"] == ("策略A", "策略B")
     assert plan.response_mode == "knowledge_answer"
     assert plan.ambiguity_slots == []

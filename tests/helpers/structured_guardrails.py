@@ -24,7 +24,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -37,7 +37,6 @@ def make_plan(request: ReplyRequest | None = None, **overrides):
         "user_need": "send weekly report",
         "artifact_kind": "weekly_report",
         "action_intent": "send",
-        "report_scope": "channel_all",
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -55,8 +54,6 @@ def weekly_action(**overrides) -> SendWeeklyReportAction:
         "action_id": "act-1",
         "resolve_type": "weekly_report",
         "resolve_ref": "weekly:ref",
-        "report_scope": "channel_all",
-        "strategy": None,
         "period": "20260529",
         "report_date": "2026-05-29",
     }
@@ -70,8 +67,6 @@ def monthly_action(**overrides) -> SendMonthlyReportAction:
         "action_id": "act-1",
         "resolve_type": "monthly_report",
         "resolve_ref": "monthly:ref",
-        "report_scope": "channel_all",
-        "strategy": None,
         "period": "202605",
         "report_date": "2026-05-31",
     }
@@ -120,7 +115,7 @@ def resolved_fact(resolve_type: str, resolve_ref: str, **metadata) -> EvidenceFa
 
 def material_product_fact(
     *products: str,
-    strategy: str | None = "指增",
+    material_pack_option: str | None = "指增",
     scope: ArtifactScope | None = None,
     source_type: str = "adapter_material_pack_content",
     artifact_type: str = "material_pack",
@@ -129,8 +124,8 @@ def material_product_fact(
         "status": "resolved",
         "products": [{"product_name": product} for product in products],
     }
-    if strategy:
-        metadata["strategy"] = strategy
+    if material_pack_option:
+        metadata["material_pack_option"] = material_pack_option
     return EvidenceFact(
         fact_type="material_pack_product_list",
         value=True,
@@ -146,14 +141,13 @@ def material_product_fact(
 def material_answer_plan(request: ReplyRequest | None = None):
     request = request or make_request(
         message="材料包里有哪些产品",
-        available_strategies=["指增"],
+        material_pack_options=["指增"],
     )
     return make_plan(
         request,
         user_need="answer material pack product list",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        report_scope="none",
         requested_capabilities=["material_pack"],
         compliance={
             "is_compliant": True,

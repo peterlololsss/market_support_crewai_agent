@@ -691,7 +691,7 @@ def _app_state_payload(app_state: RuntimeAppState) -> dict[str, Any]:
         "DomainContext JSON": domain_payload,
         "Policy JSON": policy_payload,
         "current_channel": _current_channel(domain_payload, request_payload),
-        "current_strategy": _current_strategy(canonical_payload, domain_payload),
+        "material_pack_routing": _material_pack_routing(canonical_payload),
         "available_artifacts": _available_artifacts(domain_payload, request_payload),
         **payload,
     }
@@ -725,9 +725,7 @@ def _compact_domain_context(domain_context: DomainContext | None) -> dict[str, A
 def _compact_canonical_context(canonical_context: CanonicalContext) -> dict[str, Any]:
     payload = canonical_context.to_prompt_dict()
     compact = {
-        "selected_strategy": payload.get("selected_strategy"),
-        "strategy_candidates": payload.get("strategy_candidates"),
-        "strategy_status": payload.get("strategy_status"),
+        "material_pack_options": payload.get("material_pack_options"),
         "ambiguities": payload.get("ambiguities"),
         "resolution_metrics": payload.get("resolution_metrics"),
     }
@@ -746,19 +744,11 @@ def _current_channel(domain_payload: object, request_payload: object) -> dict[st
     }
 
 
-def _current_strategy(canonical_payload: object, domain_payload: object) -> dict[str, Any]:
+def _material_pack_routing(canonical_payload: object) -> dict[str, Any]:
     canonical = canonical_payload if isinstance(canonical_payload, dict) else {}
     payload: dict[str, Any] = {
-        "status": canonical.get("strategy_status"),
-        "selected_strategy": canonical.get("selected_strategy"),
-        "strategy_candidates": canonical.get("strategy_candidates"),
+        "material_pack_options": canonical.get("material_pack_options"),
     }
-    selected = canonical.get("selected_strategy")
-    if selected and isinstance(domain_payload, dict):
-        for strategy in domain_payload.get("strategies", []) or []:
-            if isinstance(strategy, dict) and strategy.get("name") == selected:
-                payload["domain_strategy"] = strategy
-                break
     return {key: value for key, value in payload.items() if value}
 
 
@@ -827,7 +817,7 @@ def _compact_action_record(record: ActionLedgerRecord) -> dict[str, Any]:
         "status": execution.status,
         "resolve_ref_available": bool(execution.resolve_ref),
         "material_type": execution.material_type,
-        "strategy": execution.strategy,
+        "material_pack_option": execution.material_pack_option,
         "version": execution.version,
         "received_at": record.received_at.isoformat(),
         "source_metadata": SourceMetadata(
@@ -925,16 +915,13 @@ def _compact_preflight(preflight: AdapterPreflightSnapshot) -> list[dict[str, An
                 "candidates": result.candidates,
                 "channel_type": result.channel_type,
                 "available_materials": result.available_materials,
-                "available_strategies": result.available_strategies,
-                "strategy": result.strategy,
+                "material_pack_options": result.material_pack_options,
+                "material_pack_option": result.material_pack_option,
                 "period": result.period,
                 "report_date": result.report_date,
                 "period_start": result.period_start,
                 "period_end": result.period_end,
                 "period_label": result.period_label,
-                "contains_strategy": result.contains_strategy,
-                "generated_strategies": result.generated_strategies,
-                "scope_status": result.scope_status,
                 "scope_complete": result.scope_complete,
                 "expected_product_count": result.expected_product_count,
                 "generated_product_count": result.generated_product_count,
@@ -954,7 +941,14 @@ def _compact_evidence_fact(fact: EvidenceFact, include_content: bool) -> dict[st
         metadata = {
             key: value
             for key, value in metadata.items()
-            if key in {"status", "reason_code", "strategy", "period", "report_date", "scope_status"}
+            if key
+            in {
+                "status",
+                "reason_code",
+                "material_pack_option",
+                "period",
+                "report_date",
+            }
         }
     payload = {
         "evidence_id": evidence_id(fact),
@@ -986,7 +980,14 @@ def _compact_evidence_inventory(fact: EvidenceFact) -> dict[str, Any]:
         "metadata": {
             key: value
             for key, value in metadata.items()
-            if key in {"status", "reason_code", "strategy", "period", "report_date"}
+            if key
+            in {
+                "status",
+                "reason_code",
+                "material_pack_option",
+                "period",
+                "report_date",
+            }
         }
         | ({"resolve_ref_available": bool(resolve_ref)} if resolve_ref is not None else {}),
         "source_metadata": source_metadata_prompt_dict(fact.source_metadata),

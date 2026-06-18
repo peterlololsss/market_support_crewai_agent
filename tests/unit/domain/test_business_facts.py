@@ -21,7 +21,7 @@ def make_request(**overrides) -> ReplyRequest:
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["指增"],
+        "material_pack_options": ["指增"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -36,19 +36,11 @@ def test_business_facts_derive_resolved_weekly_report_state():
                 value=True,
                 resolve_type="weekly_report",
                 source_id="weekly_report",
-                metadata={"status": "resolved", "reason_code": "ok"},
-            ),
-            EvidenceFact(
-                fact_type="report_contains_strategy",
-                value=True,
-                resolve_type="weekly_report",
-                metadata={"strategy": "中证1000", "period": "20260529"},
-            ),
-            EvidenceFact(
-                fact_type="report_scope_status",
-                value="included",
-                resolve_type="weekly_report",
-                metadata={"strategy": "中证1000", "period": "20260529"},
+                metadata={
+                    "status": "resolved",
+                    "reason_code": "ok",
+                    "period": "20260529",
+                },
             ),
         ],
         make_request(),
@@ -56,11 +48,8 @@ def test_business_facts_derive_resolved_weekly_report_state():
 
     assert facts.weekly_report.status == "available"
     assert facts.weekly_report.resolvable is True
-    assert facts.weekly_report.contains_strategy is True
-    assert facts.weekly_report.scope_status == "included"
-    assert facts.weekly_report.strategy == "中证1000"
     assert facts.weekly_report.period == "20260529"
-    assert facts.requested_strategy_status == "available"
+    assert facts.requested_material_pack_option_status == "unknown"
 
 
 def test_business_facts_preserve_ambiguous_material_candidates():
@@ -84,10 +73,10 @@ def test_business_facts_preserve_ambiguous_material_candidates():
     assert facts.material_pack.resolvable is False
     assert facts.material_pack.candidates == ("中证500", "中证1000")
     assert facts.material_pack.reason_code == "multiple_packs"
-    assert facts.requested_strategy_status == "ambiguous"
+    assert facts.requested_material_pack_option_status == "ambiguous"
 
 
-def test_business_facts_preserve_resolved_material_strategy():
+def test_business_facts_preserve_resolved_material_pack_option():
     facts = derive_business_facts(
         [
             EvidenceFact(
@@ -95,9 +84,9 @@ def test_business_facts_preserve_resolved_material_strategy():
                 value=True,
                 resolve_type="material_pack",
                 metadata={
-                    "status": "resolved",
-                    "reason_code": "ok",
-                    "strategy": "中证1000指增",
+                        "status": "resolved",
+                        "reason_code": "ok",
+                        "material_pack_option": "中证1000指增",
                 },
             )
         ],
@@ -105,11 +94,11 @@ def test_business_facts_preserve_resolved_material_strategy():
     )
 
     assert facts.material_pack.status == "available"
-    assert facts.material_pack.strategy == "中证1000指增"
+    assert facts.material_pack.material_pack_option == "中证1000指增"
     assert facts.material_pack.resolvable is True
 
 
-def test_business_facts_preserve_report_strategy_from_resolve_fact():
+def test_business_facts_ignore_material_pack_option_for_report_resolve_fact():
     facts = derive_business_facts(
         [
             EvidenceFact(
@@ -117,9 +106,9 @@ def test_business_facts_preserve_report_strategy_from_resolve_fact():
                 value=True,
                 resolve_type="weekly_report",
                 metadata={
-                    "status": "resolved",
-                    "reason_code": "ok",
-                    "strategy": "中证1000",
+                        "status": "resolved",
+                        "reason_code": "ok",
+                        "material_pack_option": "中证1000",
                 },
             )
         ],
@@ -127,43 +116,15 @@ def test_business_facts_preserve_report_strategy_from_resolve_fact():
     )
 
     assert facts.weekly_report.status == "available"
-    assert facts.weekly_report.strategy == "中证1000"
-    assert facts.weekly_report.contains_strategy is None
-    assert facts.weekly_report.scope_status == "unknown"
-
-
-def test_business_facts_mark_report_exclusion_as_unavailable_strategy():
-    facts = derive_business_facts(
-        [
-            EvidenceFact(
-                fact_type="report_contains_strategy",
-                value=False,
-                resolve_type="monthly_report",
-                metadata={"strategy": "小市值", "period": "202605"},
-            ),
-            EvidenceFact(
-                fact_type="report_scope_status",
-                value="excluded",
-                resolve_type="monthly_report",
-                metadata={"strategy": "小市值", "period": "202605"},
-            ),
-        ],
-        make_request(),
-    )
-
-    assert facts.monthly_report.status == "unknown"
-    assert facts.monthly_report.contains_strategy is False
-    assert facts.monthly_report.scope_status == "excluded"
-    assert facts.requested_strategy_status == "unavailable"
+    assert facts.weekly_report.material_pack_option == "中证1000"
 
 
 def test_business_facts_default_to_unknown_when_evidence_is_absent():
     facts = derive_business_facts([], make_request())
 
     assert facts.material_pack.status == "unknown"
-    assert facts.weekly_report.scope_status == "unknown"
     assert facts.sales_mention.resolvable is False
-    assert facts.requested_strategy_status == "unknown"
+    assert facts.requested_material_pack_option_status == "unknown"
     assert facts.evidence_fact_count == 0
 
 
@@ -190,11 +151,10 @@ def test_business_facts_include_only_adapter_executed_action_history():
                         "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-weekly",
-                        "resolve_ref": "weekly:resolve-ref",
-                        "material_type": "weekly",
-                        "strategy": "中证1000",
-                        "material_id": "weekly:opaque",
-                        "version": "20260529",
+                            "resolve_ref": "weekly:resolve-ref",
+                            "material_type": "weekly",
+                            "material_id": "weekly:opaque",
+                            "version": "20260529",
                     },
                 ],
             }
@@ -213,7 +173,7 @@ def test_business_facts_include_only_adapter_executed_action_history():
     executed = business_facts.recent_executed_actions[0]
     assert executed.action_id == "act-weekly"
     assert executed.material_type == "weekly"
-    assert executed.strategy == "中证1000"
+    assert executed.material_pack_option is None
     assert executed.version == "20260529"
     assert executed.resolve_ref == "weekly:resolve-ref"
     assert executed.resolve_ref_available is True

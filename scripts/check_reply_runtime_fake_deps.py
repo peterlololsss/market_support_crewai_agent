@@ -73,7 +73,7 @@ class FakePreflightService:
         request,
         canonical_context=None,
         resolve_types=None,
-        resolve_strategies=None,
+        resolve_material_pack_options=None,
     ):
         del canonical_context
         requested = resolve_types or [
@@ -82,13 +82,13 @@ class FakePreflightService:
             "monthly_report",
             "sales_mention",
         ]
-        resolve_strategies = resolve_strategies or {}
+        resolve_material_pack_options = resolve_material_pack_options or {}
         return AdapterPreflightSnapshot(
             items=[
                 _resolve_item(
                     resolve_type,
                     request,
-                    strategy=resolve_strategies.get(resolve_type),
+                    material_pack_option=resolve_material_pack_options.get(resolve_type),
                 )
                 for resolve_type in requested
             ]
@@ -99,15 +99,15 @@ def _resolve_item(
     resolve_type: AdapterResolveType,
     request: ReplyRequest,
     *,
-    strategy: str | None = None,
+    material_pack_option: str | None = None,
 ) -> AdapterPreflightItem:
     status: AdapterResolveStatus = "resolved"
     resolve_ref = f"{resolve_type}:runtime-check-ref"
     if (
         resolve_type == "material_pack"
         and request.channel_type == "bank"
-        and not strategy
-        and len(request.available_strategies) > 1
+        and not material_pack_option
+        and len(request.material_pack_options) > 1
     ):
         status = "ambiguous"
         resolve_ref = None
@@ -118,17 +118,15 @@ def _resolve_item(
         "status": status,
         "display_name": request.dist_channel_name,
         "reason_code": "ok" if status == "resolved" else "multiple_candidates",
-        "candidates": request.available_strategies if status == "ambiguous" else [],
+        "candidates": request.material_pack_options if status == "ambiguous" else [],
         "channel_type": request.channel_type,
         "available_materials": request.available_materials,
-        "available_strategies": request.available_strategies,
+        "material_pack_options": request.material_pack_options,
+        "material_pack_option": material_pack_option,
         "resolved_at": 1,
         "resolve_ref": resolve_ref,
-        "strategy": strategy,
         "period": "20260529" if resolve_type == "weekly_report" else None,
         "report_date": "2026-05-29" if resolve_type == "weekly_report" else None,
-        "scope_status": "included" if resolve_type == "weekly_report" else "unknown",
-        "contains_strategy": True if resolve_type == "weekly_report" else None,
     }
     return AdapterPreflightItem(
         resolve_type=resolve_type,
@@ -148,7 +146,7 @@ def _request(message: str, **overrides) -> ReplyRequest:
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
         "available_materials": ["material", "weekly", "monthly"],
-        "available_strategies": ["中证500", "中证1000"],
+        "material_pack_options": ["中证500", "中证1000"],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -160,7 +158,6 @@ def _plan_spec(request: ReplyRequest, **overrides) -> PlanSpec:
         "user_need": "runtime check",
         "artifact_kind": "unclear",
         "action_intent": "none",
-        "report_scope": "none",
         "ambiguity_slots": ["request_meaning"],
         "compliance": {
             "is_compliant": True,
@@ -172,14 +169,14 @@ def _plan_spec(request: ReplyRequest, **overrides) -> PlanSpec:
     payload.update(overrides)
     capability_id = _capability_id_from_payload(payload)
     manifest = CAPABILITY_MANIFEST_REGISTRY.get(capability_id)
-    strategy = payload.get("selected_strategy")
+    material_pack_option = payload.get("material_pack_option")
     if (
         manifest.runtime_capability == "material_pack"
         and request.channel_type == "bank"
-        and strategy is None
-        and len(request.available_strategies) == 1
+        and material_pack_option is None
+        and len(request.material_pack_options) == 1
     ):
-        strategy = request.available_strategies[0]
+        material_pack_option = request.material_pack_options[0]
     step = {
         "step_id": "step-1",
         "description": payload["user_need"],
@@ -198,8 +195,7 @@ def _plan_spec(request: ReplyRequest, **overrides) -> PlanSpec:
             "domain_scope": {
                 "channel_id": request.group_id or request.conversation_key,
                 "channel_kind": request.channel_type,
-                "strategy_id": strategy,
-                "strategy_name": strategy,
+                "material_pack_option": material_pack_option,
                 "product_ids": [],
             },
             "required_artifacts": list(manifest.required_artifacts),
@@ -225,7 +221,7 @@ def _plan_spec(request: ReplyRequest, **overrides) -> PlanSpec:
 def _capability_id_from_payload(payload: dict) -> str:
     artifact_kind = payload.get("artifact_kind", "unclear")
     action_intent = payload.get("action_intent", "none")
-    if payload.get("ambiguity_slots") or payload.get("report_scope") == "ambiguous":
+    if payload.get("ambiguity_slots"):
         return "general.clarification"
     if action_intent == "send":
         if artifact_kind == "material_pack":
@@ -238,7 +234,7 @@ def _capability_id_from_payload(payload: dict) -> str:
 
 
 def _weekly_scenario() -> RuntimeScenario:
-    request = _request("请发一下周报", available_strategies=[])
+    request = _request("请发一下周报", material_pack_options=[])
     return RuntimeScenario(
         name="weekly_report_action",
         request=request,
@@ -247,24 +243,22 @@ def _weekly_scenario() -> RuntimeScenario:
             user_need="send weekly report",
             artifact_kind="weekly_report",
             action_intent="send",
-            report_scope="channel_all",
             ambiguity_slots=[],
             requested_capabilities=["weekly_report"],
         ),
     )
 
 
-def _bank_material_clarification_scenario() -> RuntimeScenario:
+def _bank_material_unqualified_send_scenario() -> RuntimeScenario:
     request = _request("发一下材料包")
     return RuntimeScenario(
-        name="bank_material_strategy_clarification",
+        name="bank_material_unqualified_send",
         request=request,
         plan_spec=_plan_spec(
             request,
-            user_need="send material pack but strategy is unclear",
+            user_need="send material pack",
             artifact_kind="material_pack",
             action_intent="send",
-            report_scope="none",
             ambiguity_slots=[],
             requested_capabilities=["material_pack"],
         ),
@@ -295,7 +289,7 @@ async def main() -> None:
         await _run_scenario(scenario)
         for scenario in (
             _weekly_scenario(),
-            _bank_material_clarification_scenario(),
+            _bank_material_unqualified_send_scenario(),
         )
     ]
     print(json.dumps(results, ensure_ascii=False, indent=2))

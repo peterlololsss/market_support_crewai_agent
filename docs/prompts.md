@@ -1,6 +1,6 @@
 # Prompt Registry And Assembly
 
-Last updated: 2026-06-16.
+Last updated: 2026-06-17.
 
 Prompts are registered in `src/market_support_crewai_agent/runtime/llm/prompting/registry.py` and assembled by `PromptAssembler` in `src/market_support_crewai_agent/runtime/llm/prompting/assembler.py`.
 
@@ -14,7 +14,7 @@ stable -> domain -> runtime -> task -> ephemeral
 
 - `stable`: agent identity, generic behavior, generic structured-output discipline, and style.
 - `domain`: domain ontology, policy allowlists, capability registry summaries, and source/evidence rules.
-- `runtime`: request metadata, current channel, current strategy, available artifacts, recent turns, evidence facts, business facts, guardrail decisions, and answerability. This appears once as `Runtime Capability & Evidence Boundary JSON`.
+- `runtime`: request metadata, current channel, material-pack routing options, available artifacts, recent turns, evidence facts, business facts, guardrail decisions, and answerability. This appears once as `Runtime Capability & Evidence Boundary JSON`.
 - `task`: current user request, selected stage output schema, candidate response for verifier stages, and stage-specific task prompt.
 - `ephemeral`: retry/self-correction state such as previous verifier verdicts. This layer is valid only for the current regeneration attempt.
 
