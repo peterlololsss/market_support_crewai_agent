@@ -12,6 +12,8 @@ from market_support_crewai_agent.runtime.llm.prompting.router import (
 )
 from market_support_crewai_agent.settings import Settings
 
+_UNSET = object()
+
 
 class CrewAIAgentFactory:
     def __init__(self, settings: Settings) -> None:
@@ -26,8 +28,12 @@ class CrewAIAgentFactory:
             inject_date=True,
             prompt_profile=prompt_profile_by_stage(
                 "planner_intent",
-                model_family_from_settings(self.settings),
+                model_family_from_settings(self.settings, stage="planner_intent"),
             ),
+            llm_model=self.settings.planner_llm_model,
+            llm_provider=self.settings.planner_llm_provider,
+            llm_base_url=self.settings.planner_llm_base_url,
+            llm_api_key=self.settings.planner_llm_api_key,
         )
 
     def build_composer_agent(self, stage="knowledge_composer"):
@@ -64,29 +70,56 @@ class CrewAIAgentFactory:
         backstory: str,
         inject_date: bool,
         prompt_profile: PromptProfile | None = None,
+        llm_model: str | object = _UNSET,
+        llm_provider: str | object = _UNSET,
+        llm_base_url: str | object = _UNSET,
+        llm_api_key: str | None | object = _UNSET,
     ):
         from crewai import Agent, LLM
+
+        model = self.settings.llm_model if llm_model is _UNSET else llm_model
+        provider = self.settings.llm_provider if llm_provider is _UNSET else llm_provider
+        base_url = self.settings.llm_base_url if llm_base_url is _UNSET else llm_base_url
+        api_key = self.settings.llm_api_key if llm_api_key is _UNSET else llm_api_key
+        extra = {}
+        if str(provider).lower() in {"gemini", "google"} and base_url:
+            extra["client_params"] = {
+                "http_options": {
+                    "base_url": base_url,
+                    "api_version": "v1beta",
+                    "timeout": int(self.settings.llm_timeout_seconds * 1000),
+                }
+            }
+            extra["max_output_tokens"] = (
+                prompt_profile.max_tokens
+                if prompt_profile is not None and prompt_profile.max_tokens is not None
+                else self.settings.llm_max_tokens
+            )
 
         return Agent(
             role=role,
             goal=goal,
             backstory=backstory,
             llm=LLM(
-                model=self.settings.llm_model,
-                provider=self.settings.llm_provider,
-                base_url=self.settings.llm_base_url,
-                api_key=self.settings.llm_api_key,
+                model=model,
+                provider=provider,
+                base_url=None if extra else base_url,
+                api_key=api_key,
                 temperature=(
                     prompt_profile.temperature
                     if prompt_profile is not None and prompt_profile.temperature is not None
                     else self.settings.llm_temperature
                 ),
                 max_tokens=(
+                    None
+                    if extra
+                    else
                     prompt_profile.max_tokens
                     if prompt_profile is not None and prompt_profile.max_tokens is not None
                     else self.settings.llm_max_tokens
                 ),
                 timeout=self.settings.llm_timeout_seconds,
+                **extra,
             ),
             allow_delegation=False,
             verbose=self.settings.crewai_verbose,

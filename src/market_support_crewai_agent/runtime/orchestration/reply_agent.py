@@ -421,7 +421,10 @@ class CrewAIReplyRuntime:
             planner_program = select_prompt_program(
                 PromptAssemblyContext(
                     stage="planner_intent",
-                    model_family=model_family,
+                    model_family=model_family_from_settings(
+                        self.settings,
+                        stage="planner_intent",
+                    ),
                     request=request,
                     canonical_context=canonical_context,
                     model_visible_context=planner_context,

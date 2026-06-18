@@ -18,8 +18,16 @@ from market_support_crewai_agent.schemas import ReplyRequest
 from market_support_crewai_agent.settings import Settings
 
 
-def model_family_from_settings(settings: Settings) -> ModelFamily:
-    model = settings.llm_model.lower()
+def model_family_from_settings(
+    settings: Settings,
+    *,
+    stage: str | None = None,
+) -> ModelFamily:
+    model = (
+        settings.planner_llm_model
+        if stage == "planner_intent"
+        else settings.llm_model
+    ).lower()
     if "deepseek-v4-pro" in model or "ds-v4pro" in model or "v4-pro" in model:
         return "ds_v4pro"
     if "deepseek" in model:
