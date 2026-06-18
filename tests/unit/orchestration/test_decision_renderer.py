@@ -145,9 +145,39 @@ def test_decision_uses_composer_for_ambiguous_action_clarification():
     )
 
     assert directive.mode == "clarification"
+    assert directive.text == ""
     assert directive.requires_knowledge_composer is True
     assert directive.composer_stage == "knowledge_composer"
-    assert "中证1000指增" in directive.text
+
+
+def test_decision_treats_adapter_ambiguous_without_candidates_as_unavailable():
+    request = make_request(message="发一下材料", material_pack_options=["中证1000指增"])
+    policy = compile_policy(request)
+    plan = make_plan(
+        request,
+        artifact_kind="material_pack",
+        action_intent="send",
+    )
+    facts = [
+        EvidenceFact(
+            fact_type="material_pack_resolvable",
+            value=False,
+            resolve_type="material_pack",
+            metadata={"status": "ambiguous", "candidates": []},
+        )
+    ]
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        request,
+        policy,
+    )
+
+    assert directive.mode == "unable"
+    assert directive.reply_kind == "unable_to_answer"
+    assert directive.requires_knowledge_composer is False
 
 
 def test_decision_requires_knowledge_composer_only_with_document_context():
@@ -188,6 +218,51 @@ def test_decision_requires_knowledge_composer_only_with_document_context():
     assert missing.mode == "unable"
     assert missing.requires_knowledge_composer is False
     assert "文档证据" in missing.text
+
+
+def test_decision_keeps_actions_for_mixed_answer_and_send_composer_path():
+    request = make_request(message="介绍一下策略，然后发下周报")
+    policy = compile_policy(request, doc_mcp_enabled=True)
+    plan = make_plan(
+        request,
+        plan_units=[
+            {
+                "artifact_kind": "knowledge_answer",
+                "action_intent": "answer",
+                "requested_capabilities": ["document_context"],
+            },
+            {
+                "artifact_kind": "weekly_report",
+                "action_intent": "send",
+            },
+        ],
+    )
+    facts = [
+        resolved_fact(
+            "weekly_report",
+            "weekly:ref",
+            period="20260612",
+            report_date="2026-06-12",
+        ),
+        EvidenceFact(
+            fact_type="document_context",
+            value="文档证据",
+            source_type="document_mcp",
+            source_id="doc-1",
+        ),
+    ]
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        request,
+        policy,
+    )
+
+    assert directive.mode == "action"
+    assert directive.action_intents[0].action_type == "send_weekly_report"
+    assert directive.requires_knowledge_composer is True
 
 
 

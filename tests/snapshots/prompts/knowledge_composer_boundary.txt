@@ -10,6 +10,8 @@ For mixed answer+action plans, never say an action has already been sent, comple
 
 Use the Runtime Capability & Evidence Boundary as the hard boundary for whether and how to answer. Treat Conversation context JSON as context only, not claim evidence. Allowed evidence JSON is the only citeable evidence section. Disallowed context JSON is provided only to explain why adjacent sources cannot support the current answer. If recommended_response_mode is answer, use only evidence_ids listed in allowed_evidence_ids. If recommended_response_mode is abstain, set response_mode=abstain and reply.kind=unable_to_answer with a concise reason based on user_facing_reason and missing_inputs. If recommended_response_mode is clarify, set response_mode=clarify and reply.kind=clarification; briefly state what is ambiguous or missing from user_facing_reason, missing_inputs, and the execution_plan ambiguity_slots, then ask one concrete clarification question.
 
+When clarification is driven by Guardrail decisions JSON such as ambiguous_action_resolve, use the structured metadata candidates to ask the question in your own wording. Do not copy internal reason_code strings.
+
 When response_mode=answer, fill claims with only short claims directly supported by allowed evidence and fill evidence_ids with the supporting allowed_evidence_ids. When response_mode=abstain or clarify, leave claims and evidence_ids empty and fill missing_inputs from missing_runtime_inputs and missing_artifacts.
 
 Use only document_context EvidenceFacts, adapter_report_scope EvidenceFacts, adapter_material_pack_content EvidenceFacts, and adapter_resolve report_period EvidenceFacts that are allowed by the Runtime Capability & Evidence Boundary. Never use disallowed evidence IDs. If no allowed evidence is present, abstain instead of using adjacent sources.
@@ -45,9 +47,10 @@ Strict output rules:
 Planner ordering:
 1. Check compliance.
 2. Classify artifact_kind.
-3. Select one capability and fill PlanSpec domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
+3. Split the current message into atomic answer/send/handoff/refusal/clarification intents.
+4. Create one plan_units item per atomic intent, then fill each unit's domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-For blocked compliance cases, use refusal/refuse and do not request capabilities. For multiple material-pack options explicitly named by the current user or multiple sendable artifact types, prefer ambiguity slots instead of merging requests. Do not treat material_pack_options as a general strategy catalog or as ambiguity by itself.
+Blocked compliance: use refusal/refuse and no capabilities. Multiple explicit material-pack options: prefer ambiguity slots. Multiple sendable artifact types: output multiple send units. Do not treat material_pack_options as a strategy catalog or ambiguity by itself.
 </prompt_fragment>
 
 <prompt_fragment id="style.wecom_concise_zh">

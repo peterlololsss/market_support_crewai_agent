@@ -56,14 +56,12 @@ class PlanStep(StrictModel):
     evidence_query: str | None = Field(default=None, max_length=200)
 
 
-class PlanSpec(StrictModel):
-    contract_version: Literal["plan-spec"] = "plan-spec"
-    plan_id: str = Field(min_length=1)
+class PlanUnit(StrictModel):
+    unit_id: str = Field(min_length=1)
     selected_capability_id: str = Field(
         min_length=1,
         pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$",
     )
-    user_intent_summary: str = Field(min_length=1, max_length=500)
     domain_scope: PlanDomainScope
     required_artifacts: list[str] = Field(default_factory=list)
     allowed_artifacts: list[str] = Field(default_factory=list)
@@ -93,5 +91,13 @@ class PlanSpec(StrictModel):
         if self.evidence_contract is None and not self.evidence_contract_ref:
             raise ValueError(
                 "PlanSpec requires evidence_contract_ref or inline evidence_contract"
-            )
+        )
         return self
+
+
+class PlanSpec(StrictModel):
+    contract_version: Literal["plan-spec"] = "plan-spec"
+    plan_id: str = Field(min_length=1)
+    user_intent_summary: str = Field(min_length=1, max_length=500)
+    plan_units: list[PlanUnit] = Field(min_length=1, max_length=4)
+    risk_flags: list[str] = Field(default_factory=list)

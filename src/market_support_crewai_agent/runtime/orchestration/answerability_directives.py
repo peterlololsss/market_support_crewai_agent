@@ -37,10 +37,15 @@ def directive_from_answerability(
 def default_answerability_for_plan(plan: ExecutionPlan) -> AnswerabilityAssessment:
     return AnswerabilityAssessment(
         can_answer=True,
-        capability_id=(
-            plan.plan_spec.selected_capability_id
-            if plan.plan_spec is not None
-            else "unknown"
-        ),
+        capability_id=_answer_capability_id(plan),
         recommended_response_mode="answer",
     )
+
+
+def _answer_capability_id(plan: ExecutionPlan) -> str:
+    if plan.plan_spec is None:
+        return "unknown"
+    for unit in plan.plan_spec.plan_units:
+        if unit.answerability_policy == "answer":
+            return unit.selected_capability_id
+    return plan.plan_spec.plan_units[0].selected_capability_id

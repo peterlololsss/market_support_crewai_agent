@@ -36,6 +36,7 @@ from market_support_crewai_agent.runtime.domain.ontology import (
     DomainContext,
     DomainContextBuilder,
 )
+from market_support_crewai_agent.runtime.domain.capabilities import resolve_type_for_action
 from market_support_crewai_agent.runtime.state.conversation_store import (
     ConversationStore,
 )
@@ -612,6 +613,10 @@ class CrewAIReplyRuntime:
                     or answerability.user_facing_reason,
                 }
             )
+        guardrail_decisions = [
+            *guardrail_decisions,
+            *_guardrail_decisions_from_directive(directive, plan, business_facts),
+        ]
         trace_event(
             "state.directive_selected",
             mode=directive.mode,
@@ -1122,3 +1127,42 @@ def _validation_error_summary(validation: PlanValidationResult) -> str:
 
 def _reply_validation_error_summary(validation) -> str:
     return "; ".join(issue.code for issue in validation.issues) or "unknown"
+
+
+def _guardrail_decisions_from_directive(
+    directive: ResponseDirective,
+    plan: ExecutionPlan,
+    business_facts: BusinessFacts,
+) -> list[GuardrailDecision]:
+    if directive.reason_code != "ambiguous_action_resolve":
+        return []
+    candidates: list[str] = []
+    action_types: list[str] = []
+    for action in plan.action_intents:
+        action_types.append(action.action_type)
+        resolve_type = resolve_type_for_action(action.action_type)
+        if resolve_type is None:
+            continue
+        candidates.extend(business_facts.resolve_state(resolve_type).candidates)
+    return [
+        GuardrailDecision(
+            outcome="require_clarification",
+            phase="output",
+            reason_code="ambiguous_action_resolve",
+            metadata={
+                "action_types": _unique_strings(action_types),
+                "candidates": _unique_strings(candidates),
+            },
+        )
+    ]
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    seen = set()
+    output: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+    return output

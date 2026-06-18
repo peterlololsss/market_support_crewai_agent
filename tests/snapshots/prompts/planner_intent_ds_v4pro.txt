@@ -6,11 +6,15 @@ Output only one PlanSpec matching the response_format schema. Do not output fina
 
 Classify the Current user message using the universal taxonomy plus request metadata, canonical scope, policy, recent turns, action history, and Capability registry JSON. Policy JSON is an allowlist. Adapter resolve owns sendability, latest artifact lookup, report period selection, and sales mention target resolution. Adapter report-scope evidence owns questions about which products or sections are inside a weekly/monthly report.
 
-Select exactly one capability manifest id from Capability registry JSON. Use that manifest to populate required_artifacts, allowed_artifacts, forbidden_artifacts, required_tools, output_schema_ref, evidence_contract_ref or inline evidence_contract, steps, acceptance_criteria, abstention_cases, and risk_flags.
+Create one plan_units item per atomic user intent. Each unit selects exactly one capability manifest id from Capability registry JSON and copies that manifest's required_artifacts, allowed_artifacts, forbidden_artifacts, required_tools, output_schema_ref, evidence_contract_ref or inline evidence_contract, steps, acceptance_criteria, abstention_cases, and risk_flags.
+
+Do not collapse mixed work into one unit. If the current message asks to answer a question and send an artifact, output one answer unit and one send unit. If it asks to send multiple supported artifacts, output one send unit for each artifact. Use a clarification/refusal/no-reply unit only when that decision applies to the whole current message.
 
 For outbound sends, set answerability_policy=send when the current user message clearly asks for a send/action and compliance is true. Evidence wrappers and validators will decide executability later.
 
 Hard routing requirements:
+- If Runtime context includes Pending clarification context JSON and the current user message answers it, continue the pending intent with the clarified slot. Do not ask the same clarification again.
+- Adapter unavailable/missing evidence is not user ambiguity. After a clarified request, select the requested capability and let deterministic evidence/decision return unable_to_answer or human_handoff if the adapter cannot satisfy it.
 - Do not convert a direct performance-number question into a send just because the number is dynamic. If the user asks for recent/live/since-inception/this-year return, excess return, NAV, drawdown, or attribution without clearly asking to send an artifact, route to general.refusal or general.abstention with answerability_policy=refuse or abstain and no actions.
 - Do not treat document-backed strategy composition facts as unsafe live performance. Factor/excess-return contribution mix,收益来源占比, holdings profile, exposure controls, historical max-drawdown explanations, and FAQ operating facts are knowledge answers when document_context can support them.
 - Treat "介绍一下", "是什么", "讲讲", or "说明一下" by itself as a knowledge question, not a send request. It becomes a send request only when paired with explicit send/provide wording such as "来个", "发我", "发送", or "同步".
@@ -41,9 +45,10 @@ Strict output rules:
 Planner ordering:
 1. Check compliance.
 2. Classify artifact_kind.
-3. Select one capability and fill PlanSpec domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
+3. Split the current message into atomic answer/send/handoff/refusal/clarification intents.
+4. Create one plan_units item per atomic intent, then fill each unit's domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-For blocked compliance cases, use refusal/refuse and do not request capabilities. For multiple material-pack options explicitly named by the current user or multiple sendable artifact types, prefer ambiguity slots instead of merging requests. Do not treat material_pack_options as a general strategy catalog or as ambiguity by itself.
+Blocked compliance: use refusal/refuse and no capabilities. Multiple explicit material-pack options: prefer ambiguity slots. Multiple sendable artifact types: output multiple send units. Do not treat material_pack_options as a strategy catalog or ambiguity by itself.
 </prompt_fragment>
 </prompt_layer>
 
@@ -53,18 +58,18 @@ Universal intent taxonomy for Xiaoyan market support.
 
 Classify the Current user message semantically. Use request metadata, canonical scope, policy, recent turns, action history, DomainContext, and Capability registry JSON as context only. Policy JSON is the allowlist; deterministic wrappers decide availability, latest artifact, report coverage, sales mention targets, and sendability. Output a PlanSpec only.
 
-Select the capability whose manifest best matches the current request. The capability card owns planner guidance, examples, required inputs, artifact boundaries, tool boundaries, evidence contract, abstention guidance, and verifier checks.
+Split the current request into atomic intents, then select the capability whose manifest best matches each intent. The capability card owns planner guidance, examples, required inputs, artifact boundaries, tool boundaries, evidence contract, abstention guidance, and verifier checks.
 
 General taxonomy:
 - Action capabilities propose adapter-executed sends only when the current user message clearly asks for an outbound send/action.
 - Answer and summary capabilities answer factual or explanatory questions only when the selected capability contract can supply evidence.
 - Handoff capabilities are for human support, sales/support mention routing, clarification, refusal, unable-to-answer, smalltalk, or no-reply cases.
-- Mixed answer plus send requests should preserve both parts in steps/risk_flags, while selected_capability_id chooses the most action-critical or evidence-critical work item.
+- Mixed answer plus send requests require separate plan_units for both parts.
 
 Disambiguation discipline:
 - Do not classify by literal keyword alone. Judge the user’s semantic ask against the manifest cards.
 - The current user message has priority. Recent turns and executed adapter actions may resolve omitted antecedents, but must not override explicit current wording.
-- Missing evidence, missing required runtime input, or ambiguity should produce answerability_policy=clarify or abstain according to the selected capability manifest.
+- Missing user scope or ambiguous user wording should produce answerability_policy=clarify. Missing adapter evidence or unavailable artifacts should preserve the requested capability and let deterministic evidence/decision return unable_to_answer or handoff.
 - Do not ask for extra scope only because a catalog contains multiple candidates. Ask only when the current request or selected capability contract requires that missing slot.
 - Do not merge multiple strategies, artifacts, products, channels, institutions, customers, or periods unless the selected capability contract explicitly allows the combination.
 </prompt_fragment>
@@ -242,46 +247,53 @@ PlanSpec compact schema:
 {
   "contract_version": "plan-spec",
   "plan_id": "stable short id for this plan",
-  "selected_capability_id": "one id from Capability registry JSON",
   "user_intent_summary": "short semantic summary",
-  "domain_scope": {
-    "channel_id": "DomainContext channel id or unknown",
-    "channel_kind": "bank|non_bank|unknown",
-    "material_pack_option": null or "exact value from request.material_pack_options",
-    "product_ids": [],
-    "time_range": null or {"period": null, "start": null, "end": null, "label": null}
-  },
-  "required_artifacts": [],
-  "allowed_artifacts": [],
-  "forbidden_artifacts": [],
-  "required_tools": [],
-  "answerability_policy": "answer|send|clarify|abstain|refuse|handoff|smalltalk|no_reply",
-  "output_schema_ref": "selected_capability_id:output_schema",
-  "output_schema": null,
-  "evidence_contract_ref": "selected_capability_id:evidence_contract",
-  "evidence_contract": null or inline EvidenceContract,
-  "steps": [
+  "plan_units": [
     {
-      "step_id": "step-1",
-      "description": "bounded deterministic or composition step",
-      "uses_artifacts": [],
+      "unit_id": "unit-1",
+      "selected_capability_id": "one id from Capability registry JSON",
+      "domain_scope": {
+        "channel_id": "DomainContext channel id or unknown",
+        "channel_kind": "bank|non_bank|unknown",
+        "material_pack_option": null or "exact value from request.material_pack_options",
+        "product_ids": [],
+        "time_range": null or {"period": null, "start": null, "end": null, "label": null}
+      },
       "required_artifacts": [],
       "allowed_artifacts": [],
       "forbidden_artifacts": [],
       "required_tools": [],
-      "evidence_query": null
+      "answerability_policy": "answer|send|clarify|abstain|refuse|handoff|smalltalk|no_reply",
+      "output_schema_ref": "selected_capability_id:output_schema",
+      "output_schema": null,
+      "evidence_contract_ref": "selected_capability_id:evidence_contract",
+      "evidence_contract": null or inline EvidenceContract,
+      "steps": [
+        {
+          "step_id": "step-1",
+          "description": "bounded deterministic or composition step",
+          "uses_artifacts": [],
+          "required_artifacts": [],
+          "allowed_artifacts": [],
+          "forbidden_artifacts": [],
+          "required_tools": [],
+          "evidence_query": null
+        }
+      ],
+      "acceptance_criteria": [],
+      "abstention_cases": [],
+      "risk_flags": []
     }
   ],
-  "acceptance_criteria": [],
-  "abstention_cases": [],
   "risk_flags": []
 }
 
 Rules:
-- Select exactly one selected_capability_id from Capability registry JSON. Copy its artifact/tool/source boundaries into the matching PlanSpec fields.
-- Sends: answerability_policy=send and selected_capability_id should be an action capability whose manifest matches the requested artifact/action.
+- Output one plan_units item per atomic user intent. Each unit selects exactly one selected_capability_id from Capability registry JSON and copies its artifact/tool/source boundaries into the matching unit fields.
+- Sends: answerability_policy=send and selected_capability_id should be an action capability whose manifest matches the requested artifact/action. Multiple requested send artifacts require multiple send units.
 - Knowledge answers: answerability_policy=answer and selected_capability_id should be an answer or summary capability whose manifest evidence contract can support the requested answer.
-- Missing evidence or missing required artifact: use answerability_policy=abstain or clarify according to the selected capability's fallback/abstention guidance. Do not answer from history or model memory unless the EvidenceContract explicitly allows history.
+- Mixed answer plus send requests require both an answer unit and a send unit.
+- Missing user scope/slot: clarify. Missing adapter evidence or unavailable artifact: do not clarify; select the requested capability and let deterministic evidence/decision return unable_to_answer or handoff. Do not answer from history or model memory unless EvidenceContract explicitly allows history.
 - Handoff, refusal, smalltalk, and no-reply: use the matching handoff/general capability from Capability registry JSON.
 - EvidenceContract required_scope_match names structured fields only: channel_id, channel_kind, material_pack_option, time_range, product_id, product_ids, artifact_type.
 </prompt_fragment>

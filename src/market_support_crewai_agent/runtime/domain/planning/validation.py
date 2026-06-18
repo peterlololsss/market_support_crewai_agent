@@ -18,37 +18,36 @@ def validate_execution_plan(
 ) -> PlanValidationResult:
     issues: list[PlanValidationIssue] = []
     if plan.plan_spec is not None:
-        manifest = CAPABILITY_MANIFEST_REGISTRY.find(
-            plan.plan_spec.selected_capability_id
-        )
-        if manifest is None:
-            issues.append(
-                PlanValidationIssue(
-                    code="plan_spec_capability_not_found",
-                    message="PlanSpec selected capability does not exist",
-                    severity="fatal",
-                    metadata={
-                        "selected_capability_id": (
-                            plan.plan_spec.selected_capability_id
-                        )
-                    },
+        for unit in plan.plan_spec.plan_units:
+            manifest = CAPABILITY_MANIFEST_REGISTRY.find(unit.selected_capability_id)
+            if manifest is None:
+                issues.append(
+                    PlanValidationIssue(
+                        code="plan_spec_capability_not_found",
+                        message="PlanSpec selected capability does not exist",
+                        severity="fatal",
+                        metadata={
+                            "unit_id": unit.unit_id,
+                            "selected_capability_id": unit.selected_capability_id,
+                        },
+                    )
                 )
-            )
-        elif (
-            manifest.runtime_capability is not None
-            and manifest.runtime_capability not in policy.allowed_capabilities
-        ):
-            issues.append(
-                PlanValidationIssue(
-                    code="plan_spec_runtime_capability_not_allowed",
-                    message="PlanSpec selected capability is outside policy",
-                    severity="fatal",
-                    metadata={
-                        "selected_capability_id": manifest.id,
-                        "runtime_capability": manifest.runtime_capability,
-                    },
+            elif (
+                manifest.runtime_capability is not None
+                and manifest.runtime_capability not in policy.allowed_capabilities
+            ):
+                issues.append(
+                    PlanValidationIssue(
+                        code="plan_spec_runtime_capability_not_allowed",
+                        message="PlanSpec selected capability is outside policy",
+                        severity="fatal",
+                        metadata={
+                            "unit_id": unit.unit_id,
+                            "selected_capability_id": manifest.id,
+                            "runtime_capability": manifest.runtime_capability,
+                        },
+                    )
                 )
-            )
 
     if plan.response_mode not in policy.allowed_reply_modes:
         issues.append(

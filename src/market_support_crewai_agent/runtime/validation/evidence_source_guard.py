@@ -207,13 +207,16 @@ def manifests_for_capability(capability: str, plan: object | None = None):
         for manifest in CAPABILITY_MANIFEST_REGISTRY.list()
         if manifest.runtime_capability == capability
     )
-    selected_id = str(
-        getattr(getattr(plan, "plan_spec", None), "selected_capability_id", "") or ""
-    )
-    if selected_id:
-        selected = CAPABILITY_MANIFEST_REGISTRY.find(selected_id)
+    selected_manifests = []
+    plan_spec = getattr(plan, "plan_spec", None)
+    for unit in getattr(plan_spec, "plan_units", []) or []:
+        selected = CAPABILITY_MANIFEST_REGISTRY.find(
+            str(getattr(unit, "selected_capability_id", "") or "")
+        )
         if selected is not None and selected.runtime_capability == capability:
-            return (selected,)
+            selected_manifests.append(selected)
+    if selected_manifests:
+        return tuple(selected_manifests)
     mode = str(getattr(plan, "response_mode", "") or "")
     answer_capabilities = set(getattr(plan, "answer_capabilities", ()) or ())
     if capability in answer_capabilities:
@@ -303,12 +306,12 @@ def contract_rejection_code(
 
 def effective_evidence_contract(manifest, plan: object | None) -> EvidenceContract:
     plan_spec = getattr(plan, "plan_spec", None)
-    if (
-        plan_spec is not None
-        and getattr(plan_spec, "selected_capability_id", None) == manifest.id
-        and getattr(plan_spec, "evidence_contract", None) is not None
-    ):
-        return plan_spec.evidence_contract
+    for unit in getattr(plan_spec, "plan_units", []) or []:
+        if (
+            getattr(unit, "selected_capability_id", None) == manifest.id
+            and getattr(unit, "evidence_contract", None) is not None
+        ):
+            return unit.evidence_contract
     return manifest.evidence_contract
 
 
@@ -379,11 +382,9 @@ def history_time_range_mismatch_or_missing(
 
 
 def expected_time_range_from_plan(plan: object) -> TimeRange | None:
-    plan_spec = getattr(plan, "plan_spec", None)
-    if plan_spec is not None:
-        domain_scope = getattr(plan_spec, "domain_scope", None)
-        if domain_scope is not None and getattr(domain_scope, "time_range", None) is not None:
-            return domain_scope.time_range
+    time_range = _plan_unit_time_range(plan)
+    if time_range is not None:
+        return time_range
     scope = requested_scope_from_plan(plan)
     if scope is None or not scope.period:
         return None
@@ -443,7 +444,27 @@ def wrong_time_range(
 
 
 def requested_scope_from_plan(plan: object) -> RequestedScope | None:
-    return requested_scope(plan)
+    scope = requested_scope(plan)
+    if scope is not None:
+        return scope
+    time_range = _plan_unit_time_range(plan)
+    if time_range is None:
+        return None
+    return RequestedScope(
+        period=time_range.period,
+        time_range_start=time_range.start,
+        time_range_end=time_range.end,
+    )
+
+
+def _plan_unit_time_range(plan: object) -> TimeRange | None:
+    plan_spec = getattr(plan, "plan_spec", None)
+    for unit in getattr(plan_spec, "plan_units", []) or []:
+        domain_scope = getattr(unit, "domain_scope", None)
+        time_range = getattr(domain_scope, "time_range", None)
+        if time_range is not None:
+            return time_range
+    return None
 
 
 def contract_artifact_types(values: tuple[str, ...]) -> set[str]:

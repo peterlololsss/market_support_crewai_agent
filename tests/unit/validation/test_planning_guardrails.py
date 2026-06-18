@@ -103,6 +103,76 @@ def test_compile_plan_spec_uses_document_context_for_knowledge_answer():
     assert validate_execution_plan(plan, policy).valid
 
 
+def test_compile_plan_spec_builds_multiple_send_actions():
+    request = make_request(material_pack_options=["指增"])
+    policy = compile_policy(request)
+
+    plan = compile_plan_spec(
+        make_plan_spec(
+            request,
+            plan_units=[
+                {
+                    "artifact_kind": "material_pack",
+                    "action_intent": "send",
+                    "material_pack_option": "指增",
+                },
+                {
+                    "artifact_kind": "weekly_report",
+                    "action_intent": "send",
+                },
+            ],
+        ),
+        request,
+        canonicalize_request(request),
+        policy,
+    )
+
+    assert plan.response_mode == "action"
+    assert plan.artifact_kind == "multi_action"
+    assert plan.capabilities == ["material_pack", "weekly_report"]
+    assert [item.resolve_type for item in plan.adapter_resolves] == [
+        "material_pack",
+        "weekly_report",
+        "sales_mention",
+    ]
+    assert [item.action_type for item in plan.action_intents] == [
+        "send_material_pack",
+        "send_weekly_report",
+    ]
+    assert validate_execution_plan(plan, policy).valid
+
+
+def test_compile_plan_spec_builds_mixed_answer_and_send_plan():
+    request = make_request(message="介绍一下策略，然后发下周报", material_pack_options=[])
+    policy = compile_policy(request, doc_mcp_enabled=True)
+
+    plan = compile_plan_spec(
+        make_plan_spec(
+            request,
+            plan_units=[
+                {
+                    "artifact_kind": "knowledge_answer",
+                    "action_intent": "answer",
+                    "requested_capabilities": ["document_context"],
+                },
+                {
+                    "artifact_kind": "weekly_report",
+                    "action_intent": "send",
+                },
+            ],
+        ),
+        request,
+        canonicalize_request(request),
+        policy,
+    )
+
+    assert plan.response_mode == "action"
+    assert plan.capabilities == ["document_context", "weekly_report"]
+    assert plan.answer_capabilities == ["document_context"]
+    assert [item.action_type for item in plan.action_intents] == ["send_weekly_report"]
+    assert validate_execution_plan(plan, policy).valid
+
+
 def test_compile_plan_spec_refusal_has_no_actions_or_evidence():
     request = make_request(message="违规请求")
     policy = compile_policy(request)
