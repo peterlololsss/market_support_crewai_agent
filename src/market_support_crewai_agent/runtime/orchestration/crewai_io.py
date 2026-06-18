@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 from types import SimpleNamespace
 from time import perf_counter
 
@@ -21,6 +22,8 @@ from market_support_crewai_agent.runtime.validation.reply_alignment_verifier imp
 from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse
 from market_support_crewai_agent.runtime.state.runtime_trace import trace_span
 
+logger = logging.getLogger(__name__)
+
 
 async def run_crewai_kickoff(
     agent,
@@ -29,6 +32,7 @@ async def run_crewai_kickoff(
     timeout_seconds: float | None,
 ):
     started_at = perf_counter()
+    gemini_structured = _is_gemini_agent(agent)
     with trace_span(
         "llm.crewai_kickoff",
         stage=prompt_program.profile.stage,
@@ -41,7 +45,7 @@ async def run_crewai_kickoff(
             str(prompt_program.profile.response_model),
         ),
     ):
-        if _is_gemini_agent(agent):
+        if gemini_structured:
             result = await asyncio.wait_for(
                 asyncio.to_thread(_run_gemini_structured, agent, prompt_program),
                 timeout=timeout_seconds,
@@ -55,6 +59,13 @@ async def run_crewai_kickoff(
                 timeout=timeout_seconds,
             )
     latency_ms = (perf_counter() - started_at) * 1000
+    _log_llm_execution(
+        agent,
+        prompt_program,
+        result,
+        latency_ms,
+        mode="gemini_structured" if gemini_structured else "crewai",
+    )
     return result, _compact_crewai_execution(prompt_program, result, latency_ms)
 
 
@@ -157,6 +168,38 @@ def _usage_metadata(response):
     if hasattr(usage, "model_dump"):
         return usage.model_dump(mode="json")
     return usage
+
+
+def _log_llm_execution(
+    agent,
+    prompt_program: PromptProgram,
+    result,
+    latency_ms: float,
+    *,
+    mode: str,
+) -> None:
+    llm = getattr(agent, "llm", None)
+    logger.info(
+        "[LLM] stage=%s mode=%s provider=%s model=%s prompt_hash=%s "
+        "prompt_chars=%s raw_length=%s pydantic_type=%s latency_ms=%.1f",
+        prompt_program.profile.stage,
+        mode,
+        str(getattr(llm, "provider", "") or ""),
+        str(getattr(llm, "model", "") or ""),
+        prompt_program.prompt_hash,
+        len(prompt_program.prompt_text),
+        len(str(getattr(result, "raw", "") or "")),
+        _pydantic_type_name(getattr(result, "pydantic", None)),
+        latency_ms,
+    )
+    if (
+        prompt_program.profile.stage == "planner_intent"
+        and getattr(result, "pydantic", None) is None
+    ):
+        logger.warning(
+            "[Planner] invalid structured output: %s",
+            plan_spec_error_summary(result),
+        )
 
 
 def coerce_planner_plan(
