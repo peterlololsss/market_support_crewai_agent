@@ -499,36 +499,42 @@ def _allow_history_material_plan(
         plan,
         domain_context=DomainContextBuilder().build(request),
     )
-    scope = plan_spec.domain_scope.model_copy(
+    unit = plan_spec.plan_units[0]
+    scope = unit.domain_scope.model_copy(
         update={
-            "channel_id": channel_id or plan_spec.domain_scope.channel_id,
+            "channel_id": channel_id or unit.domain_scope.channel_id,
             "material_pack_option": material_pack_option,
             "time_range": time_range,
+        }
+    )
+    unit = unit.model_copy(
+        update={
+            "domain_scope": scope,
+            "evidence_contract": EvidenceContract(
+                required_fact_types=["material_pack_product_list"],
+                allowed_source_types=["conversation_history"],
+                required_artifact_types=["material_pack"],
+                allowed_artifact_types=["material_pack"],
+                required_scope_match=[
+                    "channel_id",
+                    *(
+                        ["material_pack_option"]
+                        if material_pack_option is not None
+                        else []
+                    ),
+                    *(["time_range"] if time_range is not None else []),
+                ],
+                allow_history=True,
+                min_facts=1,
+            ),
+            "evidence_contract_ref": None,
         }
     )
     return plan.model_copy(
         update={
             "plan_spec": plan_spec.model_copy(
                 update={
-                    "domain_scope": scope,
-                    "evidence_contract": EvidenceContract(
-                        required_fact_types=["material_pack_product_list"],
-                        allowed_source_types=["conversation_history"],
-                        required_artifact_types=["material_pack"],
-                        allowed_artifact_types=["material_pack"],
-                        required_scope_match=[
-                            "channel_id",
-                            *(
-                                ["material_pack_option"]
-                                if material_pack_option is not None
-                                else []
-                            ),
-                            *(["time_range"] if time_range is not None else []),
-                        ],
-                        allow_history=True,
-                        min_facts=1,
-                    ),
-                    "evidence_contract_ref": None,
+                    "plan_units": [unit],
                 }
             )
         }

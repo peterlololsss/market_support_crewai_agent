@@ -169,6 +169,8 @@ def _report_period_answer(
     if plan.evidence_query:
         return ""
     answer_resolve_types = _answer_report_resolve_types(plan)
+    if plan.answer_capabilities and not answer_resolve_types:
+        return ""
     for resolve_type, label in (
         ("weekly_report", "周报"),
         ("monthly_report", "月报"),
@@ -257,14 +259,10 @@ def _action_directive(
             )
 
         resolve_state = business_facts.resolve_state(resolve_type)
-        if resolve_state.status == "ambiguous":
+        if resolve_state.status == "ambiguous" and resolve_state.candidates:
             return _directive(
                 mode="clarification",
                 reply_kind="clarification",
-                text=_candidate_text(
-                    "我需要再确认一下你指的是哪一个可发送内容",
-                    resolve_state.candidates or tuple(request.material_pack_options),
-                ),
                 requires_knowledge_composer=True,
                 composer_stage="knowledge_composer",
                 reason_code="ambiguous_action_resolve",

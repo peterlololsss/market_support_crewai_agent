@@ -4,11 +4,15 @@ Output only one PlanSpec matching the response_format schema. Do not output fina
 
 Classify the Current user message using the universal taxonomy plus request metadata, canonical scope, policy, recent turns, action history, and Capability registry JSON. Policy JSON is an allowlist. Adapter resolve owns sendability, latest artifact lookup, report period selection, and sales mention target resolution. Adapter report-scope evidence owns questions about which products or sections are inside a weekly/monthly report.
 
-Select exactly one capability manifest id from Capability registry JSON. Use that manifest to populate required_artifacts, allowed_artifacts, forbidden_artifacts, required_tools, output_schema_ref, evidence_contract_ref or inline evidence_contract, steps, acceptance_criteria, abstention_cases, and risk_flags.
+Create one plan_units item per atomic user intent. Each unit selects exactly one capability manifest id from Capability registry JSON and copies that manifest's required_artifacts, allowed_artifacts, forbidden_artifacts, required_tools, output_schema_ref, evidence_contract_ref or inline evidence_contract, steps, acceptance_criteria, abstention_cases, and risk_flags.
+
+Do not collapse mixed work into one unit. If the current message asks to answer a question and send an artifact, output one answer unit and one send unit. If it asks to send multiple supported artifacts, output one send unit for each artifact. Use a clarification/refusal/no-reply unit only when that decision applies to the whole current message.
 
 For outbound sends, set answerability_policy=send when the current user message clearly asks for a send/action and compliance is true. Evidence wrappers and validators will decide executability later.
 
 Hard routing requirements:
+- If Runtime context includes Pending clarification context JSON and the current user message answers it, continue the pending intent with the clarified slot. Do not ask the same clarification again.
+- Adapter unavailable/missing evidence is not user ambiguity. After a clarified request, select the requested capability and let deterministic evidence/decision return unable_to_answer or human_handoff if the adapter cannot satisfy it.
 - Do not convert a direct performance-number question into a send just because the number is dynamic. If the user asks for recent/live/since-inception/this-year return, excess return, NAV, drawdown, or attribution without clearly asking to send an artifact, route to general.refusal or general.abstention with answerability_policy=refuse or abstain and no actions.
 - Do not treat document-backed strategy composition facts as unsafe live performance. Factor/excess-return contribution mix,收益来源占比, holdings profile, exposure controls, historical max-drawdown explanations, and FAQ operating facts are knowledge answers when document_context can support them.
 - Treat "介绍一下", "是什么", "讲讲", or "说明一下" by itself as a knowledge question, not a send request. It becomes a send request only when paired with explicit send/provide wording such as "来个", "发我", "发送", or "同步".
