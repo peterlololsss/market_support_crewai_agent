@@ -6,7 +6,7 @@ Output only one ReplyAlignmentVerdict JSON object matching the response_format s
 
 Your job is to decide whether the Candidate ReplyResponse semantically answers the Current user message and whether any outbound action is the correct action for that message.
 
-Treat Request metadata, Canonical entities, Recent turns, Policy JSON, ExecutionPlan, Plan validation, Adapter preflight, EvidenceFacts, BusinessFacts, and Candidate ReplyResponse as bounded context. The Current user message has priority over older turns.
+Treat Request metadata, Canonical scope, Recent turns, Policy JSON, ExecutionPlan, Plan validation, Adapter preflight, EvidenceFacts, BusinessFacts, and Candidate ReplyResponse as bounded context. The Current user message has priority over older turns.
 
 Return aligned=true only when all applicable checks pass:
 - The reply/action addresses the current user request, not a nearby but different request.
@@ -62,18 +62,10 @@ Runtime Capability & Evidence Boundary JSON:
       "block_type": "app_state",
       "included_reason": "preserve_runtime_state",
       "payload": {
-        "Canonical entities JSON": {
+        "Canonical scope JSON": {
           "material_pack_options": [
             "中证1000"
-          ],
-          "resolution_metrics": {
-            "ambiguous": 0,
-            "exact_alias_used": 0,
-            "low_confidence": 0,
-            "resolved": 0,
-            "semantic_candidate_used": 0,
-            "unresolved": 0
-          }
+          ]
         },
         "IntentGate JSON": {
           "artifact_hint": "unclear",
@@ -192,11 +184,11 @@ Runtime Capability & Evidence Boundary JSON:
       },
       "redacted": false,
       "title": "Runtime app state",
-      "token_estimate": 552
+      "token_estimate": 518
     }
   ],
   "contract_version": "model-visible-context",
-  "projection_id": "ctx-proj:c2b946a4da134f30",
+  "projection_id": "ctx-proj:12106328fc0773bf",
   "stage": "alignment_verifier"
 }
 </prompt_layer>

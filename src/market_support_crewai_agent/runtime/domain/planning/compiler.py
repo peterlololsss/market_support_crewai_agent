@@ -28,6 +28,16 @@ from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.schemas import ReplyRequest
 
 
+_AMBIGUITY_SLOT_FLAGS = frozenset(
+    {
+        "artifact",
+        "material_pack_option",
+        "report_query",
+        "request_meaning",
+    }
+)
+
+
 def compile_plan_spec(
     spec: PlanSpec,
     request: ReplyRequest,
@@ -114,6 +124,7 @@ def compile_plan_spec(
         action_intents=action_intents,
         material_pack_option=material_pack_option,
         plan_spec=spec,
+        ambiguity_slots=_ambiguity_slots_from_plan_spec(spec),
     )
 
 
@@ -199,6 +210,17 @@ def _evidence_query_from_plan_spec(spec: PlanSpec) -> str | None:
         if step.evidence_query:
             return step.evidence_query
     return None
+
+
+def _ambiguity_slots_from_plan_spec(spec: PlanSpec) -> list[str]:
+    if spec.answerability_policy != "clarify":
+        return []
+    output: list[str] = []
+    for value in [*spec.risk_flags, *spec.abstention_cases]:
+        slot = str(value).strip()
+        if slot in _AMBIGUITY_SLOT_FLAGS and slot not in output:
+            output.append(slot)
+    return output
 
 
 def _action_material_pack_option(

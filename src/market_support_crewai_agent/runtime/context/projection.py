@@ -687,7 +687,7 @@ def _app_state_payload(app_state: RuntimeAppState) -> dict[str, Any]:
     _rename(payload, "business_facts", "BusinessFacts JSON")
     return {
         "Request metadata JSON": request_payload,
-        "Canonical entities JSON": canonical_payload,
+        "Canonical scope JSON": canonical_payload,
         "DomainContext JSON": domain_payload,
         "Policy JSON": policy_payload,
         "current_channel": _current_channel(domain_payload, request_payload),
@@ -726,8 +726,6 @@ def _compact_canonical_context(canonical_context: CanonicalContext) -> dict[str,
     payload = canonical_context.to_prompt_dict()
     compact = {
         "material_pack_options": payload.get("material_pack_options"),
-        "ambiguities": payload.get("ambiguities"),
-        "resolution_metrics": payload.get("resolution_metrics"),
     }
     return {key: value for key, value in compact.items() if value not in (None, [], {})}
 

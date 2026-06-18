@@ -90,16 +90,16 @@ facts.
 
 ## Canonicalization
 
-`CanonicalEntityResolver` resolves against explicit `DomainContext` entities,
-exact names/aliases, structured defaults, or bounded closed-set selectors.
+Canonicalization projects adapter-provided structured scope. It does not resolve
+product or strategy mentions from free text.
 
 Expected behavior:
 
 ```text
 材料包里有哪些产品 + no material_pack content -> abstain
 策略S1材料包里有哪些产品 + S1/S2 packs -> use S1 only
-产品A appears under two 策略 -> ambiguous/clarify
-产品C unknown -> unresolved/clarify or abstain, not nearest 产品A/产品B
+产品A appears under two 策略 -> planner/evidence path must clarify or abstain
+产品C unknown -> clarify or abstain, not nearest 产品A/产品B
 ```
 
 Exact equality on canonical structured fields is allowed. Substring, fuzzy,

@@ -9,16 +9,9 @@ from market_support_crewai_agent.runtime.domain.capabilities.registry import (
 from market_support_crewai_agent.runtime.domain.canonicalization import (
     canonicalize_request,
 )
-from market_support_crewai_agent.runtime.domain.entity_resolution import (
-    CanonicalEntityResolver,
-)
 from market_support_crewai_agent.runtime.domain.ontology import (
     ArtifactScope,
-    DistributionChannel,
-    DomainContext,
     DomainContextBuilder,
-    Product,
-    Strategy,
 )
 from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
@@ -276,46 +269,6 @@ def test_regression_original_bug_G_weekly_performance_uses_weekly_report_not_mat
     assert assessment.can_answer is True
 
 
-def test_regression_original_bug_H_ambiguous_product_alias_across_strategies_clarifies_not_nearest_match():
-    domain_context = product_domain_context(
-        products=[
-            ("product:s1:a", "产品A", ("strategy:s1",)),
-            ("product:s2:a", "产品A", ("strategy:s2",)),
-        ]
-    )
-
-    result = CanonicalEntityResolver().resolve_request(
-        make_request(
-            message="产品A表现怎么样",
-            material_pack_options=["策略S1", "策略S2"],
-        ),
-        domain_context=domain_context,
-    )
-    product_resolution = result.by_type("product")[0]
-
-    assert product_resolution.status == "ambiguous"
-    assert {candidate.entity_id for candidate in product_resolution.candidates} == {
-        "product:s1:a",
-        "product:s2:a",
-    }
-
-
-def test_regression_original_bug_I_unknown_product_mention_does_not_nearest_match():
-    domain_context = product_domain_context(
-        products=[
-            ("product:s1:a", "产品A", ("strategy:s1",)),
-            ("product:s1:b", "产品B", ("strategy:s1",)),
-        ]
-    )
-
-    result = CanonicalEntityResolver().resolve_request(
-        make_request(message="产品C表现怎么样", material_pack_options=["策略S1"]),
-        domain_context=domain_context,
-    )
-
-    assert result.by_type("product") == ()
-
-
 def test_regression_original_bug_J_dummy_capability_uses_manifest_verifier_not_bespoke_code():
     registry = CapabilityRegistry([dummy_manifest()])
     result = verify_capability_contracts(
@@ -376,46 +329,6 @@ def test_regression_original_bug_L_history_only_evidence_rejected_when_allow_his
 
     assert result.valid is False
     assert "history_evidence_not_allowed" in {issue.code for issue in result.issues}
-
-
-def product_domain_context(
-    *,
-    products: list[tuple[str, str, tuple[str, ...]]],
-) -> DomainContext:
-    channel = DistributionChannel(
-        id="channel:current",
-        name="测试渠道",
-        kind="bank",
-        provenance="test",
-    )
-    strategies = (
-        Strategy(
-            id="strategy:s1",
-            name="策略S1",
-            channel_id=channel.id,
-            provenance="test",
-        ),
-        Strategy(
-            id="strategy:s2",
-            name="策略S2",
-            channel_id=channel.id,
-            provenance="test",
-        ),
-    )
-    return DomainContext(
-        channel=channel,
-        strategies=strategies,
-        products=tuple(
-            Product(
-                id=product_id,
-                name=name,
-                channel_id=channel.id,
-                strategy_ids=strategy_ids,
-                provenance="test",
-            )
-            for product_id, name, strategy_ids in products
-        ),
-    )
 
 
 def dummy_manifest() -> CapabilityManifest:
