@@ -156,6 +156,7 @@ def test_planner_prompt_uses_compact_schema_skeleton_not_full_schema_dump():
     _, program = route_and_select("发下这个渠道的周报")
 
     assert "PlanSpec compact schema:" in program.prompt_text
+    assert '"plan_units": [' in program.prompt_text
     assert '"selected_capability_id": "one id from Capability registry JSON"' in program.prompt_text
     assert '"answerability_policy": "answer|send|clarify|abstain|refuse|handoff|smalltalk|no_reply"' in program.prompt_text
     assert "Canonical JSON schema:" not in program.prompt_text

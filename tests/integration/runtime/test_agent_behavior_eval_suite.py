@@ -70,7 +70,7 @@ def test_regression_original_bug_full_planner_answerability_output_verifier_path
     assert "产品A" not in response.reply.text
     assert response.actions == []
     assert len(verifier.calls) == 1
-    assert verifier.calls[0]["plan"].plan_spec.selected_capability_id == (
+    assert verifier.calls[0]["plan"].plan_spec.plan_units[0].selected_capability_id == (
         "material_pack.product_list"
     )
 

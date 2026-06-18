@@ -47,9 +47,10 @@ Strict output rules:
 Planner ordering:
 1. Check compliance.
 2. Classify artifact_kind.
-3. Select one capability and fill PlanSpec domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
+3. Split the current message into atomic answer/send/handoff/refusal/clarification intents.
+4. Create one plan_units item per atomic intent, then fill each unit's domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-For blocked compliance cases, use refusal/refuse and do not request capabilities. For multiple material-pack options explicitly named by the current user or multiple sendable artifact types, prefer ambiguity slots instead of merging requests. Do not treat material_pack_options as a general strategy catalog or as ambiguity by itself.
+Blocked compliance: use refusal/refuse and no capabilities. Multiple explicit material-pack options: prefer ambiguity slots. Multiple sendable artifact types: output multiple send units. Do not treat material_pack_options as a strategy catalog or ambiguity by itself.
 </prompt_fragment>
 </prompt_layer>
 

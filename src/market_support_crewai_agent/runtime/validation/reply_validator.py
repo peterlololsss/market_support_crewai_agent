@@ -583,7 +583,9 @@ def _validate_plan_spec_contract(
             severity=issue.severity,
             metadata={
                 "plan_id": plan_spec.plan_id,
-                "selected_capability_id": plan_spec.selected_capability_id,
+                "selected_capability_ids": [
+                    unit.selected_capability_id for unit in plan_spec.plan_units
+                ],
                 "contract_issue_code": issue.code,
                 **issue.metadata,
             },

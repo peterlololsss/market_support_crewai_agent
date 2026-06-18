@@ -17,6 +17,7 @@ from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.plan_spec import (
     AnswerabilityPolicy,
     PlanSpec,
+    PlanUnit,
 )
 from market_support_crewai_agent.runtime.domain.planning.models import (
     ActionIntentSpec,
@@ -46,75 +47,70 @@ def compile_plan_spec(
     domain_context: DomainContext | None = None,
 ) -> ExecutionPlan:
     del request, canonical_context, policy, domain_context
-    manifest = CAPABILITY_MANIFEST_REGISTRY.find(spec.selected_capability_id)
-    material_pack_option = spec.domain_scope.material_pack_option
+    units = list(spec.plan_units)
+    response_mode = _response_mode_for_plan_spec(units)
+    material_pack_option = _material_pack_option_for_plan_spec(units)
     compliance_reason_code = _compliance_reason_code_for_plan_spec(spec)
     compliance = ComplianceDecision(
-        is_compliant=False if spec.answerability_policy == "refuse" else True,
+        is_compliant=False
+        if any(unit.answerability_policy == "refuse" for unit in units)
+        else True,
         reason_code=compliance_reason_code,
         reason="PlanSpec answerability policy",
     )
-
-    if manifest is None:
-        return ExecutionPlan(
-            user_need=spec.user_intent_summary,
-            artifact_kind="unclear",
-            response_mode="unable",
-            compliance=compliance,
-            capabilities=[],
-            answer_capabilities=[],
-            adapter_resolves=[],
-            action_intents=[],
-            material_pack_option=material_pack_option,
-            plan_spec=spec,
-        )
-
-    capability_name = str(manifest.runtime_capability or "")
-    capability = capability_by_name(capability_name)
-    answerability = spec.answerability_policy
     capabilities: list[CapabilityName] = []
     answer_capabilities: list[CapabilityName] = []
     adapter_resolves: list[AdapterResolveSpec] = []
     action_intents: list[ActionIntentSpec] = []
-    response_mode: ResponseMode = _response_mode_for_plan_spec(answerability)
-    artifact_kind: ArtifactKind = _artifact_kind_for_manifest(manifest, response_mode)
 
-    if capability is not None:
-        capabilities.append(capability.name)
-        if answerability == "answer":
-            answer_capabilities.append(capability.name)
-        if answerability in {"answer", "send", "handoff"}:
-            adapter_resolves.extend(
-                _adapter_resolves_from_plan_spec(
-                    spec,
-                    capability.name,
-                    material_pack_option,
+    if response_mode not in {
+        "clarification",
+        "refusal",
+        "smalltalk",
+        "no_reply",
+        "unable",
+    }:
+        for unit in units:
+            manifest = CAPABILITY_MANIFEST_REGISTRY.find(unit.selected_capability_id)
+            if manifest is None:
+                raise ValueError(
+                    f"PlanSpec capability not found: {unit.selected_capability_id}"
                 )
-            )
-        if answerability == "send" and capability.side_effect_action_type is not None:
-            action_intents.append(
-                ActionIntentSpec(
-                    action_type=capability.side_effect_action_type,
-                    capability=capability.name,
-                    material_pack_option=_action_material_pack_option(
+            capability = capability_by_name(str(manifest.runtime_capability or ""))
+            if capability is None:
+                continue
+            answerability = unit.answerability_policy
+            capabilities.append(capability.name)
+            if answerability == "answer":
+                answer_capabilities.append(capability.name)
+            if answerability in {"answer", "send", "handoff"}:
+                adapter_resolves.extend(
+                    _adapter_resolves_from_plan_unit(
+                        unit,
                         capability.name,
-                        material_pack_option,
-                    ),
+                        unit.domain_scope.material_pack_option,
+                    )
                 )
-            )
-            adapter_resolves.extend(_adapter_resolves("sales_mention", None))
-        elif answerability == "handoff":
-            adapter_resolves.extend(_adapter_resolves("sales_mention", None))
+            if answerability == "send" and capability.side_effect_action_type is not None:
+                action_intents.append(
+                    ActionIntentSpec(
+                        action_type=capability.side_effect_action_type,
+                        capability=capability.name,
+                        material_pack_option=_action_material_pack_option(
+                            capability.name,
+                            unit.domain_scope.material_pack_option,
+                        ),
+                    )
+                )
+            elif answerability == "handoff":
+                adapter_resolves.extend(_adapter_resolves("sales_mention", None))
 
-    if response_mode == "clarification":
-        capabilities = []
-        answer_capabilities = []
-        adapter_resolves = []
-        action_intents = []
+    if action_intents:
+        adapter_resolves.extend(_adapter_resolves("sales_mention", None))
 
     return ExecutionPlan(
         user_need=spec.user_intent_summary,
-        artifact_kind=artifact_kind,
+        artifact_kind=_artifact_kind_for_plan_spec(units, response_mode),
         response_mode=response_mode,
         compliance=compliance,
         evidence_query=_evidence_query_from_plan_spec(spec),
@@ -128,38 +124,54 @@ def compile_plan_spec(
     )
 
 
-def _response_mode_for_plan_spec(answerability: AnswerabilityPolicy) -> ResponseMode:
-    if answerability == "send":
-        return "action"
-    if answerability == "answer":
-        return "knowledge_answer"
-    if answerability == "clarify":
+def _response_mode_for_plan_spec(units: list[PlanUnit]) -> ResponseMode:
+    policies = {unit.answerability_policy for unit in units}
+    if "clarify" in policies:
         return "clarification"
-    if answerability == "refuse":
+    if "refuse" in policies:
         return "refusal"
-    if answerability == "handoff":
+    if "send" in policies:
+        return "action"
+    if "answer" in policies:
+        return "knowledge_answer"
+    if "handoff" in policies:
         return "handoff"
-    if answerability == "smalltalk":
+    if "smalltalk" in policies:
         return "smalltalk"
-    if answerability == "no_reply":
+    if "no_reply" in policies:
         return "no_reply"
     return "unable"
 
 
 def _compliance_reason_code_for_plan_spec(spec: PlanSpec) -> ComplianceReasonCode:
-    if spec.answerability_policy != "refuse":
+    if not any(unit.answerability_policy == "refuse" for unit in spec.plan_units):
         return "compliant_product_request"
     allowed_codes = set(get_args(ComplianceReasonCode))
-    for flag in spec.risk_flags:
+    for flag in [
+        *spec.risk_flags,
+        *(flag for unit in spec.plan_units for flag in unit.risk_flags),
+    ]:
         if flag in allowed_codes:
             return flag  # type: ignore[return-value]
     return "unknown"
 
 
-def _artifact_kind_for_manifest(manifest, response_mode: ResponseMode) -> ArtifactKind:
-    capability = capability_by_name(str(manifest.runtime_capability or ""))
-    if capability is not None and response_mode == "action":
-        return capability.artifact_kind
+def _artifact_kind_for_plan_spec(
+    units: list[PlanUnit],
+    response_mode: ResponseMode,
+) -> ArtifactKind:
+    if response_mode == "action":
+        send_units = [
+            unit for unit in units if unit.answerability_policy == "send"
+        ]
+        if len(send_units) > 1:
+            return "multi_action"
+        for unit in send_units:
+            manifest = CAPABILITY_MANIFEST_REGISTRY.find(unit.selected_capability_id)
+            capability = capability_by_name(str(manifest.runtime_capability or "")) if manifest is not None else None
+            if capability is not None:
+                return capability.artifact_kind
+        return "multi_action"
     if response_mode == "knowledge_answer":
         return "knowledge_answer"
     if response_mode == "handoff":
@@ -173,14 +185,14 @@ def _artifact_kind_for_manifest(manifest, response_mode: ResponseMode) -> Artifa
     return "unclear"
 
 
-def _adapter_resolves_from_plan_spec(
-    spec: PlanSpec,
+def _adapter_resolves_from_plan_unit(
+    unit: PlanUnit,
     capability_name: CapabilityName,
     material_pack_option: str | None,
 ) -> list[AdapterResolveSpec]:
-    tools = list(spec.required_tools)
+    tools = list(unit.required_tools)
     if not tools:
-        manifest = CAPABILITY_MANIFEST_REGISTRY.find(spec.selected_capability_id)
+        manifest = CAPABILITY_MANIFEST_REGISTRY.find(unit.selected_capability_id)
         tools = list(manifest.required_tools if manifest is not None else ())
     resolves: list[AdapterResolveSpec] = []
     for tool in tools:
@@ -206,21 +218,35 @@ def _adapter_resolves_from_plan_spec(
 
 
 def _evidence_query_from_plan_spec(spec: PlanSpec) -> str | None:
-    for step in spec.steps:
-        if step.evidence_query:
-            return step.evidence_query
+    for unit in spec.plan_units:
+        for step in unit.steps:
+            if step.evidence_query:
+                return step.evidence_query
     return None
 
 
 def _ambiguity_slots_from_plan_spec(spec: PlanSpec) -> list[str]:
-    if spec.answerability_policy != "clarify":
+    if not any(unit.answerability_policy == "clarify" for unit in spec.plan_units):
         return []
     output: list[str] = []
-    for value in [*spec.risk_flags, *spec.abstention_cases]:
+    values = [
+        *spec.risk_flags,
+        *(flag for unit in spec.plan_units for flag in unit.risk_flags),
+        *(case for unit in spec.plan_units for case in unit.abstention_cases),
+    ]
+    for value in values:
         slot = str(value).strip()
         if slot in _AMBIGUITY_SLOT_FLAGS and slot not in output:
             output.append(slot)
     return output
+
+
+def _material_pack_option_for_plan_spec(units: list[PlanUnit]) -> str | None:
+    for unit in units:
+        option = unit.domain_scope.material_pack_option
+        if option:
+            return option
+    return None
 
 
 def _action_material_pack_option(

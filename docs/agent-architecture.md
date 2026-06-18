@@ -93,24 +93,24 @@ ArtifactScope(channel, strategy, product, time_range)
 
 `canonicalize_request` projects adapter-provided material-pack scope labels into
 prompt-visible context. It does not infer product or strategy entities from
-user text; the planner selects a capability, and evidence/validators decide
+user text; the planner selects capability units, and evidence/validators decide
 whether enough structured scope exists.
 
 ## PlanSpec
 
-The planner emits `PlanSpec`, not a final answer. A `PlanSpec` selects one
-capability and declares:
+The planner emits `PlanSpec`, not a final answer. A `PlanSpec` contains one
+or more `plan_units`; each unit selects one capability and declares:
 
 ```text
-selected_capability_id
-domain_scope
-required_artifacts / allowed_artifacts / forbidden_artifacts
-required_tools
-answerability_policy
-output_schema_ref
-evidence_contract_ref or inline evidence_contract
-steps
-abstention_cases
+plan_units[].selected_capability_id
+plan_units[].domain_scope
+plan_units[].required_artifacts / allowed_artifacts / forbidden_artifacts
+plan_units[].required_tools
+plan_units[].answerability_policy
+plan_units[].output_schema_ref
+plan_units[].evidence_contract_ref or inline evidence_contract
+plan_units[].steps
+plan_units[].abstention_cases
 ```
 
 `compile_plan_spec` converts this to `ExecutionPlan`. The runtime validates the

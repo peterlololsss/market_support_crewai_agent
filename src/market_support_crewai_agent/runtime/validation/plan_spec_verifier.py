@@ -11,7 +11,7 @@ from market_support_crewai_agent.runtime.domain.capabilities.registry import (
 from market_support_crewai_agent.runtime.domain.capabilities import (
     CAPABILITY_MANIFEST_REGISTRY,
 )
-from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
+from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec, PlanUnit
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.validation.guardrail_common import (
     evidence_artifact_type,
@@ -92,52 +92,72 @@ def verify_plan_spec(
         )
 
     selected_registry = registry or CAPABILITY_MANIFEST_REGISTRY
-    manifest = selected_registry.find(spec.selected_capability_id)
-    if manifest is None:
-        return PlanSpecValidationResult(
-            valid=False,
-            issues=(
+    payload = payload_dict(output_payload)
+    inferred_abstained = infer_abstained(payload) if abstained is None else abstained
+    issues: list[PlanSpecValidationIssue] = []
+    for unit in spec.plan_units:
+        manifest = selected_registry.find(unit.selected_capability_id)
+        if manifest is None:
+            issues.append(
                 PlanSpecValidationIssue(
                     code="selected_capability_not_found",
                     message="PlanSpec selected capability does not exist",
                     severity="fatal",
                     metadata={
-                        "selected_capability_id": spec.selected_capability_id,
+                        "unit_id": unit.unit_id,
+                        "selected_capability_id": unit.selected_capability_id,
                     },
-                ),
-            ),
+                )
+            )
+            continue
+        contract = unit.evidence_contract or manifest.evidence_contract
+        output_schema = unit.output_schema or manifest.output_schema
+        unit_issues: list[PlanSpecValidationIssue] = []
+        unit_issues.extend(_check_output_schema(output_schema, payload))
+        unit_issues.extend(_check_step_artifacts(unit))
+        unit_issues.extend(
+            _check_required_artifacts(
+                unit,
+                evidence_facts,
+                available_artifacts=available_artifacts,
+                abstained=bool(inferred_abstained),
+                allowed_abstention_kinds=manifest.abstention_policy.abstention_reply_kinds,
+                payload=payload,
+                contract=contract,
+            )
         )
-
-    payload = payload_dict(output_payload)
-    inferred_abstained = infer_abstained(payload) if abstained is None else abstained
-    contract = spec.evidence_contract or manifest.evidence_contract
-    output_schema = spec.output_schema or manifest.output_schema
-    issues: list[PlanSpecValidationIssue] = []
-    issues.extend(_check_output_schema(output_schema, payload))
-    issues.extend(_check_step_artifacts(spec))
-    issues.extend(
-        _check_required_artifacts(
-            spec,
-            evidence_facts,
-            available_artifacts=available_artifacts,
-            abstained=bool(inferred_abstained),
-            allowed_abstention_kinds=manifest.abstention_policy.abstention_reply_kinds,
-            payload=payload,
-            contract=contract,
+        unit_issues.extend(
+            _check_evidence_contract(
+                unit,
+                contract,
+                evidence_facts,
+                cited_evidence_ids=cited_evidence_ids,
+                used_artifacts=used_artifacts,
+                abstained=bool(inferred_abstained),
+                payload=payload,
+            )
         )
-    )
-    issues.extend(
-        _check_evidence_contract(
-            spec,
-            contract,
-            evidence_facts,
-            cited_evidence_ids=cited_evidence_ids,
-            used_artifacts=used_artifacts,
-            abstained=bool(inferred_abstained),
-            payload=payload,
-        )
-    )
+        issues.extend(_with_unit_metadata(unit, unit_issues))
     return PlanSpecValidationResult(valid=not issues, issues=tuple(issues))
+
+
+def _with_unit_metadata(
+    unit: PlanUnit,
+    issues: list[PlanSpecValidationIssue],
+) -> list[PlanSpecValidationIssue]:
+    return [
+        PlanSpecValidationIssue(
+            code=issue.code,
+            message=issue.message,
+            severity=issue.severity,
+            metadata={
+                "unit_id": unit.unit_id,
+                "selected_capability_id": unit.selected_capability_id,
+                **issue.metadata,
+            },
+        )
+        for issue in issues
+    ]
 
 
 def _check_output_schema(
@@ -154,10 +174,10 @@ def _check_output_schema(
     ]
 
 
-def _check_step_artifacts(spec: PlanSpec) -> list[PlanSpecValidationIssue]:
-    forbidden = set(spec.forbidden_artifacts)
+def _check_step_artifacts(unit: PlanUnit) -> list[PlanSpecValidationIssue]:
+    forbidden = set(unit.forbidden_artifacts)
     issues: list[PlanSpecValidationIssue] = []
-    for step in spec.steps:
+    for step in unit.steps:
         used = set(step.uses_artifacts) | set(step.required_artifacts)
         forbidden_used = sorted(used & forbidden)
         if forbidden_used:
@@ -175,7 +195,7 @@ def _check_step_artifacts(spec: PlanSpec) -> list[PlanSpecValidationIssue]:
 
 
 def _check_required_artifacts(
-    spec: PlanSpec,
+    unit: PlanUnit,
     evidence_facts: list[EvidenceFact],
     *,
     available_artifacts: list[str] | tuple[str, ...] | None,
@@ -184,7 +204,7 @@ def _check_required_artifacts(
     payload: dict[str, object],
     contract: EvidenceContract,
 ) -> list[PlanSpecValidationIssue]:
-    required = set(spec.required_artifacts)
+    required = set(unit.required_artifacts)
     if not required:
         return []
     available = set(available_artifacts or _available_artifact_types(evidence_facts))
@@ -192,7 +212,7 @@ def _check_required_artifacts(
     if not missing:
         return []
     if _missing_evidence_abstention_allowed(
-        spec,
+        unit,
         payload,
         abstained=abstained,
         allowed_abstention_kinds=allowed_abstention_kinds,
@@ -209,7 +229,7 @@ def _check_required_artifacts(
 
 
 def _check_evidence_contract(
-    spec: PlanSpec,
+    unit: PlanUnit,
     contract: EvidenceContract,
     evidence_facts: list[EvidenceFact],
     *,
@@ -219,7 +239,7 @@ def _check_evidence_contract(
     payload: dict[str, object],
 ) -> list[PlanSpecValidationIssue]:
     if _missing_evidence_abstention_allowed(
-        spec,
+        unit,
         payload,
         abstained=abstained,
         allowed_abstention_kinds=[
@@ -253,13 +273,13 @@ def _check_evidence_contract(
     issues.extend(_check_sources(contract, candidate_facts))
     issues.extend(
         _check_artifact_types(
-            spec,
+            unit,
             contract,
             candidate_facts,
             used_artifacts=used_artifacts,
         )
     )
-    issues.extend(_check_scope_match(spec, contract, candidate_facts))
+    issues.extend(_check_scope_match(unit, contract, candidate_facts))
     issues.extend(_check_provenance(contract, candidate_facts))
     return issues
 
@@ -398,13 +418,13 @@ def _check_sources(
 
 
 def _check_artifact_types(
-    spec: PlanSpec,
+    unit: PlanUnit,
     contract: EvidenceContract,
     facts: list[EvidenceFact],
     *,
     used_artifacts: list[str] | tuple[str, ...],
 ) -> list[PlanSpecValidationIssue]:
-    allowed = set(contract.allowed_artifact_types or spec.allowed_artifacts)
+    allowed = set(contract.allowed_artifact_types or unit.allowed_artifacts)
     if not allowed:
         return []
     artifact_types = {str(item) for item in used_artifacts if str(item)}
@@ -429,7 +449,7 @@ def _check_artifact_types(
 
 
 def _check_scope_match(
-    spec: PlanSpec,
+    unit: PlanUnit,
     contract: EvidenceContract,
     facts: list[EvidenceFact],
 ) -> list[PlanSpecValidationIssue]:
@@ -441,7 +461,7 @@ def _check_scope_match(
         mismatched = [
             field
             for field in sorted(fields)
-            if _scope_field_mismatch(field, spec, fact)
+            if _scope_field_mismatch(field, unit, fact)
         ]
         if mismatched:
             issues.append(
@@ -452,7 +472,7 @@ def _check_scope_match(
                         "source_id": fact.source_id,
                         "fact_type": fact.fact_type,
                         "mismatched_fields": mismatched,
-                        "plan_scope": spec.domain_scope.model_dump(
+                        "plan_scope": unit.domain_scope.model_dump(
                             mode="json",
                             exclude_none=True,
                         ),
@@ -494,14 +514,14 @@ def _check_provenance(
 
 
 def _missing_evidence_abstention_allowed(
-    spec: PlanSpec,
+    unit: PlanUnit,
     payload: dict[str, object],
     *,
     abstained: bool,
     allowed_abstention_kinds: list[str],
     contract: EvidenceContract,
 ) -> bool:
-    if spec.answerability_policy not in {"answer", "send", "abstain", "clarify", "handoff"}:
+    if unit.answerability_policy not in {"answer", "send", "abstain", "clarify", "handoff"}:
         return False
     if contract.fallback_policy not in {"abstain", "clarify", "handoff"}:
         return False
@@ -513,8 +533,8 @@ def _missing_evidence_abstention_allowed(
     return True
 
 
-def _scope_field_mismatch(field: str, spec: PlanSpec, fact: EvidenceFact) -> bool:
-    scope = spec.domain_scope
+def _scope_field_mismatch(field: str, unit: PlanUnit, fact: EvidenceFact) -> bool:
+    scope = unit.domain_scope
     source_metadata = source_metadata_for_fact(fact)
     if field == "channel_id":
         expected = scope.channel_id
@@ -577,8 +597,8 @@ def _scope_field_mismatch(field: str, spec: PlanSpec, fact: EvidenceFact) -> boo
         return False
     if field == "artifact_type":
         return bool(
-            spec.required_artifacts
-            and evidence_artifact_type(fact) not in set(spec.required_artifacts)
+            unit.required_artifacts
+            and evidence_artifact_type(fact) not in set(unit.required_artifacts)
         )
     return False
 

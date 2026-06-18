@@ -120,10 +120,10 @@ Use no LLM judge for action legality.
 ## Planner boundary
 
 Planner outputs `PlanSpec`, not `ReplyResponse`, `ResponseDirective`, `BusinessFacts`, or final adapter evidence. `PlanSpec`
-selects one capability manifest, declares domain scope, required/allowed/forbidden artifacts, required tools,
-answerability policy, output schema ref, evidence contract ref or inline contract, steps, acceptance criteria,
-abstention cases, and risk flags. The runtime compiles it to `ExecutionPlan` and the verifier validates it generically
-through `PlanSpec` plus `EvidenceContract`.
+contains one or more `plan_units`; each unit selects one capability manifest and declares domain scope,
+required/allowed/forbidden artifacts, required tools, answerability policy, output schema ref, evidence contract ref
+or inline contract, steps, acceptance criteria, abstention cases, and risk flags. The runtime compiles these units to
+one `ExecutionPlan` and the verifier validates each unit generically through `PlanSpec` plus `EvidenceContract`.
 
 ## Evidence executor timing
 

@@ -141,7 +141,7 @@ BusinessFacts include material/report resolvability, sales mention resolvability
 
 Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, canonical scope, policy manifest, and available materials/strategies.
 
-Planner output is `PlanSpec`: selected capability, domain scope, required artifacts/tools, answerability policy, output schema reference, evidence contract, and execution steps.
+Planner output is `PlanSpec`: one or more capability-scoped `plan_units`, each with domain scope, required artifacts/tools, answerability policy, output schema reference, evidence contract, and execution steps.
 
 The deterministic compiler turns `PlanSpec` into `ExecutionPlan`; the model does not output final reply text or unchecked adapter execution details.
 

@@ -395,7 +395,7 @@ def material_history_plan_spec() -> PlanSpec:
         answerability_policy="answer",
         user_intent_summary="answer material product list from current material pack",
     )
-    return spec.model_copy(
+    unit = spec.plan_units[0].model_copy(
         update={
             "evidence_contract": EvidenceContract(
                 required_fact_types=["material_pack_product_list"],
@@ -405,5 +405,10 @@ def material_history_plan_spec() -> PlanSpec:
                 allow_history=False,
             ),
             "evidence_contract_ref": None,
+        }
+    )
+    return spec.model_copy(
+        update={
+            "plan_units": [unit],
         }
     )

@@ -583,6 +583,107 @@ def test_runtime_uses_planner_resolved_followup_for_weekly_action():
     assert response.reply.kind == "answer"
     assert response.actions[0].type == "send_weekly_report"
 
+
+def test_planner_prompt_includes_pending_clarification_context():
+    store = ConversationStore(max_messages=12)
+    store.save_turn(
+        "wecom:group-1:sender-1",
+        "[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
+        _assistant_history_with_pending(
+            text="我需要再确认一下具体策略。",
+            pending_plan={
+                "artifact_kind": "weekly_report",
+                "response_mode": "clarification",
+                "ambiguity_slots": ["report_query"],
+                "capabilities": ["weekly_report"],
+            },
+        ),
+    )
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=store,
+        preflight_service=EmptyPreflightService(),
+    )
+    planner_prompts: list[str] = []
+    runtime._build_planner_agent = lambda: FakePlannerAgent(  # type: ignore[method-assign]
+        make_weekly_plan_spec(user_need="send clarified weekly report"),
+        planner_prompts,
+    )
+
+    asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "中证1000的",
+                    material_pack_options=["中证1000指增", "中证A500指增"],
+                )
+            )
+        )
+    )
+
+    assert "Pending clarification context JSON" in planner_prompts[0]
+    assert '"status": "awaiting_user_answer"' in planner_prompts[0]
+    assert '"ambiguity_slots": [' in planner_prompts[0]
+    assert "do not ask the same clarification again" in planner_prompts[0]
+
+
+def test_ambiguous_action_candidates_are_structured_for_composer():
+    class AmbiguousMaterialPreflight:
+        async def collect(
+            self,
+            request,
+            canonical_context=None,
+            resolve_types=None,
+            resolve_material_pack_options=None,
+        ):
+            del request, canonical_context, resolve_types, resolve_material_pack_options
+            return AdapterPreflightSnapshot(
+                items=[
+                    resolved_item(
+                        "material_pack",
+                        status="ambiguous",
+                        candidates=["中证1000指增", "中证A500指增"],
+                    )
+                ]
+            )
+
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=AmbiguousMaterialPreflight(),
+    )
+    install_fake_planner(
+        runtime,
+        make_support_plan_spec(
+            artifact_kind="material_pack",
+            action_intent="send",
+            ambiguity_slots=[],
+        ),
+    )
+    composer_prompts: list[str] = []
+    install_fake_clarification_composer(
+        runtime,
+        text="请问你要发哪一个材料？",
+        prompts=composer_prompts,
+    )
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "发一下材料",
+                    material_pack_options=["中证1000指增", "中证A500指增"],
+                )
+            )
+        )
+    )
+
+    assert response.reply.kind == "clarification"
+    assert "ambiguous_action_resolve" in composer_prompts[0]
+    assert "中证1000指增" in composer_prompts[0]
+    assert "我需要再确认一下你指的是哪一个可发送内容" not in composer_prompts[0]
+
+
 def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch):
     audit_store = AuditStore()
     runtime = CrewAIReplyRuntime(

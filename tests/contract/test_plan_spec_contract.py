@@ -81,10 +81,9 @@ def dummy_manifest(**overrides) -> CapabilityManifest:
 
 
 def plan_spec(**overrides) -> PlanSpec:
-    payload = {
-        "plan_id": "plan-test",
+    unit_payload = {
+        "unit_id": "unit-1",
         "selected_capability_id": "dummy.echo",
-        "user_intent_summary": "answer from dummy evidence",
         "domain_scope": {
             "channel_id": "channel-1",
             "channel_kind": "bank",
@@ -96,7 +95,9 @@ def plan_spec(**overrides) -> PlanSpec:
         "required_tools": ["dummy.echo"],
         "answerability_policy": "answer",
         "output_schema_ref": "dummy.echo:output_schema",
+        "output_schema": None,
         "evidence_contract_ref": "dummy.echo:evidence_contract",
+        "evidence_contract": None,
         "steps": [
             {
                 "step_id": "step-1",
@@ -110,6 +111,16 @@ def plan_spec(**overrides) -> PlanSpec:
         ],
         "acceptance_criteria": ["dummy evidence is present"],
         "abstention_cases": ["missing dummy evidence"],
+        "risk_flags": [],
+    }
+    unit_keys = set(unit_payload)
+    for key in list(overrides):
+        if key in unit_keys:
+            unit_payload[key] = overrides.pop(key)
+    payload = {
+        "plan_id": "plan-test",
+        "user_intent_summary": "answer from dummy evidence",
+        "plan_units": [unit_payload],
         "risk_flags": [],
     }
     payload.update(overrides)
@@ -162,6 +173,38 @@ def test_dummy_manifest_plan_spec_is_generic_planner_and_verifier_contract():
 
     assert [card["id"] for card in cards] == ["dummy.echo"]
     assert result.valid is True
+
+
+def test_legacy_single_capability_plan_spec_shape_is_invalid():
+    result = verify_plan_spec(
+        {
+            "plan_id": "legacy-plan",
+            "selected_capability_id": "dummy.echo",
+            "user_intent_summary": "legacy single capability shape",
+            "domain_scope": {
+                "channel_id": "channel-1",
+                "channel_kind": "bank",
+                "product_ids": [],
+            },
+            "required_artifacts": ["adapter_context"],
+            "allowed_artifacts": ["adapter_context"],
+            "forbidden_artifacts": [],
+            "required_tools": ["dummy.echo"],
+            "answerability_policy": "answer",
+            "output_schema_ref": "dummy.echo:output_schema",
+            "evidence_contract_ref": "dummy.echo:evidence_contract",
+            "steps": [],
+            "acceptance_criteria": [],
+            "abstention_cases": [],
+            "risk_flags": [],
+        },
+        registry=CapabilityRegistry([dummy_manifest()]),
+        output_payload=reply_payload(),
+        evidence_facts=[fact()],
+    )
+
+    assert result.valid is False
+    assert result.issues[0].code == "plan_spec_invalid_schema"
 
 
 def test_plan_spec_requiring_material_pack_fails_when_only_weekly_report_exists():

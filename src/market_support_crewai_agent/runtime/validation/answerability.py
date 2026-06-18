@@ -146,7 +146,17 @@ class AnswerabilityGate:
 
 def _selected_capability_id(plan: ExecutionPlan) -> str:
     if plan.plan_spec is not None:
-        return plan.plan_spec.selected_capability_id
+        if plan.answer_capabilities:
+            answer_capabilities = set(plan.answer_capabilities)
+            for unit in plan.plan_spec.plan_units:
+                manifest = CAPABILITY_MANIFEST_REGISTRY.find(unit.selected_capability_id)
+                if (
+                    manifest is not None
+                    and manifest.runtime_capability in answer_capabilities
+                    and manifest.capability_type in {"answer", "summary"}
+                ):
+                    return manifest.id
+        return plan.plan_spec.plan_units[0].selected_capability_id
     if plan.response_mode == "knowledge_answer" and plan.answer_capabilities:
         capability_name = str(plan.answer_capabilities[0])
         manifests = [
