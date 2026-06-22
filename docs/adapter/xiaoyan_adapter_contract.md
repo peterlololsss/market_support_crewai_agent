@@ -80,14 +80,22 @@ report_sections
 
 Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `resolve_ref` and `material_id` are opaque adapter identifiers.
 
-`ReplyRequest.material_pack_options` and `AdapterResolveResult.material_pack_options` are material-pack routing options
-only. They are not a general strategy catalog. Empty `material_pack_options` means the channel has no extra
-material-pack scope for the harness to choose before resolve; the adapter still owns final material-pack selection and
-may return `resolved`, `ambiguous`, `missing`, `forbidden`, or `temporarily_unavailable` from resolve/preflight.
+`ReplyRequest.available_artifacts` and `AdapterResolveResult.available_artifacts` are the sole adapter-provided
+artifact-availability source. Each item uses `type=material_pack|weekly_report|monthly_report`; material-pack items may
+carry `options` when the adapter exposes explicit material-pack routing choices. Empty material-pack `options` means the
+channel has a single/current material pack and the harness should not ask the user to pick a strategy-like category
+before resolve. This is the common non-bank shape:
+
+```json
+{"available_artifacts": [{"type": "material_pack", "options": []}]}
+```
+
+The adapter still owns final material-pack selection and may return `resolved`, `ambiguous`, `missing`, `forbidden`, or
+`temporarily_unavailable` from resolve/preflight.
 
 Raw send targets, URLs, filesystem paths, receiver identifiers, credentials, and internal execution records stay in adapter storage.
 
-Agent-returned send actions carry the adapter-safe `resolve_ref` needed for execution. Material-pack actions may also carry `material_pack_option` when the current request explicitly selected one of `ReplyRequest.material_pack_options`. Weekly and monthly report actions carry only `resolve_type`, `period`, and `report_date` in addition to `resolve_ref`; they do not carry `report_scope`, `strategy`, or `material_pack_option`. The adapter must execute from `resolve_ref`; it must not re-select artifacts by guessing from free-form reply text.
+Agent-returned send actions carry the adapter-safe `resolve_ref` needed for execution. Material-pack actions may also carry `material_pack_option` when the current request explicitly selected one of `available_artifacts[type=material_pack].options`. Weekly and monthly report actions carry only `resolve_type`, `period`, and `report_date` in addition to `resolve_ref`; they do not carry `report_scope`, `strategy`, or `material_pack_option`. The adapter must execute from `resolve_ref`; it must not re-select artifacts by guessing from free-form reply text.
 
 `POST /adapter/report-scope` is a bounded read command for report-content evidence: which products, sections, and counts are present inside a weekly/monthly report. It is not a send-action selector. It accepts `material_type`, `dist_name`, `command`, optional `period`, and command-specific fields:
 

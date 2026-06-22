@@ -71,8 +71,11 @@ def _request_payload(message: str, index: int) -> dict:
         "group_name": "compliance eval group",
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证500", "中证1000"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证500", "中证1000"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
 

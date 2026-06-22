@@ -778,8 +778,13 @@ def _available_artifacts(domain_payload: object, request_payload: object) -> lis
         return list(domain_payload.get("artifacts") or [])
     request_payload = request_payload if isinstance(request_payload, dict) else {}
     return [
-        {"artifact_type": material, "source_type": "request.available_materials"}
-        for material in request_payload.get("available_materials", []) or []
+        {
+            "artifact_type": artifact.get("type"),
+            "source_type": "request.available_artifacts",
+            "options": artifact.get("options", []),
+        }
+        for artifact in request_payload.get("available_artifacts", []) or []
+        if isinstance(artifact, dict)
     ]
 
 
@@ -976,8 +981,10 @@ def _compact_preflight(preflight: AdapterPreflightSnapshot) -> list[dict[str, An
                 "reason_code": result.reason_code,
                 "candidates": result.candidates,
                 "channel_type": result.channel_type,
-                "available_materials": result.available_materials,
-                "material_pack_options": result.material_pack_options,
+                "available_artifacts": [
+                    artifact.model_dump(mode="json", exclude_none=True)
+                    for artifact in result.available_artifacts
+                ],
                 "material_pack_option": result.material_pack_option,
                 "period": result.period,
                 "report_date": result.report_date,

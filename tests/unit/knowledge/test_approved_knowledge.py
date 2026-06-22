@@ -29,8 +29,11 @@ def make_request(message: str) -> ReplyRequest:
             "group_name": "test group",
             "dist_channel_name": "test channel",
             "sender_nickname": "test user",
-            "available_materials": ["material", "weekly", "monthly"],
-            "material_pack_options": [],
+            "available_artifacts": [
+                {"type": "material_pack", "options": []},
+                {"type": "weekly_report"},
+                {"type": "monthly_report"},
+            ],
             "channel_type": "bank",
             "allowed_read_capabilities": ["query_internal_company_info"],
         }

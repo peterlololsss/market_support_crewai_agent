@@ -158,8 +158,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -173,7 +176,7 @@ def _capability_id_from_payload(payload: dict) -> str:
     artifact_kind = payload.get("artifact_kind", "unclear")
     action_intent = payload.get("action_intent", "none")
     requested = list(payload.get("requested_capabilities") or [])
-    if payload.get("ambiguity_slots") or payload.get("report_query") == "ambiguous":
+    if payload.get("ambiguity_slots"):
         return "general.clarification"
     if action_intent == "send":
         if artifact_kind == "material_pack":

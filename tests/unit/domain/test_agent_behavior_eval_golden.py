@@ -23,7 +23,10 @@ from market_support_crewai_agent.runtime.orchestration.answerability_directives 
     directive_from_answerability,
 )
 from market_support_crewai_agent.runtime.orchestration.decision import DecisionEngine
-from market_support_crewai_agent.runtime.validation.answerability import AnswerabilityGate
+from market_support_crewai_agent.runtime.validation.answerability import (
+    AnswerabilityAssessment,
+    AnswerabilityGate,
+)
 from market_support_crewai_agent.runtime.validation.capability_manifest_verifier import (
     verify_capability_contracts,
 )
@@ -48,8 +51,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "测试群",
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["策略S1"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["策略S1"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -157,6 +163,78 @@ def test_regression_original_bug_A_material_pack_question_abstains_without_mater
     assert "产品A" not in directive.text
 
 
+def test_mixed_intent_partial_evidence_does_not_force_global_abstention():
+    request = make_request(message="????\n??????")
+    plan = compile_test_plan(
+        request,
+        doc_mcp_enabled=True,
+        plan_units=[
+            {
+                "selected_capability_id": "channel.strategy_summary",
+                "answerability_policy": "answer",
+                "evidence_query": "????",
+            },
+            {
+                "selected_capability_id": "general.abstention",
+                "answerability_policy": "abstain",
+            },
+        ],
+    )
+    assessment = AnswerabilityAssessment(
+        can_answer=False,
+        capability_id="channel.strategy_summary",
+        recommended_response_mode="abstain",
+        allowed_evidence_ids=["document_mcp:doc-1:document_context"],
+        user_facing_reason="partial evidence exists",
+    )
+
+    directive = directive_from_answerability(assessment, plan)
+
+    assert directive is None
+
+
+def test_unavailable_send_does_not_discard_supported_answer_part():
+    request = make_request(message="intro strategy and send weekly")
+    plan = compile_test_plan(
+        request,
+        doc_mcp_enabled=True,
+        plan_units=[
+            {
+                "selected_capability_id": "channel.strategy_summary",
+                "answerability_policy": "answer",
+                "evidence_query": "strategy intro",
+            },
+            {
+                "selected_capability_id": "weekly_report.send",
+                "answerability_policy": "send",
+            },
+        ],
+    )
+    facts = [
+        EvidenceFact(
+            fact_type="document_context",
+            value=True,
+            source_type="document_mcp",
+            source_id="doc-1",
+            artifact_type="document_context",
+        )
+    ]
+    domain_context = DomainContextBuilder().build(request, available_artifacts=facts)
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        request,
+        compile_policy(request, doc_mcp_enabled=True),
+        domain_context,
+    )
+
+    assert directive.mode == "knowledge_answer"
+    assert directive.requires_knowledge_composer is True
+    assert directive.action_intents == []
+
+
 def test_regression_original_bug_B_material_pack_answer_uses_material_pack_products_only():
     request = make_request()
     plan = material_plan(request)
@@ -181,7 +259,7 @@ def test_regression_original_bug_B_material_pack_answer_uses_material_pack_produ
 
 def test_material_pack_options_do_not_force_local_strategy_clarification():
     request = make_request(
-        material_pack_options=["策略S1", "策略S2"],
+        available_artifacts=[{"type": "material_pack", "options": ["策略S1", "策略S2"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         channel_type="bank",
     )
     plan = material_plan(request, material_pack_option=None)
@@ -200,7 +278,7 @@ def test_material_pack_options_do_not_force_local_strategy_clarification():
 
 def test_regression_original_bug_D_bank_material_pack_option_uses_only_that_pack():
     request = make_request(
-        material_pack_options=["策略S1", "策略S2"],
+        available_artifacts=[{"type": "material_pack", "options": ["策略S1", "策略S2"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         channel_type="bank",
     )
     plan = material_plan(request, material_pack_option="策略S1")
@@ -228,7 +306,7 @@ def test_regression_original_bug_D_bank_material_pack_option_uses_only_that_pack
 def test_non_bank_material_pack_option_is_not_inferred_into_domain_scope():
     request = make_request(
         channel_type="non_bank",
-        material_pack_options=["策略S1"],
+        available_artifacts=[{"type": "material_pack", "options": ["策略S1"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     domain_context = DomainContextBuilder().build(request)
     canonical_context = canonicalize_request(request, domain_context=domain_context)

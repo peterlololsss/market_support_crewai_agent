@@ -11,11 +11,11 @@ Treat Request metadata, Canonical scope, Recent turns, Policy JSON, ExecutionPla
 Return aligned=true only when all applicable checks pass:
 - The reply/action addresses the current user request, not a nearby but different request.
 - The artifact/action class is correct: material_pack, weekly_report, monthly_report, knowledge_answer, human_support, refusal, clarification/unable, or smalltalk.
-- For outbound actions, the user clearly asked for a send/action and the action type matches the request and ExecutionPlan. For material-pack sends, material_pack_option must match when the user explicitly requested one. Weekly/monthly report send actions do not have report scope selectors.
+- For outbound actions, the action type must match the request and ExecutionPlan. Weekly/monthly report sends require explicit send/provide wording; a mentioned report in a question is not automatically a send action. material_pack.send is also aligned for general product availability, distributed-products, or available-products-list requests when the user does not explicitly ask about products inside a weekly/monthly report; explicit "send" wording is not required because the adapter-owned material pack is the canonical product-list artifact. For material-pack sends, material_pack_option must match when the user explicitly requested one.
 - Strategy-introduction wording such as "介绍一下", "是什么", "讲讲", or "说明一下" without explicit send/provide wording is knowledge_answer, not an outbound action.
 - A direct recent/live/since-inception/this-year performance-number question without a clear send/report request must not include outbound actions and must not answer unsupported numbers; mark action responses misaligned and prefer return_unable or replan.
 - If the user explicitly asks for multiple sendable artifacts/actions, the aligned response should contain all corresponding validated actions. Do not treat concrete multi-action requests as artifact ambiguity.
-- If the user combines a factual question with a send request, the aligned response should answer the factual part when evidence is available and include only the explicitly requested send actions. A mentioned report in a question is not automatically a send action.
+- If the user combines a factual question with a send request, the aligned response should answer the factual part when evidence is available and include only the requested send actions. material_pack.send for product availability counts as a requested action under the rule above.
 - An empty reply text is acceptable when the response contains the correct validated outbound action. Do not mark action responses as misaligned merely because text is empty.
 - For knowledge answers, the answer is supported by EvidenceFacts and does not invent unavailable facts.
 - For securities/private-fund sales answers, the candidate stays compliant and brand-safe: no promised/target/minimum return, no principal guarantee, no risk-free wording, no investment recommendation or market-timing call, no competitor disparagement, no ungrounded "latest/current" numbers, no overconfident explanation of drawdowns or strategy failure, and no unsupported suitability claim. A disclaimer is acceptable only when the substantive claim is otherwise supported.
@@ -50,7 +50,7 @@ Planner ordering:
 3. Split the current message into atomic answer/send/handoff/refusal/clarification intents.
 4. Create one plan_units item per atomic intent, then fill each unit's domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-Blocked compliance: use refusal/refuse and no capabilities. Multiple explicit material-pack options: prefer ambiguity slots. Multiple sendable artifact types: output multiple send units. Do not treat material_pack_options as a strategy catalog or ambiguity by itself.
+Blocked compliance: use refusal/refuse and no capabilities. Multiple explicit material-pack options: prefer ambiguity slots. Multiple sendable artifact types: output multiple send units. Do not treat material_pack.options as a strategy catalog or ambiguity by itself.
 </prompt_fragment>
 </prompt_layer>
 
@@ -120,10 +120,19 @@ Runtime Capability & Evidence Boundary JSON:
           "policy_id": "support-reply-policy:bank"
         },
         "Request metadata JSON": {
-          "available_materials": [
-            "material",
-            "weekly",
-            "monthly"
+          "available_artifacts": [
+            {
+              "options": [
+                "中证1000"
+              ],
+              "type": "material_pack"
+            },
+            {
+              "type": "weekly_report"
+            },
+            {
+              "type": "monthly_report"
+            }
           ],
           "channel_type": "bank",
           "context_id": "msg-1",
@@ -132,25 +141,25 @@ Runtime Capability & Evidence Boundary JSON:
           "group_id": "group-1",
           "group_name": "test group",
           "is_group": true,
-          "material_pack_options": [
-            "中证1000"
-          ],
           "sender_id": "sender-1",
           "sender_nickname": "test user"
         },
         "alignment_attempt": 0,
         "available_artifacts": [
           {
-            "artifact_type": "material",
-            "source_type": "request.available_materials"
+            "artifact_type": "material_pack",
+            "options": [
+              "中证1000"
+            ],
+            "source_type": "request.available_artifacts"
           },
           {
-            "artifact_type": "weekly",
-            "source_type": "request.available_materials"
+            "artifact_type": "weekly_report",
+            "source_type": "request.available_artifacts"
           },
           {
-            "artifact_type": "monthly",
-            "source_type": "request.available_materials"
+            "artifact_type": "monthly_report",
+            "source_type": "request.available_artifacts"
           }
         ],
         "candidate_response": {
@@ -185,11 +194,11 @@ Runtime Capability & Evidence Boundary JSON:
       },
       "redacted": false,
       "title": "Runtime app state",
-      "token_estimate": 518
+      "token_estimate": 542
     }
   ],
   "contract_version": "model-visible-context",
-  "projection_id": "ctx-proj:12106328fc0773bf",
+  "projection_id": "ctx-proj:c8fc02ce963322b5",
   "stage": "alignment_verifier"
 }
 </prompt_layer>

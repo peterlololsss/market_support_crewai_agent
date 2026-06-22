@@ -156,7 +156,7 @@ def test_weekly_report_history_or_evidence_cannot_answer_material_pack():
 
 
 def test_current_material_pack_evidence_is_allowed_and_report_evidence_redacted():
-    request = make_request(message="材料包里有什么产品", material_pack_options=["指增"])
+    request = make_request(message="材料包里有什么产品", available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     policy = compile_policy(request)
     plan = _material_plan(request, policy)
     material_fact = EvidenceFact(

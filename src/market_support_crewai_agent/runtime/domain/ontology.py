@@ -25,13 +25,6 @@ _ARTIFACT_TYPES_BY_RESOLVE = {
     "monthly_report": "monthly_report",
     "sales_mention": "adapter_context",
 }
-_ARTIFACT_TYPES_BY_MATERIAL = {
-    "material": "material_pack",
-    "weekly": "weekly_report",
-    "monthly": "monthly_report",
-}
-
-
 @dataclass(frozen=True)
 class TimeRange:
     period: str | None = None
@@ -213,17 +206,17 @@ class DomainContextBuilder:
         products = _product_map(base_context)
         artifacts = _artifact_map(base_context)
 
-        for material_type in _string_list(payload.get("available_materials")):
-            artifact_type = _ARTIFACT_TYPES_BY_MATERIAL.get(material_type, "unknown")
+        for available in _available_artifact_payloads(payload):
+            artifact_type = str(available.get("type") or "unknown")
             scope = ArtifactScope(
                 channel_id=channel.id,
-                source_id=f"adapter_channel.available_materials:{material_type}",
+                source_id=f"adapter_channel.available_artifacts:{artifact_type}",
                 provenance="adapter_channel_payload",
             )
             artifact = _artifact(
                 artifact_type=artifact_type,  # type: ignore[arg-type]
                 scope=scope,
-                title=material_type,
+                title=artifact_type,
                 source_type="adapter_channel_payload",
                 fact_types=(),
             )
@@ -240,7 +233,7 @@ class DomainContextBuilder:
                 artifacts.setdefault(artifact.id, artifact)
 
         metadata = dict(base_context.metadata) if base_context is not None else {}
-        material_pack_options = _string_list(payload.get("material_pack_options"))
+        material_pack_options = _material_pack_options_from_available(payload)
         if material_pack_options:
             metadata["material_pack_options"] = material_pack_options
         metadata.update(
@@ -594,6 +587,24 @@ def _string_list(value: object) -> tuple[str, ...]:
             for item in (_clean(nested) for nested in value)
             if item
         )
+    return ()
+
+
+def _available_artifact_payloads(payload: Mapping[str, object]) -> tuple[dict[str, object], ...]:
+    artifacts = payload.get("available_artifacts")
+    if not isinstance(artifacts, Sequence) or isinstance(artifacts, str):
+        return ()
+    return tuple(
+        item
+        for item in artifacts
+        if isinstance(item, dict) and _clean(item.get("type"))
+    )
+
+
+def _material_pack_options_from_available(payload: Mapping[str, object]) -> tuple[str, ...]:
+    for artifact in _available_artifact_payloads(payload):
+        if artifact.get("type") == "material_pack":
+            return _string_list(artifact.get("options"))
     return ()
 
 

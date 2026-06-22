@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
 from market_support_crewai_agent.runtime.llm.prompting.profiles import prompt_profile_by_stage
 from market_support_crewai_agent.runtime.orchestration.crewai_io import (
+    coerce_plan_spec,
     plan_spec_error_summary,
     run_crewai_kickoff,
 )
@@ -76,7 +77,7 @@ def test_run_crewai_kickoff_keeps_response_format_for_default_provider():
     assert agent.kwargs["response_format"].__name__ == "PlanSpec"
 
 
-def test_plan_spec_error_summary_names_invalid_unit_path():
+def test_plan_spec_allows_missing_evidence_contract_ref():
     payload = make_weekly_plan_spec().model_dump(mode="json")
     payload["plan_units"][0].pop("evidence_contract_ref", None)
     payload["plan_units"][0]["evidence_contract"] = None
@@ -85,10 +86,22 @@ def test_plan_spec_error_summary_names_invalid_unit_path():
         raw=json.dumps(payload, ensure_ascii=False),
     )
 
+    assert coerce_plan_spec(result) is not None
+    assert plan_spec_error_summary(result) == ""
+
+
+def test_plan_spec_error_summary_names_invalid_unit_path():
+    payload = make_weekly_plan_spec().model_dump(mode="json")
+    payload["plan_units"][0].pop("selected_capability_id", None)
+    result = SimpleNamespace(
+        pydantic=None,
+        raw=json.dumps(payload, ensure_ascii=False),
+    )
+
     summary = plan_spec_error_summary(result)
 
     assert "plan_units.0" in summary
-    assert "evidence_contract_ref or inline evidence_contract" in summary
+    assert "selected_capability_id" in summary
 
 
 def _program():

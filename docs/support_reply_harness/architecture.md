@@ -22,17 +22,14 @@ context_id optional
 group_name
 dist_channel_name
 sender_nickname
-available_materials
-material_pack_options
+available_artifacts
 channel_type
 ```
 
-`available_materials` is an adapter-provided channel hint. It can limit material-pack planning because packs are
-registry-backed, but it is not the source of truth for weekly or monthly report availability. Report sendability is
-established by adapter resolve/preflight facts such as `weekly_report_resolvable` and `monthly_report_resolvable`,
-because existing WeCom report send paths may resolve generated report artifacts outside the distributor CSV.
-`material_pack_options` is only the adapter-provided list of material-pack routing options. It is not a general strategy
-catalog. An empty list means the current channel has no extra material-pack scope to choose before adapter resolve.
+`available_artifacts` is the adapter-provided artifact availability source for material packs, weekly reports, and
+monthly reports. Each item uses `type=material_pack|weekly_report|monthly_report`; only `material_pack` may carry
+`options`, and those options are material-pack routing choices, not a general strategy catalog. Empty material-pack
+`options` means the channel has a single/current material pack, which is the common non-bank shape.
 
 `ReplyResponse` separates reply semantics, primary user-visible text, customer-visible mentions, and outbound action proposals.
 

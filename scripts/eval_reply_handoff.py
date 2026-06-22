@@ -60,10 +60,9 @@ class FakePreflightService:
                             "status": status,
                             "display_name": request.dist_channel_name,
                             "reason_code": "ok" if status == "resolved" else "not_found",
-                            "candidates": request.material_pack_options,
+                            "candidates": _material_pack_options(request),
                             "channel_type": request.channel_type,
-                            "available_materials": request.available_materials,
-                            "material_pack_options": request.material_pack_options,
+                            "available_artifacts": _available_artifacts_payload(request),
                             "material_pack_option": material_pack_option,
                             "resolved_at": 1,
                             "resolve_ref": (
@@ -96,12 +95,29 @@ def _request(message: str, **overrides):
         "group_name": "real handoff eval group",
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证500", "中证1000"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证500", "中证1000"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
     return ReplyRequest.model_validate(payload)
+
+
+def _available_artifacts_payload(request) -> list[dict]:
+    return [
+        artifact.model_dump(mode="json", exclude_none=True)
+        for artifact in request.available_artifacts
+    ]
+
+
+def _material_pack_options(request) -> list[str]:
+    for artifact in request.available_artifacts:
+        if artifact.type == "material_pack":
+            return list(artifact.options)
+    return []
 
 
 async def _run_scenario(name: str, request, preflight_service):
@@ -131,12 +147,26 @@ async def main() -> None:
     scenarios = [
         (
             "customer_service_handoff",
-            _request("我要找顾总帮忙对接一下", material_pack_options=[]),
+            _request(
+                "我要找顾总帮忙对接一下",
+                available_artifacts=[
+                    {"type": "material_pack", "options": []},
+                    {"type": "weekly_report"},
+                    {"type": "monthly_report"},
+                ],
+            ),
             FakePreflightService(),
         ),
         (
             "unavailable_material_pack_handoff",
-            _request("请发一下中证1000材料包", material_pack_options=["中证1000"]),
+            _request(
+                "请发一下中证1000材料包",
+                available_artifacts=[
+                    {"type": "material_pack", "options": ["中证1000"]},
+                    {"type": "weekly_report"},
+                    {"type": "monthly_report"},
+                ],
+            ),
             FakePreflightService({"material_pack": "missing"}),
         ),
     ]

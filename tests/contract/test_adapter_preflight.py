@@ -21,8 +21,11 @@ def make_payload(**overrides):
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": [],
+        "available_artifacts": [
+            {"type": "material_pack", "options": []},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -69,8 +72,11 @@ class FakeAdapterClient:
                 "reason_code": "ok",
                 "candidates": [],
                 "channel_type": "bank",
-                "available_materials": ["material", "weekly", "monthly"],
-                "material_pack_options": ["指增"],
+                "available_artifacts": [
+                    {"type": "material_pack", "options": ["指增"]},
+                    {"type": "weekly_report"},
+                    {"type": "monthly_report"},
+                ],
                 "resolved_at": 1,
                 "resolve_ref": f"{request.resolve_type}:ref",
                 "material_pack_option": request.material_pack_option,
@@ -84,7 +90,7 @@ def test_preflight_collects_all_registry_adapter_resolve_types_without_implicit_
 
     request = ReplyRequest.model_validate(
         make_payload(
-            material_pack_options=["指增"],
+            available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
             dist_channel_name="测试渠道",
         )
     )
@@ -111,7 +117,7 @@ def test_preflight_omits_material_pack_option_when_multiple_candidates_exist():
     from market_support_crewai_agent.schemas import ReplyRequest
 
     request = ReplyRequest.model_validate(
-        make_payload(material_pack_options=["指增", "量化"])
+        make_payload(available_artifacts=[{"type": "material_pack", "options": ["指增", "量化"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     )
     fake_client = FakeAdapterClient()
     service = AdapterPreflightService(adapter_client=fake_client)
@@ -131,7 +137,7 @@ def test_preflight_ignores_query_without_material_pack_option_selector():
     request = ReplyRequest.model_validate(
         make_payload(
             message="1000所有号的周报我想看看",
-            material_pack_options=["中证500", "中证1000"],
+            available_artifacts=[{"type": "material_pack", "options": ["中证500", "中证1000"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         )
     )
     fake_client = FakeAdapterClient()
@@ -153,7 +159,7 @@ def test_preflight_request_projection_keeps_conversation_identity_out_of_adapter
         make_payload(
             context_id="trace-1",
             conversation_key="wecom:group:sender",
-            material_pack_options=["指增"],
+            available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         )
     )
     fake_client = FakeAdapterClient()
@@ -174,7 +180,7 @@ def test_preflight_can_limit_adapter_resolve_types():
     request = ReplyRequest.model_validate(
         make_payload(
             message="1000所有号的周报我想看看",
-            material_pack_options=["中证500", "中证1000"],
+            available_artifacts=[{"type": "material_pack", "options": ["中证500", "中证1000"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         )
     )
     fake_client = FakeAdapterClient()
@@ -220,7 +226,7 @@ def test_preflight_uses_material_pack_option_only_for_material_pack_resolve():
     request = ReplyRequest.model_validate(
         make_payload(
             message="这个周报发一下",
-            material_pack_options=["中证500", "中证1000"],
+            available_artifacts=[{"type": "material_pack", "options": ["中证500", "中证1000"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         )
     )
     fake_client = FakeAdapterClient()

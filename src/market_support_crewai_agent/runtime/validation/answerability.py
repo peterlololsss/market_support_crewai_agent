@@ -10,6 +10,9 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
 from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
+from market_support_crewai_agent.runtime.domain.planning.clarification import (
+    clarification_spec,
+)
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.validation.evidence_source_guard import (
@@ -25,6 +28,7 @@ from market_support_crewai_agent.runtime.validation.guardrail_common import (
 )
 from market_support_crewai_agent.runtime.validation.guardrail_types import (
     EvidenceSelection,
+    abstention_response_text,
 )
 from market_support_crewai_agent.schemas import ReplyRequest, StrictModel
 
@@ -80,7 +84,7 @@ class AnswerabilityGate:
                 capability_id=selected_capability_id,
                 ambiguity="unknown_artifact",
                 recommended_response_mode="abstain",
-                user_facing_reason="当前上下文没有匹配的可回答能力，我无法直接判断。",
+                user_facing_reason="老师，这个问题我这边暂时无法确认，先不展开避免信息不准确。",
             )
 
         selection = select_evidence_for_plan(
@@ -294,23 +298,17 @@ def _contract_disallowed_reason(manifest, fact: EvidenceFact) -> str:
 def _missing_artifact_reason(manifest, missing_artifacts: list[str]) -> str:
     label = _artifact_label(missing_artifacts[0] if missing_artifacts else "")
     if manifest.id == "material_pack.product_list":
-        return "当前上下文没有可用于回答产品列表的材料包内容，我不能用周报、月报或历史记录替代判断。"
+        return "老师，材料包里的产品范围我这边暂时无法确认。"
     if label:
-        return f"当前上下文没有可用于回答该问题的{label}证据，我先不展开。"
-    return "当前上下文缺少该能力要求的证据，我先不展开。"
+        return f"老师，这个问题需要以{label}里的准确信息为准，我这边暂时无法确认。"
+    return "老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。"
 
 
 def _clarification_reason(plan: ExecutionPlan) -> str:
-    slots = set(plan.ambiguity_slots)
-    if "material_pack_option" in slots:
-        return "当前需要确认具体材料包选项。"
-    if "report_query" in slots:
-        return "当前需要确认你要查询报告里的哪个产品或栏目。"
-    if "artifact" in slots:
-        return "当前需要确认你需要材料包、周报、月报，还是文档信息。"
-    if "request_meaning" in slots:
-        return "当前无法判断你是要发送材料/报告，还是查询材料或报告里的内容。"
-    return "我需要再确认一下具体需求后再处理。"
+    spec = clarification_spec(plan.ambiguity_slots)
+    if spec is not None:
+        return spec.reason_text
+    return abstention_response_text()
 
 
 def _artifact_label(artifact: str) -> str:

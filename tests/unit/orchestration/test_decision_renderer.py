@@ -5,6 +5,7 @@ from market_support_crewai_agent.runtime.orchestration.decision import DecisionE
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.orchestration.response_renderer import render_directive
+from market_support_crewai_agent.runtime.validation.reply_validator import validate_reply
 from market_support_crewai_agent.schemas import ReplyRequest
 from tests.helpers.planning import compile_test_plan
 
@@ -20,8 +21,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -117,7 +121,7 @@ def test_decision_adds_weekly_report_rationale_for_dynamic_metric_send():
 def test_decision_uses_composer_for_ambiguous_action_clarification():
     request = make_request(
         message="发一下材料",
-        material_pack_options=["中证1000指增", "中证A500指增"],
+        available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     policy = compile_policy(request)
     plan = make_plan(
@@ -151,7 +155,7 @@ def test_decision_uses_composer_for_ambiguous_action_clarification():
 
 
 def test_decision_treats_adapter_ambiguous_without_candidates_as_unavailable():
-    request = make_request(message="发一下材料", material_pack_options=["中证1000指增"])
+    request = make_request(message="发一下材料", available_artifacts=[{"type": "material_pack", "options": ["中证1000指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     policy = compile_policy(request)
     plan = make_plan(
         request,
@@ -217,7 +221,8 @@ def test_decision_requires_knowledge_composer_only_with_document_context():
 
     assert missing.mode == "unable"
     assert missing.requires_knowledge_composer is False
-    assert "文档证据" in missing.text
+    assert missing.reason_code == "document_context_missing"
+    assert "文档证据" not in missing.text
 
 
 def test_decision_keeps_actions_for_mixed_answer_and_send_composer_path():
@@ -263,6 +268,49 @@ def test_decision_keeps_actions_for_mixed_answer_and_send_composer_path():
     assert directive.mode == "action"
     assert directive.action_intents[0].action_type == "send_weekly_report"
     assert directive.requires_knowledge_composer is True
+
+
+def test_decision_keeps_action_when_mixed_answer_evidence_is_missing():
+    request = make_request(
+        message="\u4ec0\u4e48\u662f\u53e6\u7c7b\u6570\u636e\u56e0\u5b50\n\u4f60\u4eec\u4ee3\u9500\u7684\u7075\u6d3b\u5bf9\u51b2\u7684\u4ea7\u54c1\u6709\u54ea\u4e9b\u5440",
+        available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}],
+        channel_type="non_bank",
+    )
+    policy = compile_policy(request, doc_mcp_enabled=True)
+    plan = make_plan(
+        request,
+        plan_units=[
+            {
+                "artifact_kind": "knowledge_answer",
+                "action_intent": "answer",
+                "requested_capabilities": ["document_context"],
+            },
+            {
+                "artifact_kind": "material_pack",
+                "action_intent": "send",
+                "material_pack_option": "\u7075\u6d3b\u5bf9\u51b2",
+            },
+        ],
+    )
+    facts = [resolved_fact("material_pack", "material:ref")]
+    business_facts = derive_business_facts(facts, request)
+
+    directive = DecisionEngine().decide(
+        plan,
+        business_facts,
+        facts,
+        request,
+        policy,
+    )
+    response = render_directive(directive, plan, business_facts, facts)
+    validation = validate_reply(response, directive, plan, business_facts, facts, policy)
+
+    assert directive.mode == "action"
+    assert directive.reply_kind == "unable_to_answer"
+    assert response.reply.kind == "unable_to_answer"
+    assert response.actions[0].type == "send_material_pack"
+    assert response.actions[0].material_pack_option is None
+    assert validation.valid
 
 
 

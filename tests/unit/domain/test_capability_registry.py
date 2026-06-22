@@ -97,6 +97,16 @@ def test_builtin_registry_contains_required_capability_manifests():
         assert manifest.agent_guidance
 
 
+def test_product_availability_guidance_belongs_to_material_pack_send():
+    material_send = CAPABILITY_MANIFEST_REGISTRY.get("material_pack.send")
+    weekly_answer = CAPABILITY_MANIFEST_REGISTRY.get("weekly_report.product_performance")
+    channel_summary = CAPABILITY_MANIFEST_REGISTRY.get("channel.product_summary")
+
+    assert "general product availability" in material_send.planner_guidance
+    assert "material_pack.send" in weekly_answer.planner_guidance
+    assert "material_pack.send" in channel_summary.planner_guidance
+
+
 def test_registry_rejects_invalid_manifest_shape():
     with pytest.raises(ValueError, match="required_artifacts cannot also be forbidden"):
         dummy_manifest(forbidden_artifacts=["dummy_artifact"])

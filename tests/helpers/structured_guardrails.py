@@ -23,8 +23,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -141,7 +144,7 @@ def material_product_fact(
 def material_answer_plan(request: ReplyRequest | None = None):
     request = request or make_request(
         message="材料包里有哪些产品",
-        material_pack_options=["指增"],
+        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     return make_plan(
         request,

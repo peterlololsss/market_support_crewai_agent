@@ -37,8 +37,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -57,8 +60,11 @@ def resolved_item(resolve_type: str, resolve_ref: str) -> AdapterPreflightItem:
                 "reason_code": "ok",
                 "candidates": [],
                 "channel_type": "bank",
-                "available_materials": ["material", "weekly", "monthly"],
-                "material_pack_options": ["指增"],
+                "available_artifacts": [
+                    {"type": "material_pack", "options": ["指增"]},
+                    {"type": "weekly_report"},
+                    {"type": "monthly_report"},
+                ],
                 "resolved_at": 1,
                 "resolve_ref": resolve_ref,
                 "material_pack_option": "指增"

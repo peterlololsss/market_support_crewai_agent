@@ -19,6 +19,9 @@ from market_support_crewai_agent.runtime.domain.plan_spec import (
     PlanSpec,
     PlanUnit,
 )
+from market_support_crewai_agent.runtime.domain.planning.clarification import (
+    supported_clarification_slots,
+)
 from market_support_crewai_agent.runtime.domain.planning.models import (
     ActionIntentSpec,
     AdapterResolveSpec,
@@ -29,16 +32,6 @@ from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.schemas import ReplyRequest
 
 
-_AMBIGUITY_SLOT_FLAGS = frozenset(
-    {
-        "artifact",
-        "material_pack_option",
-        "report_query",
-        "request_meaning",
-    }
-)
-
-
 def compile_plan_spec(
     spec: PlanSpec,
     request: ReplyRequest,
@@ -46,10 +39,10 @@ def compile_plan_spec(
     policy: PolicyManifest,
     domain_context: DomainContext | None = None,
 ) -> ExecutionPlan:
-    del request, canonical_context, policy, domain_context
+    del request, canonical_context, domain_context
     units = list(spec.plan_units)
     response_mode = _response_mode_for_plan_spec(units)
-    material_pack_option = _material_pack_option_for_plan_spec(units)
+    material_pack_option = _material_pack_option_for_plan_spec(units, policy)
     compliance_reason_code = _compliance_reason_code_for_plan_spec(spec)
     compliance = ComplianceDecision(
         is_compliant=False
@@ -84,21 +77,31 @@ def compile_plan_spec(
             if answerability == "answer":
                 answer_capabilities.append(capability.name)
             if answerability in {"answer", "send", "handoff"}:
+                unit_material_pack_option = _material_pack_option_for_plan_unit(
+                    unit,
+                    capability.name,
+                    policy,
+                )
                 adapter_resolves.extend(
                     _adapter_resolves_from_plan_unit(
                         unit,
                         capability.name,
-                        unit.domain_scope.material_pack_option,
+                        unit_material_pack_option,
                     )
                 )
             if answerability == "send" and capability.side_effect_action_type is not None:
+                unit_material_pack_option = _material_pack_option_for_plan_unit(
+                    unit,
+                    capability.name,
+                    policy,
+                )
                 action_intents.append(
                     ActionIntentSpec(
                         action_type=capability.side_effect_action_type,
                         capability=capability.name,
                         material_pack_option=_action_material_pack_option(
                             capability.name,
-                            unit.domain_scope.material_pack_option,
+                            unit_material_pack_option,
                         ),
                     )
                 )
@@ -228,25 +231,55 @@ def _evidence_query_from_plan_spec(spec: PlanSpec) -> str | None:
 def _ambiguity_slots_from_plan_spec(spec: PlanSpec) -> list[str]:
     if not any(unit.answerability_policy == "clarify" for unit in spec.plan_units):
         return []
-    output: list[str] = []
     values = [
         *spec.risk_flags,
         *(flag for unit in spec.plan_units for flag in unit.risk_flags),
         *(case for unit in spec.plan_units for case in unit.abstention_cases),
     ]
-    for value in values:
-        slot = str(value).strip()
-        if slot in _AMBIGUITY_SLOT_FLAGS and slot not in output:
-            output.append(slot)
-    return output
+    return supported_clarification_slots(values)
 
 
-def _material_pack_option_for_plan_spec(units: list[PlanUnit]) -> str | None:
+def _material_pack_option_for_plan_spec(
+    units: list[PlanUnit],
+    policy: PolicyManifest,
+) -> str | None:
     for unit in units:
-        option = unit.domain_scope.material_pack_option
-        if option:
+        manifest = CAPABILITY_MANIFEST_REGISTRY.find(unit.selected_capability_id)
+        option = _policy_material_pack_option(
+            unit.domain_scope.material_pack_option,
+            policy,
+        )
+        if (
+            option
+            and manifest is not None
+            and manifest.runtime_capability == "material_pack"
+        ):
             return option
     return None
+
+
+def _material_pack_option_for_plan_unit(
+    unit: PlanUnit,
+    capability_name: CapabilityName,
+    policy: PolicyManifest,
+) -> str | None:
+    capability = capability_by_name(capability_name)
+    if capability is None or not capability.supports_material_pack_option:
+        return None
+    return _policy_material_pack_option(unit.domain_scope.material_pack_option, policy)
+
+
+def _policy_material_pack_option(
+    option: str | None,
+    policy: PolicyManifest,
+) -> str | None:
+    value = str(option or "").strip()
+    if not value:
+        return None
+    # ponytail: options=[] means adapter has one current pack; drop model-invented scope.
+    if not policy.material_pack_options:
+        return None
+    return value
 
 
 def _action_material_pack_option(

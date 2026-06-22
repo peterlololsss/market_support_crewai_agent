@@ -14,4 +14,4 @@ Planner ordering:
 3. Split the current message into atomic answer/send/handoff/refusal/clarification intents.
 4. Create one plan_units item per atomic intent, then fill each unit's domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-Blocked compliance: use refusal/refuse and no capabilities. Multiple explicit material-pack options: prefer ambiguity slots. Multiple sendable artifact types: output multiple send units. Do not treat material_pack_options as a strategy catalog or ambiguity by itself.
+Blocked compliance: use refusal/refuse and no capabilities. Multiple explicit material-pack options: prefer ambiguity slots. Multiple sendable artifact types: output multiple send units. Do not treat material_pack.options as a strategy catalog or ambiguity by itself.

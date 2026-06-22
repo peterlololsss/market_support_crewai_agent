@@ -28,6 +28,16 @@ def _csv_values(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _available_artifacts(artifact_types: list[str], material_pack_options: list[str]) -> list[dict]:
+    artifacts: list[dict] = []
+    for artifact_type in artifact_types:
+        if artifact_type == "material_pack":
+            artifacts.append({"type": "material_pack", "options": material_pack_options})
+        else:
+            artifacts.append({"type": artifact_type})
+    return artifacts
+
+
 def _adapter_base_url() -> str:
     return os.getenv(
         "MARKET_AGENT_LIVE_ADAPTER_BASE_URL",
@@ -66,12 +76,12 @@ def main() -> None:
     parser.add_argument("--dist-name", default=os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "ScopeTest"))
     parser.add_argument(
         "--material-pack-option",
-        default=os.getenv("MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION", "指增"),
+        default=os.getenv("MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION", ""),
     )
     parser.add_argument("--channel-type", choices=["bank", "non_bank"], default="bank")
     parser.add_argument("--adapter-base-url", default=_adapter_base_url())
     parser.add_argument("--adapter-api-key", default=_adapter_api_key())
-    parser.add_argument("--available-materials", default="material,weekly,monthly")
+    parser.add_argument("--available-artifacts", default="material_pack,weekly_report,monthly_report")
     parser.add_argument("--material-pack-options", default="")
     parser.add_argument("--llm-timeout-seconds", default=os.getenv("YANFU_LLM_TIMEOUT_SECONDS", "90"))
     parser.add_argument("--llm-max-tokens", default=os.getenv("YANFU_LLM_MAX_TOKENS", "6000"))
@@ -101,8 +111,10 @@ def main() -> None:
         "group_name": f"{args.dist_name}-群",
         "dist_channel_name": args.dist_name,
         "sender_nickname": "live adapter eval user",
-        "available_materials": _csv_values(args.available_materials),
-        "material_pack_options": material_pack_options,
+        "available_artifacts": _available_artifacts(
+            _csv_values(args.available_artifacts),
+            material_pack_options,
+        ),
         "channel_type": args.channel_type,
     }
 

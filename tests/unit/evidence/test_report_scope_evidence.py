@@ -61,6 +61,10 @@ def test_report_scope_evidence_collects_summary_and_match_without_listing_produc
                                 "status": "resolved",
                                 "display_name": "TestDist",
                                 "reason_code": "ok",
+                                "available_artifacts": [
+                                    {"type": "weekly_report"},
+                                    {"type": "monthly_report"},
+                                ],
                                 "resolved_at": 1,
                                 "resolve_ref": "wecom-adapter:test",
                                 "period": "20260612",
@@ -120,6 +124,10 @@ def test_report_period_answer_does_not_call_report_scope_endpoint():
                                 "status": "resolved",
                                 "display_name": "TestDist",
                                 "reason_code": "ok",
+                                "available_artifacts": [
+                                    {"type": "weekly_report"},
+                                    {"type": "monthly_report"},
+                                ],
                                 "resolved_at": 1,
                                 "resolve_ref": "wecom-adapter:test",
                                 "period": "20260612",
@@ -176,6 +184,10 @@ def test_report_scope_summary_sentinel_collects_summary_only():
                                 "status": "resolved",
                                 "display_name": "TestDist",
                                 "reason_code": "ok",
+                                "available_artifacts": [
+                                    {"type": "weekly_report"},
+                                    {"type": "monthly_report"},
+                                ],
                                 "resolved_at": 1,
                                 "resolve_ref": "wecom-adapter:test",
                                 "period": "20260612",
@@ -230,6 +242,10 @@ def test_report_scope_products_sentinel_collects_bounded_product_page():
                                 "status": "resolved",
                                 "display_name": "TestDist",
                                 "reason_code": "ok",
+                                "available_artifacts": [
+                                    {"type": "weekly_report"},
+                                    {"type": "monthly_report"},
+                                ],
                                 "resolved_at": 1,
                                 "resolve_ref": "wecom-adapter:test",
                                 "period": "20260612",
@@ -296,6 +312,10 @@ def test_report_scope_evidence_for_mixed_action_uses_answer_capabilities_only():
                                 "status": "resolved",
                                 "display_name": "TestDist",
                                 "reason_code": "ok",
+                                "available_artifacts": [
+                                    {"type": "weekly_report"},
+                                    {"type": "monthly_report"},
+                                ],
                                 "resolved_at": 1,
                                 "resolve_ref": "wecom-adapter:weekly",
                                 "period": "20260612",
@@ -312,6 +332,10 @@ def test_report_scope_evidence_for_mixed_action_uses_answer_capabilities_only():
                                 "status": "resolved",
                                 "display_name": "TestDist",
                                 "reason_code": "ok",
+                                "available_artifacts": [
+                                    {"type": "weekly_report"},
+                                    {"type": "monthly_report"},
+                                ],
                                 "resolved_at": 1,
                                 "resolve_ref": "wecom-adapter:monthly",
                                 "period": "2026-05",
@@ -442,8 +466,10 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "TestDist",
         "sender_nickname": "tester",
-        "available_materials": ["weekly", "monthly"],
-        "material_pack_options": [],
+        "available_artifacts": [
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
         "allowed_read_capabilities": [
             "resolve_weekly_report",

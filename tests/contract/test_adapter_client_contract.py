@@ -84,8 +84,10 @@ def _resolve_response(payload):
         "reason_code": "ok",
         "candidates": [],
         "channel_type": "bank",
-        "available_materials": ["material", "weekly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+        ],
         "resolved_at": 1,
         "resolve_ref": "wecom-adapter:test",
         "material_pack_option": payload.get("material_pack_option"),
@@ -221,8 +223,9 @@ def test_adapter_resolve_schema_accepts_adapter_contract():
             "reason_code": "ok",
             "candidates": [],
             "channel_type": "non_bank",
-            "available_materials": ["weekly"],
-            "material_pack_options": [],
+            "available_artifacts": [
+                {"type": "weekly_report"},
+            ],
             "resolved_at": 1,
             "resolve_ref": "wecom-adapter:test",
             "period": "20260529",
@@ -248,8 +251,8 @@ def test_adapter_resolve_schema_rejects_raw_locator_detail():
                 "reason_code": "weekly_report_unavailable",
                 "candidates": [],
                 "channel_type": "non_bank",
-                "available_materials": [],
-                "material_pack_options": [],
+                "available_artifacts": [
+                ],
                 "resolved_at": 1,
                 "detail": "CSV file not found: /Users/ivan/private/portfolio_url_info.csv",
             }
@@ -267,8 +270,9 @@ def test_adapter_resolve_schema_rejects_raw_locator_resolve_ref():
                 "reason_code": "ok",
                 "candidates": [],
                 "channel_type": "non_bank",
-                "available_materials": ["weekly"],
-                "material_pack_options": [],
+                "available_artifacts": [
+                    {"type": "weekly_report"},
+                ],
                 "resolved_at": 1,
                 "resolve_ref": "https://drive.weixin.qq.com/s?k=secret",
             }
@@ -286,8 +290,9 @@ def test_adapter_resolve_schema_rejects_resolved_without_resolve_ref():
                 "reason_code": "ok",
                 "candidates": [],
                 "channel_type": "non_bank",
-                "available_materials": ["weekly"],
-                "material_pack_options": [],
+                "available_artifacts": [
+                    {"type": "weekly_report"},
+                ],
                 "resolved_at": 1,
             }
         )
@@ -305,8 +310,9 @@ def test_adapter_resolve_schema_rejects_removed_locator_field():
                 "reason_code": "ok",
                 "candidates": [],
                 "channel_type": "non_bank",
-                "available_materials": ["weekly"],
-                "material_pack_options": [],
+                "available_artifacts": [
+                    {"type": "weekly_report"},
+                ],
                 "resolved_at": 1,
                 "resolve_ref": "wecom-adapter:test",
                 removed_locator_field: "removed-locator",
@@ -325,8 +331,9 @@ def test_adapter_resolve_schema_rejects_unowned_metadata_bucket():
                 "reason_code": "ok",
                 "candidates": [],
                 "channel_type": "non_bank",
-                "available_materials": ["weekly"],
-                "material_pack_options": [],
+                "available_artifacts": [
+                    {"type": "weekly_report"},
+                ],
                 "resolved_at": 1,
                 "resolve_ref": "wecom-adapter:test",
                 "metadata": {"report_url": "https://drive.weixin.qq.com/s?k=secret"},

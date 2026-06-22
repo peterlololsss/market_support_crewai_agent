@@ -108,13 +108,16 @@ plan_units[].required_artifacts / allowed_artifacts / forbidden_artifacts
 plan_units[].required_tools
 plan_units[].answerability_policy
 plan_units[].output_schema_ref
-plan_units[].evidence_contract_ref or inline evidence_contract
+plan_units[].evidence_contract_ref (optional audit hint)
 plan_units[].steps
 plan_units[].abstention_cases
 ```
 
 `compile_plan_spec` converts this to `ExecutionPlan`. The runtime validates the
 compiled plan before executing evidence wrappers.
+
+Evidence contracts are owned by the capability registry. Planner-supplied inline
+contracts are ignored and cannot loosen runtime evidence boundaries.
 
 ## EvidenceContract
 

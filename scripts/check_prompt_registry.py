@@ -35,7 +35,7 @@ PROMPT_MARKERS = (
 BUSINESS_HIERARCHY_MARKERS = (
     "Artifact/action matrix",
     "Bank channel material rule",
-    "Treat material_pack_options as a material_pack catalog",
+    "Treat material_pack.options as a material_pack catalog",
     "Do not ask for a strategy only because",
     "Material words include",
     "Product-element words include",

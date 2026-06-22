@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -51,10 +52,25 @@ class FakeCrewAgent:
         )
 
 
-class ComposerShouldNotRun:
+class FakeComposerAgent:
     async def kickoff_async(self, prompt, response_format):
         del prompt, response_format
-        raise AssertionError("fake-deps scenarios should be deterministic")
+        return SimpleNamespace(
+            pydantic={
+                "contract_version": "composer-reply",
+                "response_mode": "clarify",
+                "reply": {
+                    "kind": "clarification",
+                    "text": "请确认要发送的材料包类型。",
+                    "mentions": [],
+                },
+                "actions": [],
+            },
+            raw="",
+            agent_role="fake-composer",
+            usage_metrics={"total_tokens": 0},
+            todos=[],
+        )
 
 
 class PassingAlignmentVerifier:
@@ -107,7 +123,7 @@ def _resolve_item(
         resolve_type == "material_pack"
         and request.channel_type == "bank"
         and not material_pack_option
-        and len(request.material_pack_options) > 1
+        and len(_material_pack_options(request)) > 1
     ):
         status = "ambiguous"
         resolve_ref = None
@@ -118,10 +134,9 @@ def _resolve_item(
         "status": status,
         "display_name": request.dist_channel_name,
         "reason_code": "ok" if status == "resolved" else "multiple_candidates",
-        "candidates": request.material_pack_options if status == "ambiguous" else [],
+        "candidates": _material_pack_options(request) if status == "ambiguous" else [],
         "channel_type": request.channel_type,
-        "available_materials": request.available_materials,
-        "material_pack_options": request.material_pack_options,
+        "available_artifacts": _available_artifacts_payload(request),
         "material_pack_option": material_pack_option,
         "resolved_at": 1,
         "resolve_ref": resolve_ref,
@@ -145,8 +160,11 @@ def _request(message: str, **overrides) -> ReplyRequest:
         "group_name": "runtime check group",
         "dist_channel_name": "测试渠道",
         "sender_nickname": "测试用户",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证500", "中证1000"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证500", "中证1000"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -174,9 +192,9 @@ def _plan_spec(request: ReplyRequest, **overrides) -> PlanSpec:
         manifest.runtime_capability == "material_pack"
         and request.channel_type == "bank"
         and material_pack_option is None
-        and len(request.material_pack_options) == 1
+        and len(_material_pack_options(request)) == 1
     ):
-        material_pack_option = request.material_pack_options[0]
+        material_pack_option = _material_pack_options(request)[0]
     step = {
         "step_id": "step-1",
         "description": payload["user_need"],
@@ -190,29 +208,35 @@ def _plan_spec(request: ReplyRequest, **overrides) -> PlanSpec:
     return PlanSpec.model_validate(
         {
             "plan_id": f"plan-{capability_id}",
-            "selected_capability_id": capability_id,
             "user_intent_summary": payload["user_need"],
-            "domain_scope": {
-                "channel_id": request.group_id or request.conversation_key,
-                "channel_kind": request.channel_type,
-                "material_pack_option": material_pack_option,
-                "product_ids": [],
-            },
-            "required_artifacts": list(manifest.required_artifacts),
-            "allowed_artifacts": list(manifest.allowed_artifacts),
-            "forbidden_artifacts": list(manifest.forbidden_artifacts),
-            "required_tools": list(manifest.required_tools),
-            "answerability_policy": "send"
-            if capability_id.endswith(".send")
-            else "clarify",
-            "output_schema_ref": f"{manifest.id}:output_schema",
-            "evidence_contract_ref": f"{manifest.id}:evidence_contract",
-            "evidence_contract": manifest.evidence_contract,
-            "steps": [step],
-            "acceptance_criteria": ["satisfy selected capability contract"],
-            "abstention_cases": [manifest.abstention_policy.guidance]
-            if manifest.abstention_policy.guidance
-            else [],
+            "plan_units": [
+                {
+                    "unit_id": f"unit-{capability_id}",
+                    "selected_capability_id": capability_id,
+                    "domain_scope": {
+                        "channel_id": request.group_id or request.conversation_key,
+                        "channel_kind": request.channel_type,
+                        "material_pack_option": material_pack_option,
+                        "product_ids": [],
+                    },
+                    "required_artifacts": list(manifest.required_artifacts),
+                    "allowed_artifacts": list(manifest.allowed_artifacts),
+                    "forbidden_artifacts": list(manifest.forbidden_artifacts),
+                    "required_tools": list(manifest.required_tools),
+                    "answerability_policy": "send"
+                    if capability_id.endswith(".send")
+                    else "clarify",
+                    "output_schema_ref": f"{manifest.id}:output_schema",
+                    "evidence_contract_ref": f"{manifest.id}:evidence_contract",
+                    "evidence_contract": manifest.evidence_contract,
+                    "steps": [step],
+                    "acceptance_criteria": ["satisfy selected capability contract"],
+                    "abstention_cases": [manifest.abstention_policy.guidance]
+                    if manifest.abstention_policy.guidance
+                    else [],
+                    "risk_flags": list(payload.get("ambiguity_slots") or []),
+                }
+            ],
             "risk_flags": list(payload.get("ambiguity_slots") or []),
         }
     )
@@ -233,8 +257,29 @@ def _capability_id_from_payload(payload: dict) -> str:
     return "general.clarification"
 
 
+def _available_artifacts_payload(request: ReplyRequest) -> list[dict]:
+    return [
+        artifact.model_dump(mode="json", exclude_none=True)
+        for artifact in request.available_artifacts
+    ]
+
+
+def _material_pack_options(request: ReplyRequest) -> list[str]:
+    for artifact in request.available_artifacts:
+        if artifact.type == "material_pack":
+            return list(artifact.options)
+    return []
+
+
 def _weekly_scenario() -> RuntimeScenario:
-    request = _request("请发一下周报", material_pack_options=[])
+    request = _request(
+        "请发一下周报",
+        available_artifacts=[
+            {"type": "material_pack", "options": []},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
+    )
     return RuntimeScenario(
         name="weekly_report_action",
         request=request,
@@ -275,7 +320,7 @@ async def _run_scenario(scenario: RuntimeScenario) -> dict:
         alignment_verifier=PassingAlignmentVerifier(),
     )
     runtime._build_planner_agent = lambda: FakeCrewAgent(scenario.plan_spec)  # type: ignore[method-assign]
-    runtime._build_agent = lambda: ComposerShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: FakeComposerAgent()  # type: ignore[method-assign]
 
     response = await runtime.reply(scenario.request)
     return {
@@ -285,6 +330,8 @@ async def _run_scenario(scenario: RuntimeScenario) -> dict:
 
 
 async def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     results = [
         await _run_scenario(scenario)
         for scenario in (

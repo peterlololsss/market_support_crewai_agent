@@ -34,8 +34,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证500", "中证1000"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证500", "中证1000"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -91,8 +94,9 @@ class FakePreflightService:
                             "reason_code": "ok",
                             "candidates": [],
                             "channel_type": "bank",
-                            "available_materials": ["weekly"],
-                            "material_pack_options": ["中证500", "中证1000"],
+                            "available_artifacts": [
+                                {"type": "weekly_report"},
+                            ],
                             "resolved_at": 1,
                             "resolve_ref": "weekly:ref",
                             "period": "20260529",

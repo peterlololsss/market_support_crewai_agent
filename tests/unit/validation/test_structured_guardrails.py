@@ -143,7 +143,7 @@ def test_validate_reply_blocks_resolve_ref_mismatch():
 def test_validate_reply_does_not_use_send_claim_keywords_as_final_guard():
     request = make_request(
         message="材料包里有哪些产品",
-        material_pack_options=["指增"],
+        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     plan = material_answer_plan(request)
     response = ReplyResponse(
@@ -285,7 +285,7 @@ def test_validate_reply_allows_action_reply_text_from_knowledge_composer_with_ev
 
 
 def test_validate_reply_checks_send_action_evidence_outside_composer_citations():
-    request = make_request(message="介绍策略，然后发周报", material_pack_options=[])
+    request = make_request(message="介绍策略，然后发周报", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = make_plan(
         request,
         plan_units=[
@@ -451,7 +451,7 @@ def test_validate_reply_requires_document_evidence_for_knowledge_answer():
 def test_retrieval_guard_blocks_weekly_evidence_for_material_pack_question():
     request = make_request(
         message="材料包里有哪些产品",
-        material_pack_options=["指增"],
+        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     plan = material_answer_plan(request)
     weekly_fact = EvidenceFact(
@@ -476,7 +476,7 @@ def test_retrieval_guard_blocks_weekly_evidence_for_material_pack_question():
 
 
 def test_retrieval_guard_blocks_wrong_channel_evidence():
-    request = make_request(material_pack_options=["指增"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = material_answer_plan(request)
     fact = material_product_fact(
         "Product A",
@@ -495,7 +495,7 @@ def test_retrieval_guard_blocks_wrong_channel_evidence():
 
 
 def test_retrieval_guard_blocks_wrong_material_pack_option_evidence():
-    request = make_request(material_pack_options=["指增"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = material_answer_plan(request).model_copy(
         update={"material_pack_option": "指增"}
     )
@@ -513,7 +513,7 @@ def test_retrieval_guard_blocks_wrong_material_pack_option_evidence():
 
 
 def test_retrieval_guard_blocks_history_when_current_material_artifact_required():
-    request = make_request(material_pack_options=["指增"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = material_answer_plan(request)
     fact = material_product_fact(
         "Product A",
@@ -533,7 +533,7 @@ def test_retrieval_guard_blocks_history_when_current_material_artifact_required(
 
 
 def test_retrieval_guard_allows_valid_material_pack_artifact():
-    request = make_request(material_pack_options=["指增"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = material_answer_plan(request)
     fact = material_product_fact("Product A", material_pack_option="指增")
 
@@ -630,7 +630,7 @@ def test_execution_tool_guard_allows_document_tool_through_capability_policy():
 
 
 def test_output_guard_does_not_use_product_keyword_scan_as_final_authority():
-    request = make_request(material_pack_options=["指增"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = material_answer_plan(request)
     fact = material_product_fact("Product A")
     response = ReplyResponse(
@@ -659,7 +659,7 @@ def test_output_guard_does_not_use_product_keyword_scan_as_final_authority():
 
 
 def test_runtime_keeps_output_when_only_old_product_keyword_scan_would_fail():
-    request = make_request(material_pack_options=["指增"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = material_answer_plan(request)
     fact = material_product_fact("Product A")
     directive = make_directive(
@@ -700,7 +700,7 @@ def test_runtime_keeps_output_when_only_old_product_keyword_scan_would_fail():
 
 
 def test_output_guard_requires_composer_to_cite_allowed_evidence_ids():
-    request = make_request(material_pack_options=["指增"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     plan = material_answer_plan(request)
     fact = material_product_fact("Product A")
     response = ReplyResponse(
@@ -741,7 +741,7 @@ def test_output_guard_requires_composer_to_cite_allowed_evidence_ids():
 def test_validate_reply_rejects_claim_citing_history_source():
     request = make_request(
         message="材料包里有哪些产品",
-        material_pack_options=["指增"],
+        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     plan = material_answer_plan(request)
     history_fact = material_product_fact(
@@ -899,7 +899,7 @@ def test_validate_reply_allows_knowledge_composer_to_downgrade_to_unable():
     )
     response = ReplyResponse(
         response_id="resp-1",
-        reply=PrimaryReply(kind="unable_to_answer", text="当前没有足够证据，我先不展开。"),
+        reply=PrimaryReply(kind="unable_to_answer", text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。"),
         actions=[],
     )
 

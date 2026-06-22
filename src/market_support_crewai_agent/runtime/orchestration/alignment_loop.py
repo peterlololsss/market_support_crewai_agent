@@ -10,6 +10,9 @@ from market_support_crewai_agent.runtime.orchestration.alignment_refetch import 
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.orchestration.crewai_io import safe_short_text
 from market_support_crewai_agent.runtime.state.runtime_trace import trace_event, trace_span
+from market_support_crewai_agent.runtime.validation.guardrail_types import (
+    abstention_response_text,
+)
 
 
 async def ensure_aligned_response(
@@ -101,20 +104,36 @@ async def ensure_aligned_response(
                     "failure_code": verdict.failure_code,
                 }
             )
-            with trace_span("alignment.remediate.replan"):
-                candidate = await runtime._build_candidate_response(
-                    request=request,
-                    canonical_context=canonical_context,
-                    domain_context=domain_context,
-                    policy=policy,
-                    model_family=model_family,
-                    intent_gate=intent_gate,
-                    history=history,
-                    action_history=action_history,
-                    prompt_programs=prompt_programs,
-                    llm_executions=llm_executions,
-                    alignment_verdict=verdict,
-                    alignment_attempt=len(alignment_verdicts),
+            try:
+                with trace_span("alignment.remediate.replan"):
+                    candidate = await runtime._build_candidate_response(
+                        request=request,
+                        canonical_context=canonical_context,
+                        domain_context=domain_context,
+                        policy=policy,
+                        model_family=model_family,
+                        intent_gate=intent_gate,
+                        history=history,
+                        action_history=action_history,
+                        prompt_programs=prompt_programs,
+                        llm_executions=llm_executions,
+                        alignment_verdict=verdict,
+                        alignment_attempt=len(alignment_verdicts),
+                    )
+            except Exception as exc:
+                trace_event("alignment.replan_failed", error=safe_short_text(exc))
+                alignment_remediations.append(
+                    {
+                        "remediation": "return_unable",
+                        "reason": "replan_failed",
+                        "error": safe_short_text(exc),
+                    }
+                )
+                return runtime._fallback_attempt(
+                    candidate,
+                    policy,
+                    kind="unable",
+                    reason_code="alignment_replan_failed",
                 )
             if not candidate.reply_validation.valid:
                 return candidate
@@ -261,7 +280,7 @@ async def ensure_aligned_response(
                 reply_kind="clarification",
                 text=verdict.composer_feedback
                 or verdict.rationale
-                or "我需要再确认一下具体需求后再处理。",
+                or abstention_response_text(),
                 requires_knowledge_composer=True,
                 composer_stage="knowledge_composer",
                 reason_code="alignment_return_clarification",

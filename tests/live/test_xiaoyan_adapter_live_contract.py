@@ -39,6 +39,12 @@ RAW_SERVER_FIELDS = {
 }
 
 
+pytestmark = pytest.mark.skipif(
+    os.getenv("MARKET_AGENT_RUN_LIVE_ADAPTER_TESTS", "").strip() != "1",
+    reason="live adapter tests require MARKET_AGENT_RUN_LIVE_ADAPTER_TESTS=1",
+)
+
+
 def test_live_xiaoyan_adapter_capabilities_contract():
     base_url = _live_adapter_base_url()
     api_key = os.getenv("MARKET_AGENT_LIVE_ADAPTER_API_KEY") or None
@@ -180,8 +186,11 @@ def test_live_xiaoyan_adapter_preflight_service_material_pack_option_contract():
             "group_name": "{}-群".format(dist_name),
             "dist_channel_name": dist_name,
             "sender_nickname": "live tester",
-            "available_materials": ["material", "weekly", "monthly"],
-            "material_pack_options": [material_pack_option],
+            "available_artifacts": [
+                {"type": "material_pack", "options": [material_pack_option]},
+                {"type": "weekly_report"},
+                {"type": "monthly_report"},
+            ],
             "channel_type": "bank",
         }
     )

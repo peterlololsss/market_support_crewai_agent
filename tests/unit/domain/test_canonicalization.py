@@ -15,8 +15,11 @@ def make_request(message: str, **overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证500", "中证A500", "中证500"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证500", "中证A500", "中证500"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -31,7 +34,7 @@ def test_canonicalize_projects_material_pack_options_only():
 
 def test_canonicalize_does_not_infer_single_material_pack_option():
     context = canonicalize_request(
-        make_request("材料包发一下", material_pack_options=["中证A500"])
+        make_request("材料包发一下", available_artifacts=[{"type": "material_pack", "options": ["中证A500"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     )
 
     assert context.material_pack_options == ("中证A500",)

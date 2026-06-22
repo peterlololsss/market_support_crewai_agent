@@ -34,8 +34,11 @@ def test_regression_original_bug_full_planner_answerability_output_verifier_path
             "group_name": "测试群",
             "dist_channel_name": "测试渠道",
             "sender_nickname": "测试用户",
-            "available_materials": ["material", "weekly", "monthly"],
-            "material_pack_options": ["策略S1", "策略S2"],
+            "available_artifacts": [
+                {"type": "material_pack", "options": ["策略S1", "策略S2"]},
+                {"type": "weekly_report"},
+                {"type": "monthly_report"},
+            ],
             "channel_type": "bank",
         }
     )
