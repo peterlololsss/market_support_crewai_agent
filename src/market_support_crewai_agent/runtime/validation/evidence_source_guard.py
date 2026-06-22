@@ -305,13 +305,7 @@ def contract_rejection_code(
 
 
 def effective_evidence_contract(manifest, plan: object | None) -> EvidenceContract:
-    plan_spec = getattr(plan, "plan_spec", None)
-    for unit in getattr(plan_spec, "plan_units", []) or []:
-        if (
-            getattr(unit, "selected_capability_id", None) == manifest.id
-            and getattr(unit, "evidence_contract", None) is not None
-        ):
-            return unit.evidence_contract
+    del plan
     return manifest.evidence_contract
 
 

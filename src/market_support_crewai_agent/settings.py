@@ -26,6 +26,8 @@ class Settings(BaseModel):
     crewai_max_iter: int = Field(default=5, gt=0)
     crewai_max_execution_time: int = Field(default=120, gt=0)
     crewai_max_retry_limit: int = Field(default=2, ge=0)
+    planner_transient_retry_attempts: int = Field(default=1, ge=0)
+    planner_transient_retry_base_seconds: float = Field(default=0.5, ge=0)
     agent_input_max_message_chars: int | None = Field(default=None, gt=0)
     agent_conversation_ttl_seconds: int = Field(default=86400, gt=0)
     agent_conversation_max_messages: int = Field(default=12, gt=0)
@@ -104,6 +106,12 @@ def get_settings() -> Settings:
         crewai_max_iter=_int_env("CREWAI_MAX_ITER", 5),
         crewai_max_execution_time=_int_env("CREWAI_MAX_EXECUTION_TIME", 120),
         crewai_max_retry_limit=_non_negative_int_env("CREWAI_MAX_RETRY_LIMIT", 2),
+        planner_transient_retry_attempts=_non_negative_int_env(
+            "MARKET_AGENT_PLANNER_TRANSIENT_RETRY_ATTEMPTS", 1
+        ),
+        planner_transient_retry_base_seconds=_non_negative_float_env(
+            "MARKET_AGENT_PLANNER_TRANSIENT_RETRY_BASE_SECONDS", 0.5
+        ),
         agent_input_max_message_chars=_optional_int_env(
             "AGENT_INPUT_MAX_MESSAGE_CHARS"
         ),
@@ -187,6 +195,14 @@ def _float_env(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)))
     except ValueError:
         return default
+
+
+def _non_negative_float_env(name: str, default: float) -> float:
+    try:
+        parsed = float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return parsed if parsed >= 0 else default
 
 
 def _int_env(name: str, default: int) -> int:

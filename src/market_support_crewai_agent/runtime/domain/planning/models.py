@@ -38,6 +38,7 @@ PlanValidationCode = Literal[
     "unknown_compliance_has_actions",
     "ambiguous_plan_has_actions",
     "ambiguous_plan_not_clarification",
+    "clarification_missing_supported_slot",
     "knowledge_answer_missing_capability",
     "material_pack_scope_not_allowed",
     "plan_spec_capability_not_found",

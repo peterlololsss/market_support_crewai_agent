@@ -36,8 +36,11 @@ def make_request(message: str, **overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证A500", "中证1000", "中证500"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证A500", "中证1000", "中证500"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "non_bank",
     }
     payload.update(overrides)

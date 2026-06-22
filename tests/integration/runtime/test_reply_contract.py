@@ -283,7 +283,65 @@ def test_runtime_retries_invalid_planner_contract_with_feedback():
     assert len(planner.prompts) == 2
     assert "Previous PlanSpec validation error" in planner.prompts[1]
     assert "plan_units.0" in planner.prompts[1]
-    assert "evidence_contract_ref or inline evidence_contract" in planner.prompts[1]
+    assert "selected_capability_id" in planner.prompts[1]
+
+
+def test_runtime_retries_empty_planner_output_before_contract_feedback():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="test-key",
+            reply_alignment_verifier_enabled=False,
+            planner_transient_retry_attempts=2,
+            planner_transient_retry_base_seconds=0,
+        ),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+
+    class EmptyThenValidPlanner:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            self.prompts.append(prompt)
+            if len(self.prompts) < 3:
+                return SimpleNamespace(pydantic=None, raw="")
+            return SimpleNamespace(pydantic=make_weekly_plan_spec(), raw="")
+
+    planner = EmptyThenValidPlanner()
+    runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+
+    assert response.actions[0].type == "send_weekly_report"
+    assert len(planner.prompts) == 3
+    assert len(set(planner.prompts)) == 1
+
+
+def test_runtime_accepts_missing_mechanical_evidence_contract_ref():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+
+    class MissingRefPlannerAgent:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            self.prompts.append(prompt)
+            return SimpleNamespace(pydantic=None, raw=_missing_ref_weekly_plan_raw())
+
+    planner = MissingRefPlannerAgent()
+    runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+
+    assert response.actions[0].type == "send_weekly_report"
+    assert len(planner.prompts) == 1
 
 
 def test_runtime_invalid_planner_contract_error_includes_field_feedback():
@@ -315,7 +373,7 @@ def test_runtime_invalid_planner_contract_error_includes_field_feedback():
     assert len(planner.prompts) == 2
     assert "Previous PlanSpec validation error" in planner.prompts[1]
     assert "plan_units.0" in str(error)
-    assert "evidence_contract_ref or inline evidence_contract" in str(error)
+    assert "selected_capability_id" in str(error)
 
 
 def test_reply_requires_api_key_when_configured(monkeypatch):
@@ -387,10 +445,21 @@ def test_reply_returns_502_when_contract_validation_fails(monkeypatch):
     assert response.json() == {"detail": "invalid reply"}
 
 
-def test_request_contract_rejects_unknown_material_type():
+def test_request_contract_rejects_unknown_available_artifact_type():
     response = client.post(
         "/reply",
-        json=make_payload(available_materials=["calendar"]),
+        json=make_payload(available_artifacts=[{"type": "calendar"}]),
+    )
+
+    assert response.status_code == 422
+
+
+def test_request_contract_rejects_report_artifact_options():
+    response = client.post(
+        "/reply",
+        json=make_payload(
+            available_artifacts=[{"type": "weekly_report", "options": ["x"]}]
+        ),
     )
 
     assert response.status_code == 422
@@ -520,7 +589,7 @@ def test_runtime_deterministic_action_does_not_call_composer():
     assert response.actions[0].period == "20260529"
 
 
-def test_runtime_does_not_force_send_when_planner_returns_unclear_no_action():
+def test_runtime_clarifies_concrete_artifact_choice():
     runtime = CrewAIReplyRuntime(
         _test_settings(),
         conversation_store=ConversationStore(),
@@ -529,10 +598,10 @@ def test_runtime_does_not_force_send_when_planner_returns_unclear_no_action():
     install_fake_planner(
         runtime,
         make_support_plan_spec(
-            user_need="unclear request meaning",
+            user_need="unclear artifact choice",
             artifact_kind="unclear",
             action_intent="none",
-            ambiguity_slots=["request_meaning"],
+            ambiguity_slots=["artifact"],
             requested_capabilities=[],
         ),
     )
@@ -540,19 +609,18 @@ def test_runtime_does_not_force_send_when_planner_returns_unclear_no_action():
     composer_stages: list[str] = []
     install_fake_clarification_composer(
         runtime,
-        text="当前不确定你是要发送材料还是查询内容，请确认一下。",
+        text="???????????",
         prompts=composer_prompts,
         stages=composer_stages,
     )
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("发一下中证1000材料").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestShim("????").payload()))
 
     assert response.reply.kind == "clarification"
-    assert response.reply.text == "当前不确定你是要发送材料还是查询内容，请确认一下。"
+    assert response.reply.text == "???????????"
     assert response.actions == []
     assert composer_stages == ["knowledge_composer"]
-    assert "request_meaning" in composer_prompts[0]
-
+    assert "artifact" in composer_prompts[0]
 
 def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
     runtime = CrewAIReplyRuntime(
@@ -568,7 +636,7 @@ def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
                 make_payload(
                     "在各个策略上的规模是怎么分布呢  然后发我个月报",
                     dist_channel_name="浦发银行",
-                    material_pack_options=["中证1000指增", "中证A500指增", "中证全指指增"],
+                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增", "中证全指指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
                 )
             )
         )
@@ -580,42 +648,42 @@ def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
     assert response.actions[0].resolve_ref == "monthly:ref"
 
 
-def test_runtime_preserves_planner_report_clarification():
+def test_runtime_retries_report_query_clarification_as_invalid_plan():
     runtime = CrewAIReplyRuntime(
         _test_settings(),
         conversation_store=ConversationStore(),
         preflight_service=ResolvedWeeklyPreflight(),
     )
-    install_fake_planner(
-        runtime,
-        make_weekly_plan_spec(ambiguity_slots=["report_query"]),
-    )
-    composer_prompts: list[str] = []
-    composer_stages: list[str] = []
-    install_fake_clarification_composer(
-        runtime,
-        text="当前只看到你提到周报，但还需要确认要查哪个产品或栏目。",
-        prompts=composer_prompts,
-        stages=composer_stages,
-    )
+    prompts: list[str] = []
+
+    class RetryPlannerAgent:
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                return SimpleNamespace(
+                    pydantic=make_weekly_plan_spec(ambiguity_slots=["report_query"]),
+                    raw="",
+                )
+            return SimpleNamespace(pydantic=make_weekly_plan_spec(), raw="")
+
+    runtime._build_planner_agent = lambda: RetryPlannerAgent()  # type: ignore[method-assign]
 
     response = asyncio.run(
         runtime.reply(
             ReplyRequest.model_validate(
                 make_payload(
-                    "[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
-                    material_pack_options=["中证1000指增", "中证A500指增", "中证全指指增"],
+                    "[adapter_allowed_read_capabilities: query_internal_company_info]\nweekly report",
+                    available_artifacts=[{"type": "material_pack", "options": ["option-a", "option-b", "option-c"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
                 )
             )
         )
     )
 
-    assert response.reply.kind == "clarification"
-    assert response.reply.text == "当前只看到你提到周报，但还需要确认要查哪个产品或栏目。"
-    assert response.actions == []
-    assert composer_stages == ["knowledge_composer"]
-    assert "report_query" in composer_prompts[0]
-
+    assert response.reply.kind == "answer"
+    assert response.actions[0].type == "send_weekly_report"
+    assert len(prompts) == 2
+    assert "clarification_missing_supported_slot" in prompts[1]
 
 def test_runtime_uses_planner_resolved_followup_for_weekly_action():
     store = ConversationStore(max_messages=12)
@@ -648,7 +716,7 @@ def test_runtime_uses_planner_resolved_followup_for_weekly_action():
             ReplyRequest.model_validate(
                 make_payload(
                     "中证1000的",
-                    material_pack_options=["中证1000指增", "中证A500指增", "中证全指指增"],
+                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增", "中证全指指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
                 )
             )
         )
@@ -669,7 +737,7 @@ def test_planner_prompt_includes_pending_clarification_context():
             pending_plan={
                 "artifact_kind": "weekly_report",
                 "response_mode": "clarification",
-                "ambiguity_slots": ["report_query"],
+                "ambiguity_slots": ["artifact"],
                 "capabilities": ["weekly_report"],
             },
         ),
@@ -690,7 +758,7 @@ def test_planner_prompt_includes_pending_clarification_context():
             ReplyRequest.model_validate(
                 make_payload(
                     "中证1000的",
-                    material_pack_options=["中证1000指增", "中证A500指增"],
+                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
                 )
             )
         )
@@ -747,7 +815,7 @@ def test_ambiguous_action_candidates_are_structured_for_composer():
             ReplyRequest.model_validate(
                 make_payload(
                     "发一下材料",
-                    material_pack_options=["中证1000指增", "中证A500指增"],
+                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
                 )
             )
         )
@@ -1091,6 +1159,41 @@ def test_alignment_verifier_replan_path_includes_feedback():
     assert response.reply.text == "月报不展示年化收益率。"
     assert len(planner_prompts) == 2
     assert "Previous alignment verdict JSON" in planner_prompts[1]
+
+
+def test_alignment_replan_failure_returns_unable_instead_of_raising():
+    runtime = CrewAIReplyRuntime(
+        Settings(llm_api_key="test-key"),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+    planner_agents = [
+        FakePlannerAgent(make_weekly_plan_spec()),
+        SimpleNamespace(
+            kickoff_async=lambda _prompt, _response_format: asyncio.sleep(
+                0,
+                result=SimpleNamespace(pydantic=None, raw=""),
+            )
+        ),
+    ]
+
+    class ReplanVerifier:
+        async def verify(self, **kwargs):
+            assert kwargs["response"].actions[0].type == "send_weekly_report"
+            return ReplyAlignmentVerdict(
+                aligned=False,
+                safe_to_return=False,
+                failure_code="wrong_intent",
+                remediation="replan",
+            )
+
+    runtime._build_planner_agent = lambda: planner_agents.pop(0)  # type: ignore[method-assign]
+    runtime.alignment_verifier = ReplanVerifier()
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("报告发我一下").payload()))
+
+    assert response.reply.kind == "unable_to_answer"
+    assert response.actions == []
 
 
 def test_alignment_verifier_refetches_document_context_with_refined_query():
@@ -1804,6 +1907,12 @@ def _test_settings() -> Settings:
 
 
 def _invalid_weekly_plan_raw() -> str:
+    payload = make_weekly_plan_spec().model_dump(mode="json")
+    payload["plan_units"][0].pop("selected_capability_id", None)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _missing_ref_weekly_plan_raw() -> str:
     payload = make_weekly_plan_spec().model_dump(mode="json")
     payload["plan_units"][0].pop("evidence_contract_ref", None)
     payload["plan_units"][0]["evidence_contract"] = None

@@ -110,7 +110,7 @@ def verify_plan_spec(
                 )
             )
             continue
-        contract = unit.evidence_contract or manifest.evidence_contract
+        contract = manifest.evidence_contract
         output_schema = unit.output_schema or manifest.output_schema
         unit_issues: list[PlanSpecValidationIssue] = []
         unit_issues.extend(_check_output_schema(output_schema, payload))

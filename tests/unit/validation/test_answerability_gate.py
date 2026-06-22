@@ -49,8 +49,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -175,7 +178,7 @@ def test_material_pack_product_list_abstains_when_only_weekly_report_has_product
     assert assessment.missing_artifacts == ["material_pack"]
     assert assessment.allowed_evidence_ids == []
     assert assessment.disallowed_evidence_ids[0].reason == "forbidden_source_type"
-    assert "不能用周报" in assessment.user_facing_reason
+    assert assessment.user_facing_reason == "老师，材料包里的产品范围我这边暂时无法确认。"
 
 
 def test_material_pack_product_list_answers_from_material_pack_artifact():
@@ -203,7 +206,7 @@ def test_material_pack_product_list_answers_from_material_pack_artifact():
 
 def test_bank_material_pack_options_do_not_force_local_strategy_clarification():
     request = make_request(
-        material_pack_options=["中证1000指增", "中证A500指增"],
+        available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         channel_type="bank",
     )
     plan = knowledge_plan(request, "material_pack", material_pack_option=None)
@@ -217,7 +220,7 @@ def test_bank_material_pack_options_do_not_force_local_strategy_clarification():
 
 def test_non_bank_single_strategy_material_pack_can_answer():
     request = make_request(
-        material_pack_options=["指增"],
+        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         channel_type="non_bank",
     )
     plan = knowledge_plan(request, "material_pack", material_pack_option=None)
@@ -256,7 +259,7 @@ def test_missing_weekly_report_evidence_uses_plain_abstention_text():
 
     assert assessment.recommended_response_mode == "abstain"
     assert "安全" not in assessment.user_facing_reason
-    assert assessment.user_facing_reason == "当前上下文没有可用于回答该问题的周报证据，我先不展开。"
+    assert assessment.user_facing_reason == "老师，这个问题需要以周报里的准确信息为准，我这边暂时无法确认。"
 
 
 def test_old_history_material_pack_does_not_satisfy_current_material_question():
@@ -323,7 +326,7 @@ def test_weekly_report_history_is_not_material_pack_evidence():
     assert assessment.allowed_evidence_ids == []
 
 
-def test_previous_material_pack_history_for_different_channel_is_rejected():
+def test_inline_contract_cannot_make_history_current_evidence():
     request = make_request()
     domain_context = DomainContextBuilder().build(request)
     plan = _allow_history_material_plan(request)
@@ -358,10 +361,10 @@ def test_previous_material_pack_history_for_different_channel_is_rejected():
     )
 
     assert decision.outcome == "abstain"
-    assert decision.reason_code == "channel_scope_mismatch"
+    assert decision.reason_code == "history_source_not_current_artifact"
 
 
-def test_allow_history_uses_history_only_when_scope_matches():
+def test_inline_contract_cannot_allow_matching_history_evidence():
     request = make_request()
     domain_context = DomainContextBuilder().build(request)
     plan = _allow_history_material_plan(
@@ -398,45 +401,16 @@ def test_allow_history_uses_history_only_when_scope_matches():
             ),
         }
     )
-    mismatched_time = matching.__class__(
-        **{
-            **matching.__dict__,
-            "scope": ArtifactScope(
-                channel_id=domain_context.channel.id,
-                time_range=TimeRange(period="202605"),
-                provenance="conversation_store",
-            ),
-            "source_metadata": SourceMetadata(
-                source_id="history-material-pack-old",
-                source_type="assistant_message",
-                artifact_type="material_pack",
-                channel_id=domain_context.channel.id,
-                time_range=TimeRange(period="202605"),
-                provenance="conversation_store",
-                evidence_allowed_by_default=False,
-            ),
-        }
-    )
 
-    allowed = retrieval_source_guard(
+    decision = retrieval_source_guard(
         plan=plan,
         policy=compile_policy(request),
         evidence_facts=[matching],
         domain_context=domain_context,
     )
-    rejected = retrieval_source_guard(
-        plan=plan,
-        policy=compile_policy(request),
-        evidence_facts=[mismatched_time],
-        domain_context=domain_context,
-    )
 
-    assert allowed.outcome == "allow"
-    assert allowed.evidence_seen == [
-        "conversation_history:material_pack:material_pack_product_list"
-    ]
-    assert rejected.outcome == "abstain"
-    assert rejected.reason_code == "time_range_scope_mismatch"
+    assert decision.outcome == "abstain"
+    assert decision.reason_code == "history_source_not_current_artifact"
 
 
 def test_runtime_abstains_before_composer_when_material_pack_content_missing():
@@ -483,7 +457,7 @@ def test_runtime_abstains_before_composer_when_material_pack_content_missing():
 
     assert composer_called is False
     assert response.reply.kind == "unable_to_answer"
-    assert "不能用周报" in response.reply.text
+    assert response.reply.text == "老师，材料包里的产品范围我这边暂时无法确认。"
     assert response.actions == []
 
 

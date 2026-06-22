@@ -47,6 +47,16 @@ def test_crewai_max_retry_limit_ignores_invalid_environment(monkeypatch):
     assert settings.crewai_max_retry_limit == 2
 
 
+def test_planner_transient_retry_reads_environment(monkeypatch):
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_TRANSIENT_RETRY_ATTEMPTS", "2")
+    monkeypatch.setenv("MARKET_AGENT_PLANNER_TRANSIENT_RETRY_BASE_SECONDS", "0.25")
+
+    settings = get_settings()
+
+    assert settings.planner_transient_retry_attempts == 2
+    assert settings.planner_transient_retry_base_seconds == 0.25
+
+
 def test_llm_max_tokens_defaults_to_real_structured_output_budget(monkeypatch):
     monkeypatch.delenv("YANFU_LLM_MAX_TOKENS", raising=False)
 

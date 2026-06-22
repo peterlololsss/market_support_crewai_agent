@@ -18,7 +18,7 @@ class FakePlannerAgent:
         self.plan_spec = plan_spec or make_plan_spec(
             artifact_kind="unclear",
             action_intent="none",
-            ambiguity_slots=["request_meaning"],
+            ambiguity_slots=["artifact"],
         )
         self.prompts = prompts
 
@@ -33,7 +33,7 @@ def make_support_plan_spec(**overrides) -> PlanSpec:
         "user_need": "answer current market support request",
         "artifact_kind": "unclear",
         "action_intent": "none",
-        "ambiguity_slots": ["request_meaning"],
+        "ambiguity_slots": ["artifact"],
         "compliance": {
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -92,8 +92,11 @@ def make_payload(message: str = "hello", **overrides):
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": [],
+        "available_artifacts": [
+            {"type": "material_pack", "options": []},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -131,8 +134,11 @@ def resolved_item(resolve_type: str, **overrides) -> AdapterPreflightItem:
         "reason_code": "ok",
         "candidates": [],
         "channel_type": "bank",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "resolved_at": 1,
         "resolve_ref": f"{resolve_type}:ref",
     }
@@ -279,8 +285,8 @@ class MissingWeeklyWithSalesPreflight:
             "reason_code": "weekly_report_unavailable",
             "candidates": [],
             "channel_type": "bank",
-            "available_materials": [],
-            "material_pack_options": [],
+            "available_artifacts": [
+            ],
             "resolved_at": 1,
         }
         return AdapterPreflightSnapshot(

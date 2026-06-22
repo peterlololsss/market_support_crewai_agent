@@ -40,8 +40,11 @@ def make_request(message: str = "发一下中证1000材料", **overrides) -> Rep
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证1000"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证1000"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -88,7 +91,7 @@ def test_knowledge_composer_prompt_snapshot():
         ],
         ambiguity="unknown_artifact",
         recommended_response_mode="abstain",
-        user_facing_reason="当前上下文没有可用于回答产品列表的材料包内容，我不能用周报、月报或历史记录替代判断。",
+        user_facing_reason="老师，材料包里的产品范围我这边暂时无法确认。",
     )
     program = select_prompt_program(
         replace(ctx, answerability_assessment=assessment)

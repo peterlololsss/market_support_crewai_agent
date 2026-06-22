@@ -299,6 +299,13 @@ def test_plan_spec_allow_history_false_fails_when_using_history_evidence():
 
 
 def test_plan_spec_rejects_output_with_evidence_from_wrong_material_pack_option():
+    contract = EvidenceContract(
+        required_evidence_types=["dummy_fact"],
+        allowed_source_types=["adapter_resolve"],
+        allowed_artifact_types=["adapter_context"],
+        required_scope_match=["material_pack_option"],
+        minimum_evidence_count=1,
+    )
     spec = plan_spec(
         domain_scope={
             "channel_id": "channel-1",
@@ -306,19 +313,11 @@ def test_plan_spec_rejects_output_with_evidence_from_wrong_material_pack_option(
             "material_pack_option": "option-a",
             "product_ids": [],
         },
-        evidence_contract=EvidenceContract(
-            required_evidence_types=["dummy_fact"],
-            allowed_source_types=["adapter_resolve"],
-            allowed_artifact_types=["adapter_context"],
-            required_scope_match=["material_pack_option"],
-            minimum_evidence_count=1,
-        ),
-        evidence_contract_ref=None,
     )
 
     result = verify_plan_spec(
         spec,
-        registry=CapabilityRegistry([dummy_manifest()]),
+        registry=CapabilityRegistry([dummy_manifest(evidence_contract=contract)]),
         output_payload=reply_payload(),
         evidence_facts=[fact(material_pack_option="option-b")],
         cited_evidence_ids=["source-1"],
@@ -326,6 +325,48 @@ def test_plan_spec_rejects_output_with_evidence_from_wrong_material_pack_option(
 
     assert result.valid is False
     assert "evidence_scope_mismatch" in {issue.code for issue in result.issues}
+
+
+def test_plan_spec_accepts_missing_mechanical_contract_ref():
+    spec = plan_spec(evidence_contract_ref=None, evidence_contract=None)
+
+    result = verify_plan_spec(
+        spec,
+        registry=CapabilityRegistry([dummy_manifest()]),
+        output_payload=reply_payload(),
+        evidence_facts=[fact()],
+        cited_evidence_ids=["source-1"],
+    )
+
+    assert result.valid is True
+
+
+def test_plan_spec_ignores_mismatched_mechanical_contract_ref():
+    spec = plan_spec(evidence_contract_ref="other.capability:evidence_contract")
+
+    result = verify_plan_spec(
+        spec,
+        registry=CapabilityRegistry([dummy_manifest()]),
+        output_payload=reply_payload(),
+        evidence_facts=[fact()],
+        cited_evidence_ids=["source-1"],
+    )
+
+    assert result.valid is True
+
+
+def test_plan_spec_inline_contract_cannot_loosen_registry_contract():
+    spec = plan_spec(evidence_contract_ref=None, evidence_contract=EvidenceContract())
+
+    result = verify_plan_spec(
+        spec,
+        registry=CapabilityRegistry([dummy_manifest()]),
+        output_payload=reply_payload(),
+        evidence_facts=[],
+    )
+
+    assert result.valid is False
+    assert "required_evidence_missing" in {issue.code for issue in result.issues}
 
 
 def test_plan_spec_accepts_abstention_when_required_artifacts_are_missing():
@@ -355,7 +396,7 @@ def test_plan_spec_accepts_abstention_when_required_artifacts_are_missing():
         spec,
         output_payload=reply_payload(
             kind="unable_to_answer",
-            text="当前没有足够证据，我先不展开。",
+            text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
         ),
         evidence_facts=[],
         abstained=True,

@@ -13,6 +13,7 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
 )
 from market_support_crewai_agent.schemas import (
     AdapterResolveType,
+    AvailableArtifact,
     ChannelType,
     MaterialType,
     ReplyRequest,
@@ -67,14 +68,8 @@ def compile_policy(
         doc_mcp_allowed_channel_types: tuple[ChannelType, ...] = ("bank", "non_bank"),
 ) -> PolicyManifest:
     policy_scope = request.channel_type if request is not None else "default"
-    allowed_capabilities: set[CapabilityName] = {
-        "weekly_report",
-        "monthly_report",
-        "sales_mention",
-    }
-    materials = set(request.available_materials) if request is not None else {"material"}
-    if "material" in materials:
-        allowed_capabilities.add("material_pack")
+    allowed_capabilities: set[CapabilityName] = {"sales_mention"}
+    allowed_capabilities.update(_artifact_capabilities(request.available_artifacts if request else ()))
 
     if _doc_mcp_allowed_for_request(
         request,
@@ -136,7 +131,7 @@ def compile_policy(
         material_pack_options=tuple(
             _ordered_unique(
                 option.strip()
-                for option in (request.material_pack_options if request else ())
+                for option in _material_pack_options(request.available_artifacts if request else ())
                 if option and option.strip()
             )
         ),
@@ -190,6 +185,22 @@ def _doc_mcp_allowed_for_request(
     if request is None:
         return bool(allowed_channel_types)
     return request.channel_type in allowed_channel_types
+
+
+def _artifact_capabilities(artifacts: Sequence[AvailableArtifact]) -> set[CapabilityName]:
+    mapping: dict[str, CapabilityName] = {
+        "material_pack": "material_pack",
+        "weekly_report": "weekly_report",
+        "monthly_report": "monthly_report",
+    }
+    return {capability for artifact in artifacts if (capability := mapping.get(artifact.type))}
+
+
+def _material_pack_options(artifacts: Sequence[AvailableArtifact]) -> list[str]:
+    for artifact in artifacts:
+        if artifact.type == "material_pack":
+            return list(artifact.options)
+    return []
 
 
 def _ordered_unique(values) -> list:
