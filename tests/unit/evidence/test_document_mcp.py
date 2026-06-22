@@ -33,8 +33,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["中证500", "中证1000"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["中证500", "中证1000"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -328,7 +331,7 @@ def test_parse_mcp_sse_message():
 def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
     request = make_request(
         message="最新规模情况",
-        material_pack_options=[],
+        available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         channel_type="non_bank",
     )
     canonical_context = canonicalize_request(request)
@@ -376,7 +379,7 @@ def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
 
 
 def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
-    request = make_request(message="最新规模情况", material_pack_options=[])
+    request = make_request(message="最新规模情况", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(
         DocumentProductSelection(
@@ -402,7 +405,7 @@ def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
 
 
 def test_document_mcp_client_reads_all_context_when_selector_declines():
-    request = make_request(message="最新规模情况", material_pack_options=[])
+    request = make_request(message="最新规模情况", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
@@ -543,7 +546,7 @@ def test_document_mcp_evidence_service_keeps_full_document_under_raised_default_
 
 
 def test_document_mcp_client_reads_baseline_first_when_selector_declines():
-    request = make_request(message="什么是过拟合？", material_pack_options=[])
+    request = make_request(message="什么是过拟合？", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
@@ -573,7 +576,7 @@ def test_document_mcp_client_reads_baseline_first_when_selector_declines():
 
 
 def test_document_mcp_client_reads_all_docs_even_without_baseline_categories():
-    request = make_request(message="什么是过拟合？", material_pack_options=[])
+    request = make_request(message="什么是过拟合？", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(

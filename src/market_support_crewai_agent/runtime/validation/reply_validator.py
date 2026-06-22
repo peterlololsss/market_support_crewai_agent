@@ -151,6 +151,7 @@ def validate_reply(
     issues.extend(
         _validate_plan_spec_contract(
             response,
+            directive,
             plan,
             evidence_facts,
             domain_context,
@@ -558,12 +559,19 @@ def allowed_image_markers() -> frozenset[str]:
 
 def _validate_plan_spec_contract(
     response: ReplyResponse,
+    directive: ResponseDirective,
     plan: ExecutionPlan,
     evidence_facts: list[EvidenceFact],
     domain_context: DomainContext | None,
     composer_output: ComposerReplyOutput | None,
 ) -> list[ValidationIssue]:
     plan_spec = plan_spec_for_execution_plan(plan, domain_context=domain_context)
+    if not directive.action_intents:
+        answer_units = [
+            unit for unit in plan_spec.plan_units if unit.answerability_policy != "send"
+        ]
+        if answer_units:
+            plan_spec = plan_spec.model_copy(update={"plan_units": answer_units})
     result = verify_plan_spec(
         plan_spec,
         output_payload=response,

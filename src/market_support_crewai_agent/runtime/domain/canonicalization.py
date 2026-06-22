@@ -24,7 +24,10 @@ def canonicalize_request(
     del domain_context
     return CanonicalContext(
         material_pack_options=_unique(
-            option.strip() for option in request.material_pack_options
+            option.strip()
+            for artifact in request.available_artifacts
+            if artifact.type == "material_pack"
+            for option in artifact.options
         )
     )
 

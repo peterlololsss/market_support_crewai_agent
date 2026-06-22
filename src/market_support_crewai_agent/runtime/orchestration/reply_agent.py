@@ -58,6 +58,7 @@ from market_support_crewai_agent.runtime.orchestration.crewai_io import (
     coerce_planner_plan,
     plan_spec_error_summary,
     run_crewai_kickoff,
+    safe_short_text,
 )
 from market_support_crewai_agent.runtime.orchestration.alignment_loop import (
     ensure_aligned_response,
@@ -106,6 +107,7 @@ from market_support_crewai_agent.runtime.domain.policy import (
 from market_support_crewai_agent.runtime.llm.composer_output import ComposerReplyOutput
 from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
 from market_support_crewai_agent.runtime.llm.prompting.context import IntentGateResult, PromptAssemblyContext
+from market_support_crewai_agent.runtime.llm.retry import RetryPolicy, run_with_retry
 from market_support_crewai_agent.runtime.llm.prompting.router import (
     model_family_from_settings,
     route_intent,
@@ -126,16 +128,27 @@ class AgentRuntimeError(RuntimeError):
     """Raised when the CrewAI runtime cannot produce a valid reply."""
 
 
-_DEFAULT_SETTINGS = get_settings()
-_DEFAULT_CONVERSATION_STORE = ConversationStore.from_settings(_DEFAULT_SETTINGS)
-_DEFAULT_ACTION_LEDGER = get_action_ledger()
-_DEFAULT_PREFLIGHT_SERVICE = AdapterPreflightService()
-_DEFAULT_AUDIT_STORE = get_audit_store()
-_DEFAULT_DOCUMENT_EVIDENCE_SERVICE = DocumentMcpEvidenceService(_DEFAULT_SETTINGS)
-_DEFAULT_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE = ApprovedKnowledgeEvidenceService(
-    settings=_DEFAULT_SETTINGS
+_APP_SETTINGS = get_settings()
+_APP_CONVERSATION_STORE = ConversationStore.from_settings(_APP_SETTINGS)
+_APP_ACTION_LEDGER = get_action_ledger()
+_APP_ADAPTER_PREFLIGHT = AdapterPreflightService(settings=_APP_SETTINGS)
+_APP_AUDIT_STORE = get_audit_store()
+_APP_DOCUMENT_EVIDENCE_SERVICE = DocumentMcpEvidenceService(_APP_SETTINGS)
+_APP_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE = ApprovedKnowledgeEvidenceService(
+    settings=_APP_SETTINGS
 )
-_DEFAULT_REPORT_SCOPE_EVIDENCE_SERVICE = ReportScopeEvidenceService(_DEFAULT_SETTINGS)
+_APP_REPORT_SCOPE_EVIDENCE_SERVICE = ReportScopeEvidenceService(_APP_SETTINGS)
+
+
+@dataclass(frozen=True)
+class ReplyRuntimeDeps:
+    settings: Settings
+    conversation_store: ConversationStore
+    action_ledger: ActionLedger
+    preflight_service: AdapterPreflightService
+    evidence_executor: EvidenceExecutor
+    audit_store: AuditStore
+    alignment_verifier: ReplyAlignmentVerifier | None = None
 
 
 async def build_reply(
@@ -148,43 +161,66 @@ async def build_reply(
         audit_store: AuditStore | None = None,
         alignment_verifier: ReplyAlignmentVerifier | None = None,
 ) -> ReplyResponse:
-    resolved_settings = settings or _DEFAULT_SETTINGS
-    if preflight_service is not None:
-        resolved_preflight_service = preflight_service
-    elif settings is None:
-        resolved_preflight_service = _DEFAULT_PREFLIGHT_SERVICE
-    else:
-        resolved_preflight_service = AdapterPreflightService(
-            settings=resolved_settings,
-        )
-
     runtime = CrewAIReplyRuntime(
-        resolved_settings,
-        conversation_store
-        or (
-            _DEFAULT_CONVERSATION_STORE
-            if settings is None
-            else ConversationStore.from_settings(resolved_settings)
-        ),
-        action_ledger or _DEFAULT_ACTION_LEDGER,
-        resolved_preflight_service,
-        evidence_executor
-        or EvidenceExecutor(
-            resolved_preflight_service,
-            _DEFAULT_DOCUMENT_EVIDENCE_SERVICE
-            if settings is None
-            else DocumentMcpEvidenceService(resolved_settings),
-            _DEFAULT_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE
-            if settings is None
-            else ApprovedKnowledgeEvidenceService(settings=resolved_settings),
-            _DEFAULT_REPORT_SCOPE_EVIDENCE_SERVICE
-            if settings is None
-            else ReportScopeEvidenceService(settings=resolved_settings),
-        ),
-        audit_store or _DEFAULT_AUDIT_STORE,
-        alignment_verifier,
+        _build_reply_runtime_deps(
+            settings=settings,
+            conversation_store=conversation_store,
+            action_ledger=action_ledger,
+            preflight_service=preflight_service,
+            evidence_executor=evidence_executor,
+            audit_store=audit_store,
+            alignment_verifier=alignment_verifier,
+        )
     )
     return await runtime.reply(request)
+
+
+def _build_reply_runtime_deps(
+        *,
+        settings: Settings | None = None,
+        conversation_store: ConversationStore | None = None,
+        action_ledger: ActionLedger | None = None,
+        preflight_service: AdapterPreflightService | None = None,
+        evidence_executor: EvidenceExecutor | None = None,
+        audit_store: AuditStore | None = None,
+        alignment_verifier: ReplyAlignmentVerifier | None = None,
+) -> ReplyRuntimeDeps:
+    use_app_singletons = settings is None
+    resolved_settings = settings or _APP_SETTINGS
+    resolved_preflight_service = preflight_service or (
+        _APP_ADAPTER_PREFLIGHT
+        if use_app_singletons
+        else AdapterPreflightService(settings=resolved_settings)
+    )
+
+    return ReplyRuntimeDeps(
+        settings=resolved_settings,
+        conversation_store=conversation_store
+        if conversation_store is not None
+        else (
+            _APP_CONVERSATION_STORE
+            if use_app_singletons
+            else ConversationStore.from_settings(resolved_settings)
+        ),
+        action_ledger=action_ledger or _APP_ACTION_LEDGER,
+        preflight_service=resolved_preflight_service,
+        evidence_executor=evidence_executor
+        if evidence_executor is not None
+        else EvidenceExecutor(
+            resolved_preflight_service,
+            _APP_DOCUMENT_EVIDENCE_SERVICE
+            if use_app_singletons
+            else DocumentMcpEvidenceService(resolved_settings),
+            _APP_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE
+            if use_app_singletons
+            else ApprovedKnowledgeEvidenceService(settings=resolved_settings),
+            _APP_REPORT_SCOPE_EVIDENCE_SERVICE
+            if use_app_singletons
+            else ReportScopeEvidenceService(settings=resolved_settings),
+        ),
+        audit_store=audit_store or _APP_AUDIT_STORE,
+        alignment_verifier=alignment_verifier,
+    )
 
 
 @dataclass(frozen=True)
@@ -208,7 +244,7 @@ class CrewAIReplyRuntime:
 
     def __init__(
             self,
-            settings: Settings,
+            settings: Settings | ReplyRuntimeDeps,
             conversation_store: ConversationStore | None = None,
             action_ledger: ActionLedger | None = None,
             preflight_service: AdapterPreflightService | None = None,
@@ -216,24 +252,30 @@ class CrewAIReplyRuntime:
             audit_store: AuditStore | None = None,
             alignment_verifier: ReplyAlignmentVerifier | None = None,
     ) -> None:
-        self.settings = settings
-        self.conversation_store = conversation_store or ConversationStore.from_settings(
+        deps = (
             settings
+            if isinstance(settings, ReplyRuntimeDeps)
+            else _build_reply_runtime_deps(
+                settings=settings,
+                conversation_store=conversation_store,
+                action_ledger=action_ledger,
+                preflight_service=preflight_service,
+                evidence_executor=evidence_executor,
+                audit_store=audit_store,
+                alignment_verifier=alignment_verifier,
+            )
         )
-        self.action_ledger = action_ledger or get_action_ledger()
-        self.preflight_service = preflight_service or AdapterPreflightService(
-            settings=settings,
+        self.settings = deps.settings
+        self.conversation_store = deps.conversation_store
+        self.action_ledger = deps.action_ledger
+        self.preflight_service = deps.preflight_service
+        self.evidence_executor = deps.evidence_executor
+        self.audit_store = deps.audit_store
+        self.alignment_verifier = deps.alignment_verifier
+        self.agent_factory = CrewAIAgentFactory(deps.settings)
+        self.context_projection_manager = ContextProjectionManager.from_settings(
+            deps.settings
         )
-        self.evidence_executor = evidence_executor or EvidenceExecutor(
-            self.preflight_service,
-            DocumentMcpEvidenceService(settings),
-            ApprovedKnowledgeEvidenceService(settings=settings),
-            ReportScopeEvidenceService(settings=settings),
-        )
-        self.audit_store = audit_store or get_audit_store()
-        self.alignment_verifier = alignment_verifier
-        self.agent_factory = CrewAIAgentFactory(settings)
-        self.context_projection_manager = ContextProjectionManager.from_settings(settings)
 
     async def reply(self, request: ReplyRequest) -> ReplyResponse:
         trace = RuntimeTrace(
@@ -443,12 +485,14 @@ class CrewAIReplyRuntime:
         try:
             with trace_span("planner.build_agent"):
                 planner_agent = self._build_planner_agent()
-            frame_result, planner_execution = await run_crewai_kickoff(
+            frame_result, planner_executions = await _run_planner_kickoff_with_retry(
                 planner_agent,
                 planner_program,
                 timeout_seconds=self.settings.llm_timeout_seconds,
+                retry_attempts=self.settings.planner_transient_retry_attempts,
+                base_delay_seconds=self.settings.planner_transient_retry_base_seconds,
             )
-            llm_executions.append(planner_execution)
+            llm_executions.extend(planner_executions)
         except asyncio.TimeoutError as exc:
             raise AgentRuntimeError("CrewAI planner timed out") from exc
         except Exception as exc:
@@ -468,12 +512,14 @@ class CrewAIReplyRuntime:
             retry_program = _planner_retry_program(planner_program, error_summary)
             prompt_programs.append(retry_program)
             try:
-                frame_result, planner_execution = await run_crewai_kickoff(
+                frame_result, planner_executions = await _run_planner_kickoff_with_retry(
                     planner_agent,
                     retry_program,
                     timeout_seconds=self.settings.llm_timeout_seconds,
+                    retry_attempts=self.settings.planner_transient_retry_attempts,
+                    base_delay_seconds=self.settings.planner_transient_retry_base_seconds,
                 )
-                llm_executions.append(planner_execution)
+                llm_executions.extend(planner_executions)
             except asyncio.TimeoutError as exc:
                 raise AgentRuntimeError("CrewAI planner retry timed out") from exc
             except Exception as exc:
@@ -780,12 +826,14 @@ class CrewAIReplyRuntime:
         try:
             with trace_span("composer.build_agent", stage=composer_stage):
                 composer_agent = self._build_agent(composer_stage)
-            result, composer_execution = await run_crewai_kickoff(
+            result, composer_executions = await _run_composer_kickoff_with_retry(
                 composer_agent,
                 composer_program,
                 timeout_seconds=self.settings.llm_timeout_seconds,
+                retry_attempts=self.settings.planner_transient_retry_attempts,
+                base_delay_seconds=self.settings.planner_transient_retry_base_seconds,
             )
-            llm_executions.append(composer_execution)
+            llm_executions.extend(composer_executions)
         except asyncio.TimeoutError as exc:
             raise AgentRuntimeError("CrewAI composer timed out") from exc
         except Exception as exc:
@@ -1063,7 +1111,7 @@ class CrewAIReplyRuntime:
             directive = ResponseDirective(
                 mode="unable",
                 reply_kind="unable_to_answer",
-                text="当前没有足够证据，我先不展开。",
+                text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
                 reason_code=reason_code,
             )
         response = ReplyResponse(
@@ -1161,6 +1209,99 @@ def _validation_error_summary(validation: PlanValidationResult) -> str:
     return "; ".join(issue.code for issue in validation.issues) or "unknown"
 
 
+async def _run_planner_kickoff_with_retry(
+    planner_agent,
+    planner_program: PromptProgram,
+    *,
+    timeout_seconds: float | None,
+    retry_attempts: int,
+    base_delay_seconds: float,
+) -> tuple[object, list[dict]]:
+    executions: list[dict] = []
+
+    async def call():
+        result, execution = await run_crewai_kickoff(
+            planner_agent,
+            planner_program,
+            timeout_seconds=timeout_seconds,
+        )
+        executions.append(execution)
+        return result
+
+    result = await run_with_retry(
+        call,
+        policy=RetryPolicy(
+            retry_attempts=retry_attempts,
+            base_delay_seconds=base_delay_seconds,
+        ),
+        should_retry_result=_planner_result_retry_reason,
+        should_retry_exception=lambda exc: safe_short_text(exc) or "planner_call_failed",
+        on_retry=_trace_planner_retry,
+    )
+    return result, executions
+
+
+def _planner_result_retry_reason(result) -> str | None:
+    if getattr(result, "pydantic", None) is None and not str(
+        getattr(result, "raw", "") or ""
+    ).strip():
+        return "empty_output"
+    return None
+
+
+def _trace_planner_retry(attempt: int, delay_seconds: float, reason: str) -> None:
+    trace_event(
+        "planner.transient_retry",
+        attempt=attempt,
+        delay_ms=round(delay_seconds * 1000, 3),
+        reason=reason,
+    )
+
+
+async def _run_composer_kickoff_with_retry(
+    composer_agent,
+    composer_program: PromptProgram,
+    *,
+    timeout_seconds: float | None,
+    retry_attempts: int,
+    base_delay_seconds: float,
+) -> tuple[object, list[dict]]:
+    executions: list[dict] = []
+
+    async def call():
+        result, execution = await run_crewai_kickoff(
+            composer_agent,
+            composer_program,
+            timeout_seconds=timeout_seconds,
+        )
+        executions.append(execution)
+        return result
+
+    result = await run_with_retry(
+        call,
+        policy=RetryPolicy(
+            retry_attempts=retry_attempts,
+            base_delay_seconds=base_delay_seconds,
+        ),
+        should_retry_exception=_composer_exception_retry_reason,
+        on_retry=_trace_composer_retry,
+    )
+    return result, executions
+
+
+def _composer_exception_retry_reason(exc: Exception) -> str | None:
+    return safe_short_text(exc) or "composer_call_failed"
+
+
+def _trace_composer_retry(attempt: int, delay_seconds: float, reason: str) -> None:
+    trace_event(
+        "composer.transient_retry",
+        attempt=attempt,
+        delay_ms=round(delay_seconds * 1000, 3),
+        reason=reason,
+    )
+
+
 def _coerce_planner_plan_with_error(
     frame_result,
     request: ReplyRequest,
@@ -1182,6 +1323,13 @@ def _coerce_planner_plan_with_error(
     except ValueError as exc:
         return None, f"PlanSpec compile error: {exc}"
     if plan is not None:
+        validation = validate_execution_plan(plan, policy)
+        if not validation.valid:
+            return (
+                None,
+                "ExecutionPlan validation error: "
+                f"{_validation_error_summary(validation)}",
+            )
         return plan, ""
     return None, plan_spec_error_summary(frame_result)
 
@@ -1192,8 +1340,8 @@ def _planner_retry_program(program: PromptProgram, error_summary: str) -> Prompt
         "Previous PlanSpec validation error:\n"
         f"{error_summary}\n\n"
         "Rewrite the full PlanSpec JSON only. Do not output explanations. "
-        "Fix the listed contract errors; every plan_units item must include "
-        "evidence_contract_ref or evidence_contract from its selected capability.\n"
+        "Fix the listed contract errors and keep each plan_units item aligned "
+        "with its selected capability.\n"
         "</prompt_layer>"
     )
     prompt_text = program.prompt_text + feedback

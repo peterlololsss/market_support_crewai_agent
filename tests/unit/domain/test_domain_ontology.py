@@ -23,8 +23,11 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["策略A", "策略B"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["策略A", "策略B"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -107,7 +110,7 @@ def compile_plan(request: ReplyRequest, payload: dict, facts=None):
 
 
 def test_domain_context_tracks_material_pack_options_as_metadata_and_explicit_artifacts():
-    request = make_request(material_pack_options=["策略A", "策略B"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["策略A", "策略B"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
 
     _, domain_context = compile_plan(request, material_answer_payload())
 
@@ -132,7 +135,7 @@ def test_domain_context_tracks_material_pack_options_as_metadata_and_explicit_ar
 def test_non_bank_single_material_pack_option_is_not_a_strategy_entity():
     request = make_request(
         channel_type="non_bank",
-        material_pack_options=["策略A"],
+        available_artifacts=[{"type": "material_pack", "options": ["策略A"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
 
     _, domain_context = compile_plan(request, material_answer_payload())
@@ -143,7 +146,7 @@ def test_non_bank_single_material_pack_option_is_not_a_strategy_entity():
 
 
 def test_weekly_report_product_evidence_cannot_answer_material_pack_product_question():
-    request = make_request(material_pack_options=["策略A"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["策略A"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     weekly_fact = report_products_fact("weekly_report", "Product A")
     plan, _ = compile_plan(request, material_answer_payload())
 
@@ -161,7 +164,7 @@ def test_weekly_report_product_evidence_cannot_answer_material_pack_product_ques
 
 
 def test_material_pack_product_answer_uses_material_pack_only_not_weekly_report():
-    request = make_request(material_pack_options=["策略A"])
+    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["策略A"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     material_fact = material_product_fact("Product B", strategy="策略A")
     weekly_fact = report_products_fact("weekly_report", "Product A")
     plan, _ = compile_plan(request, material_answer_payload(), [material_fact, weekly_fact])
@@ -184,7 +187,7 @@ def test_material_pack_product_answer_uses_material_pack_only_not_weekly_report(
 def test_monthly_report_performance_uses_monthly_report_not_material_pack_evidence():
     request = make_request(
         message="月报里Product A表现怎么样",
-        material_pack_options=["策略A"],
+        available_artifacts=[{"type": "material_pack", "options": ["策略A"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     material_fact = material_product_fact("Product B", strategy="策略A")
     monthly_fact = report_products_fact("monthly_report", "Product A")
@@ -216,7 +219,7 @@ def test_monthly_report_performance_uses_monthly_report_not_material_pack_eviden
 def test_unknown_channel_kind_preserves_unknown_and_material_pack_options_metadata():
     request = make_request(
         channel_type="unknown",
-        material_pack_options=["策略A", "策略B"],
+        available_artifacts=[{"type": "material_pack", "options": ["策略A", "策略B"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
 
     plan, domain_context = compile_plan(request, material_answer_payload())

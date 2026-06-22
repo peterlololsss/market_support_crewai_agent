@@ -19,16 +19,26 @@ def make_request(**overrides) -> ReplyRequest:
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
     return ReplyRequest.model_validate(payload)
 
 
-def test_compile_policy_preflights_reports_without_csv_material_hint():
-    policy = compile_policy(make_request(available_materials=[]))
+def test_compile_policy_allows_reports_from_available_artifacts_without_material_pack():
+    policy = compile_policy(
+        make_request(
+            available_artifacts=[
+                {"type": "weekly_report"},
+                {"type": "monthly_report"},
+            ]
+        )
+    )
 
     assert policy.policy_id == "support-reply-policy:bank"
     assert policy.allowed_side_effect_actions == frozenset(
@@ -48,15 +58,18 @@ def test_compile_policy_preflights_reports_without_csv_material_hint():
     assert "material_pack" not in policy.allowed_capabilities
 
 
-def test_compile_policy_allows_material_pack_from_available_materials():
-    policy = compile_policy(make_request(available_materials=["material"]))
+def test_compile_policy_allows_only_material_pack_from_available_artifacts():
+    policy = compile_policy(
+        make_request(
+            available_artifacts=[
+                {"type": "material_pack", "options": []},
+            ]
+        )
+    )
 
-    assert policy.allowed_side_effect_actions == frozenset(
-        {
-            "send_material_pack",
-            "send_weekly_report",
-            "send_monthly_report",
-        }
+    assert policy.allowed_side_effect_actions == frozenset({"send_material_pack"})
+    assert policy.allowed_adapter_resolves == frozenset(
+        {"material_pack", "sales_mention"}
     )
 
 

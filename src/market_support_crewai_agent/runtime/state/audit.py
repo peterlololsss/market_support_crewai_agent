@@ -294,8 +294,10 @@ def _compact_request(request: ReplyRequest) -> dict:
         "group_name": request.group_name,
         "dist_channel_name": request.dist_channel_name,
         "sender_nickname": request.sender_nickname,
-        "available_materials": list(request.available_materials),
-        "material_pack_options": list(request.material_pack_options),
+        "available_artifacts": [
+            artifact.model_dump(mode="json", exclude_none=True)
+            for artifact in request.available_artifacts
+        ],
         "channel_type": request.channel_type,
     }
 
@@ -483,8 +485,10 @@ def _compact_preflight(preflight: AdapterPreflightSnapshot) -> list[dict]:
                 "reason_code": result.reason_code,
                 "candidates": result.candidates,
                 "channel_type": result.channel_type,
-                "available_materials": result.available_materials,
-                "material_pack_options": result.material_pack_options,
+                "available_artifacts": [
+                    artifact.model_dump(mode="json", exclude_none=True)
+                    for artifact in result.available_artifacts
+                ],
                 "material_pack_option": result.material_pack_option,
                 "period": result.period,
                 "report_date": result.report_date,

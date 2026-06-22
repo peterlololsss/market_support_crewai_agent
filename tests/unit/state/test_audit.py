@@ -42,8 +42,11 @@ def make_request(message: str = "请发一下周报", **overrides) -> ReplyReque
         "group_name": "test group",
         "dist_channel_name": "test channel",
         "sender_nickname": "test user",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": ["指增"],
+        "available_artifacts": [
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "channel_type": "bank",
     }
     payload.update(overrides)
@@ -76,8 +79,11 @@ def resolve_item(resolve_type: str, status: str, **overrides) -> AdapterPrefligh
         "reason_code": "ok" if status == "resolved" else "not_resolved",
         "candidates": [],
         "channel_type": "bank",
-        "available_materials": ["material", "weekly", "monthly"],
-        "material_pack_options": [],
+        "available_artifacts": [
+            {"type": "material_pack", "options": []},
+            {"type": "weekly_report"},
+            {"type": "monthly_report"},
+        ],
         "resolved_at": 1,
     }
     if status == "resolved":

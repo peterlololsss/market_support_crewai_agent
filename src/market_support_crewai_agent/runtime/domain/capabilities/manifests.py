@@ -59,7 +59,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         domain_entities=["channel", "material_pack_option", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "request.material_pack_options",
+            "available_artifacts material_pack.options",
         ],
         required_artifacts=["material_pack"],
         allowed_artifacts=["material_pack"],
@@ -84,14 +84,18 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use when the user clearly asks to send a material pack or one-pager. "
+            "Also use for general product availability, distributed-products, or "
+            "available-products-list requests when the user does not explicitly ask "
+            "about products inside a weekly or monthly report; product availability "
+            "belongs to the material-pack artifact. "
             "Also use for strategy intro, product highlight, open calendar, or "
             "performance material only when the wording clearly asks to send/provide "
             "an artifact and no more specific supported action exists. "
-            "material_pack_options are material-pack scope labels, not a general "
-            "strategy catalog. If the user explicitly targets one material_pack_options "
+            "material_pack.options are material-pack scope labels, not a general "
+            "strategy catalog. If the user explicitly targets one material_pack.options "
             "value, copy that exact value into domain_scope.material_pack_option for adapter "
             "resolve. "
-            "Do not clarify only because material_pack_options has multiple values; an "
+            "Do not clarify only because material_pack.options has multiple values; an "
             "unscoped material-pack send is valid and adapter resolve will return "
             "resolved, ambiguous, or unavailable."
         ),
@@ -252,10 +256,14 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             requires_abstention_when_evidence_missing=False,
             abstention_reply_kinds=["clarification"],
         ),
-        planner_guidance="Use when required artifact, material-pack option, report query, or request meaning is ambiguous.",
+        planner_guidance=(
+            "Use only when user wording leaves the requested artifact type or "
+            "material-pack option ambiguous. Prefer no side effect unless the user "
+            "clearly asks to send."
+        ),
         agent_guidance="Ask one concise clarification and do not propose actions.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["你说的这个是哪个策略？"],
+        examples_positive=["你要发周报还是月报？"],
         examples_negative=["发一下周报"],
     ),
     CapabilityManifest(
@@ -280,7 +288,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use when the request is understood but required evidence is absent.",
         agent_guidance="State inability concisely and do not invent facts.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["当前没有足够证据，我先不展开。"],
+        examples_positive=["老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。"],
         examples_negative=["已发送周报"],
     ),
     CapabilityManifest(
@@ -367,7 +375,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         domain_entities=["channel", "material_pack_option", "product", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "request.material_pack_options",
+            "available_artifacts material_pack.options",
         ],
         required_artifacts=["material_pack"],
         allowed_artifacts=["material_pack"],
@@ -420,7 +428,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         domain_entities=["channel", "material_pack_option", "product", "artifact"],
         required_inputs=["request.dist_channel_name"],
         optional_inputs=[
-            "request.material_pack_options",
+            "available_artifacts material_pack.options",
         ],
         required_artifacts=["material_pack"],
         allowed_artifacts=["material_pack"],
@@ -495,13 +503,16 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         abstention_policy=AbstentionPolicy(
             guidance=(
-                "If weekly-report scope or period evidence is absent, abstain or "
-                "ask for clarification instead of using document or material evidence."
+                "If weekly-report scope or period evidence is absent, abstain "
+                "instead of using document or material evidence."
             )
         ),
         planner_guidance=(
             "Use for product performance, period, or product-list questions about "
-            "a weekly report. Do not use for strategy/company scale, capacity, "
+            "a weekly report only when the user explicitly mentions the weekly "
+            "report/report scope. Do not use for general distributed-products or "
+            "available-products-list requests; those belong to material_pack.send "
+            "when allowed. Do not use for strategy/company scale, capacity, "
             "headcount, founding date, holdings profile, factors, product intro, "
             "or other evergreen document facts unless the user explicitly asks "
             "about a weekly report."
@@ -555,13 +566,16 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         abstention_policy=AbstentionPolicy(
             guidance=(
-                "If monthly-report scope or period evidence is absent, abstain or "
-                "ask for clarification instead of using weekly or material evidence."
+                "If monthly-report scope or period evidence is absent, abstain "
+                "instead of using weekly or material evidence."
             )
         ),
         planner_guidance=(
             "Use for product performance, period, or product-list questions about "
-            "a monthly report. Do not use for strategy/company scale, capacity, "
+            "a monthly report only when the user explicitly mentions the monthly "
+            "report/report scope. Do not use for general distributed-products or "
+            "available-products-list requests; those belong to material_pack.send "
+            "when allowed. Do not use for strategy/company scale, capacity, "
             "headcount, founding date, holdings profile, factors, product intro, "
             "or other evergreen document facts unless the user explicitly asks "
             "about a monthly report."
@@ -674,7 +688,9 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use for product-summary questions about the current channel when the "
-            "answer must come from approved product/company documents."
+            "answer must come from approved product/company documents. Do not use "
+            "for general distributed-products or available-products-list requests; "
+            "those belong to material_pack.send when allowed."
         ),
         agent_guidance=(
             "Summarize only trusted document or approved static evidence and avoid "

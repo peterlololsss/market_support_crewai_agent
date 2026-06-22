@@ -88,10 +88,6 @@ class PlanUnit(StrictModel):
             raise ValueError("allowed_artifacts cannot also be forbidden")
         if required and allowed and not required <= allowed:
             raise ValueError("required_artifacts must be included in allowed_artifacts")
-        if self.evidence_contract is None and not self.evidence_contract_ref:
-            raise ValueError(
-                "PlanSpec requires evidence_contract_ref or inline evidence_contract"
-        )
         return self
 
 

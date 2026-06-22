@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 MaterialType = Literal["material", "weekly", "monthly"]
+AvailableArtifactType = Literal["material_pack", "weekly_report", "monthly_report"]
 ChannelType = Literal["bank", "non_bank", "unknown"]
 AdapterResolveType = Literal[
     "material_pack",
@@ -60,6 +61,30 @@ class StrictModel(BaseModel):
 MetricCount = Annotated[int, Field(ge=0)]
 
 
+class AvailableArtifact(StrictModel):
+    type: AvailableArtifactType
+    options: list[str] = Field(default_factory=list)
+
+    @field_validator("options")
+    @classmethod
+    def clean_options(cls, values: list[str]) -> list[str]:
+        seen = set()
+        output: list[str] = []
+        for value in values:
+            option = str(value).strip()
+            if not option or option in seen:
+                continue
+            seen.add(option)
+            output.append(option)
+        return output
+
+    @model_validator(mode="after")
+    def validate_options_only_for_material_pack(self):
+        if self.type != "material_pack" and self.options:
+            raise ValueError("available_artifacts options are only valid for material_pack")
+        return self
+
+
 class ReplyRequest(StrictModel):
     conversation_key: str = Field(min_length=1)
     group_id: str = Field(min_length=1)
@@ -70,10 +95,15 @@ class ReplyRequest(StrictModel):
     group_name: str = Field(min_length=1)
     dist_channel_name: str = Field(min_length=1)
     sender_nickname: str = Field(min_length=1)
-    available_materials: list[MaterialType]
-    material_pack_options: list[str]
+    available_artifacts: list[AvailableArtifact]
     channel_type: ChannelType
     allowed_read_capabilities: list[ReadCapability] = Field(default_factory=list)
+
+    @field_validator("available_artifacts")
+    @classmethod
+    def validate_available_artifacts_unique(cls, values: list[AvailableArtifact]) -> list[AvailableArtifact]:
+        _reject_duplicate_available_artifacts(values)
+        return values
 
 
 class AdapterResolveRequest(StrictModel):
@@ -106,8 +136,7 @@ class AdapterResolveResult(StrictModel):
     reason_code: str
     candidates: list[str] = Field(default_factory=list)
     channel_type: ChannelType = "unknown"
-    available_materials: list[MaterialType] = Field(default_factory=list)
-    material_pack_options: list[str] = Field(default_factory=list)
+    available_artifacts: list[AvailableArtifact]
     resolved_at: int
     detail: str | None = None
     resolve_ref: str | None = None
@@ -123,6 +152,12 @@ class AdapterResolveResult(StrictModel):
     generated_product_count: int | None = Field(default=None, ge=0)
     missing_product_count: int | None = Field(default=None, ge=0)
     report_sections: list[ReportScopeSection] = Field(default_factory=list, max_length=64)
+
+    @field_validator("available_artifacts")
+    @classmethod
+    def validate_available_artifacts_unique(cls, values: list[AvailableArtifact]) -> list[AvailableArtifact]:
+        _reject_duplicate_available_artifacts(values)
+        return values
 
     @field_validator("detail")
     @classmethod
@@ -384,6 +419,14 @@ def _reject_sensitive_adapter_result(value: Any) -> None:
         return
     if isinstance(value, str):
         _reject_raw_locator_text(value, "adapter_result")
+
+
+def _reject_duplicate_available_artifacts(values: list[AvailableArtifact]) -> None:
+    seen: set[str] = set()
+    for artifact in values:
+        if artifact.type in seen:
+            raise ValueError("available_artifacts must not contain duplicate artifact types")
+        seen.add(artifact.type)
 
 
 def _reject_raw_locator_text(value: str | None, field_name: str) -> None:

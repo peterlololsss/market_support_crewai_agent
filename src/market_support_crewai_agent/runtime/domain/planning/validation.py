@@ -9,6 +9,9 @@ from market_support_crewai_agent.runtime.domain.planning.models import (
     PlanValidationIssue,
     PlanValidationResult,
 )
+from market_support_crewai_agent.runtime.domain.planning.clarification import (
+    CLARIFICATION_PRIORITY,
+)
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 
 
@@ -167,6 +170,18 @@ def validate_execution_plan(
             )
         )
 
+    if plan.response_mode == "clarification" and not plan.ambiguity_slots:
+        issues.append(
+            PlanValidationIssue(
+                code="clarification_missing_supported_slot",
+                message=(
+                    "clarification requires a user-resolvable ambiguity slot: "
+                    + ", ".join(CLARIFICATION_PRIORITY)
+                ),
+                severity="fatal",
+            )
+        )
+
     if plan.ambiguity_slots:
         if plan.response_mode != "clarification":
             issues.append(
@@ -225,7 +240,7 @@ def _validate_material_pack_scope(
     return [
         PlanValidationIssue(
             code="material_pack_scope_not_allowed",
-            message="material_pack_option must be one of request.material_pack_options",
+            message="material_pack_option must be one of available_artifacts material_pack.options",
             severity="fatal",
             metadata={
                 "invalid_scope": invalid,

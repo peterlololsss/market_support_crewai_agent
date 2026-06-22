@@ -21,10 +21,16 @@ from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.compliance_policy import refusal_text_for_reason
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.planning import ActionIntentSpec, ExecutionPlan
+from market_support_crewai_agent.runtime.domain.planning.clarification import (
+    clarification_spec,
+)
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.runtime.domain.sources.precedence import (
     evidence_facts_for_plan,
     plan_has_knowledge_evidence,
+)
+from market_support_crewai_agent.runtime.validation.guardrail_types import (
+    abstention_response_text,
 )
 from market_support_crewai_agent.schemas import (
     ReplyKind,
@@ -115,7 +121,7 @@ class DecisionEngine:
             return _directive(
                 mode="unable",
                 reply_kind="unable_to_answer",
-                text="当前没有足够的文档证据，我先不展开。",
+                text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
                 reason_code="document_context_missing",
             )
 
@@ -157,7 +163,7 @@ class DecisionEngine:
         return _directive(
             mode="unable",
             reply_kind="unable_to_answer",
-            text="当前没有足够证据，我先不展开。",
+            text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
             reason_code="insufficient_evidence",
         )
 
@@ -268,6 +274,18 @@ def _action_directive(
                 reason_code="ambiguous_action_resolve",
             )
         if resolve_state.status != "available":
+            if plan.answer_capabilities and _has_knowledge_answer_evidence(
+                plan,
+                evidence_facts,
+                domain_context,
+            ):
+                return _directive(
+                    mode="knowledge_answer",
+                    reply_kind="answer",
+                    requires_knowledge_composer=True,
+                    composer_stage="knowledge_composer",
+                    reason_code="action_unavailable_with_knowledge_evidence",
+                )
             return _handoff_or_unable(
                 business_facts,
                 text="目前这个渠道下我没有看到可发送的对应内容，我帮你请销售/支持同事确认。",
@@ -315,6 +333,13 @@ def _action_directive(
                 composer_stage="knowledge_composer",
                 reason_code="action_ready_with_knowledge_evidence",
             )
+        return _directive(
+            mode="action",
+            reply_kind="unable_to_answer",
+            text=abstention_response_text(),
+            action_intents=plan.action_intents,
+            reason_code="action_ready_answer_evidence_missing",
+        )
 
     return _directive(
         mode="action",
@@ -367,17 +392,17 @@ def _clarification_text(
     business_facts: BusinessFacts,
     request: ReplyRequest,
 ) -> str:
-    slots = set(plan.ambiguity_slots)
-    if "material_pack_option" in slots:
-        candidates = _best_candidates(business_facts, request)
-        return _candidate_text("我需要再确认一下具体材料包选项", candidates)
-    if "report_query" in slots:
-        return "我需要再确认你想查询报告里的哪个产品或栏目。"
-    if "artifact" in slots:
-        return "我需要再确认你需要的是材料包、周报、月报，还是文档信息。"
-    if "request_meaning" in slots:
-        return "你想让我发送材料/报告，还是查询材料或报告里的内容？"
-    return "我需要再确认一下具体需求后再处理。"
+    spec = clarification_spec(plan.ambiguity_slots)
+    if spec is None:
+        return abstention_response_text()
+    candidates = (
+        _best_candidates(business_facts, request)
+        if spec.slot == "material_pack_option"
+        else _artifact_candidates(request)
+    )
+    if spec.candidate_prefix:
+        return _candidate_text(spec.candidate_prefix, candidates)
+    return spec.question_text
 
 
 def _best_candidates(
@@ -386,7 +411,23 @@ def _best_candidates(
 ) -> tuple[str, ...]:
     if business_facts.material_pack.candidates:
         return business_facts.material_pack.candidates
-    return tuple(option for option in request.material_pack_options if option.strip())
+    for artifact in request.available_artifacts:
+        if artifact.type == "material_pack":
+            return tuple(option for option in artifact.options if option.strip())
+    return ()
+
+
+def _artifact_candidates(request: ReplyRequest) -> tuple[str, ...]:
+    labels = {
+        "material_pack": "\u6750\u6599\u5305",
+        "weekly_report": "\u5468\u62a5",
+        "monthly_report": "\u6708\u62a5",
+    }
+    return tuple(
+        label
+        for artifact in request.available_artifacts
+        if (label := labels.get(artifact.type))
+    )
 
 
 def _candidate_text(prefix: str, candidates: tuple[str, ...] | list[str]) -> str:

@@ -5,6 +5,9 @@ from market_support_crewai_agent.runtime.orchestration.decision import ResponseD
 from market_support_crewai_agent.runtime.validation.answerability import (
     AnswerabilityAssessment,
 )
+from market_support_crewai_agent.runtime.validation.guardrail_types import (
+    abstention_response_text,
+)
 
 
 def directive_from_answerability(
@@ -19,19 +22,24 @@ def directive_from_answerability(
         return ResponseDirective(
             mode="clarification",
             reply_kind="clarification",
-            text=assessment.user_facing_reason
-            or "我需要再确认一下具体需求后再处理。",
+            text=assessment.user_facing_reason or abstention_response_text(),
             requires_knowledge_composer=True,
             composer_stage="knowledge_composer",
             reason_code=f"answerability_{assessment.ambiguity}",
         )
+    if assessment.allowed_evidence_ids and _has_multiple_units(plan):
+        return None
     return ResponseDirective(
         mode="unable",
         reply_kind="unable_to_answer",
         text=assessment.user_facing_reason
-        or "当前上下文缺少该问题所需证据，我先不展开。",
+        or "老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
         reason_code="answerability_missing_evidence",
     )
+
+
+def _has_multiple_units(plan: ExecutionPlan) -> bool:
+    return bool(plan.plan_spec is not None and len(plan.plan_spec.plan_units) > 1)
 
 
 def default_answerability_for_plan(plan: ExecutionPlan) -> AnswerabilityAssessment:
