@@ -319,6 +319,54 @@ def test_runtime_retries_empty_planner_output_before_contract_feedback():
     assert len(set(planner.prompts)) == 1
 
 
+def test_runtime_falls_back_to_default_planner_after_empty_gemini_output():
+    runtime = CrewAIReplyRuntime(
+        Settings(
+            llm_api_key="default-key",
+            planner_llm_provider="gemini",
+            planner_llm_model="gemini-3-flash-preview",
+            planner_llm_base_url="http://planner.local/gemini",
+            planner_llm_api_key="planner-key",
+            reply_alignment_verifier_enabled=False,
+            planner_transient_retry_attempts=1,
+            planner_transient_retry_base_seconds=0,
+        ),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+
+    class EmptyGeminiPlanner:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            self.prompts.append(prompt)
+            return SimpleNamespace(pydantic=None, raw="")
+
+    class DefaultPlanner:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        async def kickoff_async(self, prompt, response_format):
+            del response_format
+            self.prompts.append(prompt)
+            return SimpleNamespace(pydantic=make_weekly_plan_spec(), raw="")
+
+    gemini = EmptyGeminiPlanner()
+    fallback = DefaultPlanner()
+    runtime._build_planner_agent = lambda: gemini  # type: ignore[method-assign]
+    runtime._build_planner_fallback_agent = lambda: fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(runtime.reply(ReplyRequestShim("weekly report").payload()))
+
+    assert response.actions[0].type == "send_weekly_report"
+    assert len(gemini.prompts) == 2
+    assert len(fallback.prompts) == 1
+    assert "model.generic.structured" in gemini.prompts[0]
+    assert "model.ds_v4pro.structured" in fallback.prompts[0]
+
+
 def test_runtime_accepts_missing_mechanical_evidence_contract_ref():
     runtime = CrewAIReplyRuntime(
         _test_settings(),

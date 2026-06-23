@@ -461,30 +461,31 @@ class CrewAIReplyRuntime:
                 alignment_verdict=alignment_verdict,
                 alignment_attempt=alignment_attempt,
             )
-        with trace_span("planner.assemble_prompt"):
-            planner_program = select_prompt_program(
-                PromptAssemblyContext(
-                    stage="planner_intent",
-                    model_family=model_family_from_settings(
-                        self.settings,
-                        stage="planner_intent",
-                    ),
-                    request=request,
-                    canonical_context=canonical_context,
-                    model_visible_context=planner_context,
-                    domain_context=domain_context,
-                    policy=policy,
-                    intent_gate=intent_gate,
-                    history=history,
-                    action_history=action_history,
-                    alignment_verdict=alignment_verdict,
-                    alignment_attempt=alignment_attempt,
-                )
+        planner_prompt_context = PromptAssemblyContext(
+            stage="planner_intent",
+            model_family=model_family_from_settings(
+                self.settings,
+                stage="planner_intent",
+            ),
+            request=request,
+            canonical_context=canonical_context,
+            model_visible_context=planner_context,
+            domain_context=domain_context,
+            policy=policy,
+            intent_gate=intent_gate,
+            history=history,
+            action_history=action_history,
+            alignment_verdict=alignment_verdict,
+            alignment_attempt=alignment_attempt,
         )
+        with trace_span("planner.assemble_prompt"):
+            planner_program = select_prompt_program(planner_prompt_context)
         prompt_programs.append(planner_program)
+        active_planner_program = planner_program
         try:
             with trace_span("planner.build_agent"):
                 planner_agent = self._build_planner_agent()
+            active_planner_agent = planner_agent
             frame_result, planner_executions = await _run_planner_kickoff_with_retry(
                 planner_agent,
                 planner_program,
@@ -497,6 +498,29 @@ class CrewAIReplyRuntime:
             raise AgentRuntimeError("CrewAI planner timed out") from exc
         except Exception as exc:
             raise AgentRuntimeError("CrewAI planner failed") from exc
+        if _is_empty_planner_result(frame_result) and _can_fallback_to_default_planner(
+            self.settings
+        ):
+            active_planner_program = self._planner_fallback_program(
+                planner_prompt_context
+            )
+            prompt_programs.append(active_planner_program)
+            trace_event("planner.fallback_to_default_llm", reason="empty_output")
+            try:
+                with trace_span("planner.build_fallback_agent"):
+                    active_planner_agent = self._build_planner_fallback_agent()
+                frame_result, planner_executions = await _run_planner_kickoff_with_retry(
+                    active_planner_agent,
+                    active_planner_program,
+                    timeout_seconds=self.settings.llm_timeout_seconds,
+                    retry_attempts=self.settings.planner_transient_retry_attempts,
+                    base_delay_seconds=self.settings.planner_transient_retry_base_seconds,
+                )
+                llm_executions.extend(planner_executions)
+            except asyncio.TimeoutError as exc:
+                raise AgentRuntimeError("CrewAI planner fallback timed out") from exc
+            except Exception as exc:
+                raise AgentRuntimeError("CrewAI planner fallback failed") from exc
 
         with trace_span("planner.coerce_compile"):
             plan, error_summary = _coerce_planner_plan_with_error(
@@ -509,11 +533,11 @@ class CrewAIReplyRuntime:
             )
         if plan is None:
             trace_event("planner.invalid_plan_spec", error=error_summary)
-            retry_program = _planner_retry_program(planner_program, error_summary)
+            retry_program = _planner_retry_program(active_planner_program, error_summary)
             prompt_programs.append(retry_program)
             try:
                 frame_result, planner_executions = await _run_planner_kickoff_with_retry(
-                    planner_agent,
+                    active_planner_agent,
                     retry_program,
                     timeout_seconds=self.settings.llm_timeout_seconds,
                     retry_attempts=self.settings.planner_transient_retry_attempts,
@@ -524,6 +548,32 @@ class CrewAIReplyRuntime:
                 raise AgentRuntimeError("CrewAI planner retry timed out") from exc
             except Exception as exc:
                 raise AgentRuntimeError("CrewAI planner retry failed") from exc
+            if (
+                active_planner_agent is planner_agent
+                and _is_empty_planner_result(frame_result)
+                and _can_fallback_to_default_planner(self.settings)
+            ):
+                fallback_program = self._planner_fallback_program(
+                    planner_prompt_context,
+                    error_summary=error_summary,
+                )
+                prompt_programs.append(fallback_program)
+                trace_event("planner.fallback_to_default_llm", reason="empty_output")
+                try:
+                    with trace_span("planner.build_fallback_agent"):
+                        active_planner_agent = self._build_planner_fallback_agent()
+                    frame_result, planner_executions = await _run_planner_kickoff_with_retry(
+                        active_planner_agent,
+                        fallback_program,
+                        timeout_seconds=self.settings.llm_timeout_seconds,
+                        retry_attempts=self.settings.planner_transient_retry_attempts,
+                        base_delay_seconds=self.settings.planner_transient_retry_base_seconds,
+                    )
+                    llm_executions.extend(planner_executions)
+                except asyncio.TimeoutError as exc:
+                    raise AgentRuntimeError("CrewAI planner fallback timed out") from exc
+                except Exception as exc:
+                    raise AgentRuntimeError("CrewAI planner fallback failed") from exc
             with trace_span("planner.retry_coerce_compile"):
                 plan, error_summary = _coerce_planner_plan_with_error(
                     frame_result,
@@ -1111,7 +1161,7 @@ class CrewAIReplyRuntime:
             directive = ResponseDirective(
                 mode="unable",
                 reply_kind="unable_to_answer",
-                text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
+                text="老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。",
                 reason_code=reason_code,
             )
         response = ReplyResponse(
@@ -1198,6 +1248,22 @@ class CrewAIReplyRuntime:
     def _build_planner_agent(self):
         return self.agent_factory.build_planner_agent()
 
+    def _build_planner_fallback_agent(self):
+        return self.agent_factory.build_planner_fallback_agent()
+
+    def _planner_fallback_program(
+        self,
+        ctx: PromptAssemblyContext,
+        *,
+        error_summary: str | None = None,
+    ) -> PromptProgram:
+        program = select_prompt_program(
+            replace(ctx, model_family=model_family_from_settings(self.settings))
+        )
+        if error_summary:
+            return _planner_retry_program(program, error_summary)
+        return program
+
     def _build_agent(self, stage="knowledge_composer"):
         return self.agent_factory.build_composer_agent(stage)
 
@@ -1247,6 +1313,20 @@ def _planner_result_retry_reason(result) -> str | None:
     ).strip():
         return "empty_output"
     return None
+
+
+def _is_empty_planner_result(result) -> bool:
+    return _planner_result_retry_reason(result) == "empty_output"
+
+
+def _can_fallback_to_default_planner(settings: Settings) -> bool:
+    planner_is_gemini = settings.planner_llm_provider.lower() in {"gemini", "google"}
+    planner_differs = (
+        settings.planner_llm_provider != settings.llm_provider
+        or settings.planner_llm_model != settings.llm_model
+        or settings.planner_llm_base_url != settings.llm_base_url
+    )
+    return planner_is_gemini and planner_differs and bool(settings.llm_api_key)
 
 
 def _trace_planner_retry(attempt: int, delay_seconds: float, reason: str) -> None:
