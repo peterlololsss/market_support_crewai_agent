@@ -121,7 +121,7 @@ class DecisionEngine:
             return _directive(
                 mode="unable",
                 reply_kind="unable_to_answer",
-                text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
+                text="老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。",
                 reason_code="document_context_missing",
             )
 
@@ -163,7 +163,7 @@ class DecisionEngine:
         return _directive(
             mode="unable",
             reply_kind="unable_to_answer",
-            text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
+            text="老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。",
             reason_code="insufficient_evidence",
         )
 

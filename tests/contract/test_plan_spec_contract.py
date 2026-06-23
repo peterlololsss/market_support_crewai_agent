@@ -396,7 +396,7 @@ def test_plan_spec_accepts_abstention_when_required_artifacts_are_missing():
         spec,
         output_payload=reply_payload(
             kind="unable_to_answer",
-            text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
+            text="老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。",
         ),
         evidence_facts=[],
         abstained=True,

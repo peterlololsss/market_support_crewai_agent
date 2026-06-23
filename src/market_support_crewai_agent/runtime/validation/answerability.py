@@ -84,7 +84,7 @@ class AnswerabilityGate:
                 capability_id=selected_capability_id,
                 ambiguity="unknown_artifact",
                 recommended_response_mode="abstain",
-                user_facing_reason="老师，这个问题我这边暂时无法确认，先不展开避免信息不准确。",
+                user_facing_reason="老师，这个问题我这边暂时无法确认，先不回答避免信息不准确。",
             )
 
         selection = select_evidence_for_plan(
@@ -301,7 +301,7 @@ def _missing_artifact_reason(manifest, missing_artifacts: list[str]) -> str:
         return "老师，材料包里的产品范围我这边暂时无法确认。"
     if label:
         return f"老师，这个问题需要以{label}里的准确信息为准，我这边暂时无法确认。"
-    return "老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。"
+    return "老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。"
 
 
 def _clarification_reason(plan: ExecutionPlan) -> str:

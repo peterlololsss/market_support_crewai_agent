@@ -899,7 +899,7 @@ def test_validate_reply_allows_knowledge_composer_to_downgrade_to_unable():
     )
     response = ReplyResponse(
         response_id="resp-1",
-        reply=PrimaryReply(kind="unable_to_answer", text="老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。"),
+        reply=PrimaryReply(kind="unable_to_answer", text="老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。"),
         actions=[],
     )
 

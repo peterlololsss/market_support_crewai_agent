@@ -95,7 +95,7 @@ class EvidenceSelection:
 
 
 def abstention_response_text() -> str:
-    return "老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。"
+    return "老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。"
 
 
 def make_decision(
