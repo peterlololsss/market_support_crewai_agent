@@ -680,7 +680,6 @@ def _document_product_selector_prompt(
             payload,
             ensure_ascii=False,
             indent=2,
-            sort_keys=True,
         ),
     )
 
