@@ -33,7 +33,7 @@ def directive_from_answerability(
         mode="unable",
         reply_kind="unable_to_answer",
         text=assessment.user_facing_reason
-        or "老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。",
+        or "老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。",
         reason_code="answerability_missing_evidence",
     )
 
