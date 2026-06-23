@@ -7,6 +7,7 @@ Rank the most relevant document IDs first; fetched evidence is limited to the ID
 For company-wide questions about Yanfu/衍复 facts, team, address, overall or latest scale/AUM, or product line, choose the company-introduction candidate rather than a single strategy document unless the user clearly names that strategy.
 For a specifically named index or strategy, choose only the exact matching strategy document. Strictly distinguish 中证A500 from 中证500, 中证1000 from 中证500, and 沪深300 from 中证500.
 For hedge, market-neutral, or absolute-return strategy questions, choose the matching hedge-strategy candidate. For operational FAQ questions, choose the FAQ candidate.
+For questions about whether Yanfu has a core strategy, self-operated strategy, 自营盘, 重点策略, or which strategy is core/key, choose the FAQ candidate.
 If the candidates do not contain a directly relevant document, return confidence='none' and document_ids=[].
 Return only DocumentProductSelection matching the response schema.
 

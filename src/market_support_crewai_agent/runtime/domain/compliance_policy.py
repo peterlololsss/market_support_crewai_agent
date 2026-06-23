@@ -10,7 +10,6 @@ ComplianceReasonCode = Literal[
     "principal_or_risk_guarantee",
     "peer_or_competitor_comparison",
     "private_contact_request",
-    "proprietary_trading_or_core_strategy",
     "contract_or_restricted_document",
     "restricted_internal_document",
     "fee_waiver_request",
@@ -57,7 +56,13 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
     ComplianceReasonSpec(
         "expected_or_target_return",
         "预计/目标/基准收益",
-        "Expected return, target return, benchmark return, lowest return, maturity return, or return commitment requests must be refused.",
+        (
+            "Expected return, target return, benchmark return, lowest return, "
+            "maturity return, or return commitment requests must be refused. "
+            "Do not use this for historical/current performance or 收益/业绩/表现 "
+            "follow-up; those are compliant product requests and may route to "
+            "weekly_report.send instead of direct numeric answering."
+        ),
         "您好，我司产品不设置预计收益、目标收益或最低收益。过往业绩仅供参考，产品仅适合风险等级匹配的私募合格投资者。",
     ),
     ComplianceReasonSpec(
@@ -82,17 +87,6 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
             "routing to a named Yanfu service person."
         ),
         "老师请问具体是什么产品需求？业务问题请在当前群内沟通，便于留痕和统一回复。",
-    ),
-    ComplianceReasonSpec(
-        "proprietary_trading_or_core_strategy",
-        "自营盘/核心策略收益",
-        (
-            "Proprietary account returns, self-operated account gains, or internal "
-            "core-strategy profit questions must be refused. Do not use this for "
-            "ordinary questions about whether Yanfu has a core strategy, product "
-            "strategy characteristics, or historical product metrics."
-        ),
-        "自营盘或内部收益信息我不展开。衍复各指数增强策略基于统一的 Alpha 多因子研究框架，对标不同指数获取超额。",
     ),
     ComplianceReasonSpec(
         "contract_or_restricted_document",
@@ -132,13 +126,13 @@ COMPLIANCE_REASON_SPECS: tuple[ComplianceReasonSpec, ...] = (
             "Yanfu customer service, market education, quantitative private-fund "
             "products, or public Yanfu educational content must be refused."
         ),
-        "这个问题与衍复产品或服务无关，我先不展开。",
+        "这个问题与衍复产品或服务无关，我先不回答。",
     ),
     ComplianceReasonSpec(
         "unknown",
         "无法判断",
         "Use only when the message cannot be safely interpreted from current context; do not propose outbound actions.",
-        "这个问题我无法按当前合规要求展开。",
+        "这个问题我无法按当前合规要求回答。",
     ),
 )
 
