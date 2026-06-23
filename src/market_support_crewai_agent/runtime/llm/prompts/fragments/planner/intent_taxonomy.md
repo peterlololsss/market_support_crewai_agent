@@ -6,7 +6,9 @@ Split the current request into atomic intents, then select the capability whose 
 
 General taxonomy:
 - Action capabilities propose adapter-executed sends only when the current user message clearly asks for an outbound send/action.
-- General product availability, distributed-products, or available-products-list requests belong to the material-pack artifact; select material_pack.send when allowed. Only use report product-list capabilities when the user explicitly asks about products inside a weekly/monthly report.
+- General product availability, distributed-products, available-products-list, or broad "what products do you have" requests belong to the material-pack artifact; select material_pack.send when allowed. Only use report product-list capabilities when the user explicitly asks about products inside a weekly/monthly report.
+- Named public product/strategy performance or 收益/业绩/表现 follow-up belongs to the weekly report artifact; select weekly_report.send when allowed unless the user asks for expected/target/guaranteed return, investment advice, peer comparison, market prediction, or another compliance-blocked item.
+- Core strategy/self-operated strategy/自营盘 existence, key-strategy, scale, or return wording is a normal FAQ. Use channel.strategy_summary with document_context evidence.
 - Answer and summary capabilities answer factual or explanatory questions only when the selected capability contract can supply evidence.
 - Handoff capabilities are for human support, sales/support mention routing, clarification, refusal, unable-to-answer, smalltalk, or no-reply cases.
 - Mixed answer plus send requests require separate plan_units for both parts.

@@ -84,10 +84,11 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use when the user clearly asks to send a material pack or one-pager. "
-            "Also use for general product availability, distributed-products, or "
-            "available-products-list requests when the user does not explicitly ask "
-            "about products inside a weekly or monthly report; product availability "
-            "belongs to the material-pack artifact. "
+            "Also use for general product availability, distributed-products, "
+            "available-products-list, or broad 'what products do you have' "
+            "requests when the user does not explicitly ask about products inside "
+            "a weekly or monthly report; product availability belongs to the "
+            "material-pack artifact. "
             "Also use for strategy intro, product highlight, open calendar, or "
             "performance material only when the wording clearly asks to send/provide "
             "an artifact and no more specific supported action exists. "
@@ -149,11 +150,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use when the user clearly asks to send the weekly report. Also use "
-            "when the user clearly asks to send or provide an official performance "
-            "report/material and weekly_report is the closest supported action. "
-            "Do not use merely because the user asks a direct recent/live/latest "
-            "performance-number question; that should abstain/refuse unless the "
-            "user asks for a send. For this performance-report send, add "
+            "for named public product/strategy performance or return follow-up, "
+            "and when the user clearly asks to send or provide an official "
+            "performance report/material and weekly_report is the closest "
+            "supported action. "
+            "Do not answer unsupported numbers directly; send the weekly report "
+            "unless the request is compliance-blocked. For this performance-report send, add "
             "risk_flags=[\"weekly_report_rationale_required\"]."
         ),
         agent_guidance="Return only the typed send_weekly_report action after adapter resolve evidence.",
@@ -164,7 +166,11 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "发一下500最近回撤修复的周报",
             "麻烦发一下产品业绩表现",
         ],
-        examples_negative=["What products are in the weekly report?"],
+        examples_negative=[
+            "What products are in the weekly report?",
+            "自营盘规模多少",
+            "你们有没有核心策略？",
+        ],
         runtime_capability="weekly_report",
     ),
     CapabilityManifest(
@@ -288,7 +294,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use when the request is understood but required evidence is absent.",
         agent_guidance="State inability concisely and do not invent facts.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["老师，这个信息我这边暂时无法确认，先不展开避免信息不准确。"],
+        examples_positive=["老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。"],
         examples_negative=["已发送周报"],
     ),
     CapabilityManifest(
@@ -649,6 +655,8 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "请问赎回是什么时间到账？",
             "500指增的超额收益贡献占比",
             "产品多久分红一次",
+            "自营盘规模多少",
+            "你们有没有核心策略？",
         ],
         examples_negative=[
             "Send the weekly report.",

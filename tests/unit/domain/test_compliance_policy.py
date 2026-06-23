@@ -102,7 +102,6 @@ def test_refusal_text_for_reason_is_valid_for_non_compliant_plans(reason_code):
         ("产品是保本的吧？", "principal_or_risk_guarantee", "不承诺保本"),
         ("其他管理人你们怎么看？", "peer_or_competitor_comparison", "不做横向评论"),
         ("加你微信了，通过一下", "private_contact_request", "当前群内沟通"),
-        ("你们衍复自营盘收益多少？", "proprietary_trading_or_core_strategy", "Alpha 多因子研究框架"),
         ("发我一个四级估值表吧", "restricted_internal_document", "内部敏感材料"),
         ("赎回费可以免了吗？", "fee_waiver_request", "按照基金合同"),
         ("客户达不到直销门槛，想看下产品材料", "qualified_investor_or_threshold", "未确认适当性"),
@@ -228,3 +227,43 @@ def test_compliance_prompt_prioritizes_named_service_person_handoff():
     assert "named Yanfu internal service person" in customer_service_line
     assert "priority over private_contact_request" in customer_service_line
     assert "Do not use this for normal human support" in private_contact_line
+
+
+def test_planner_prompt_routes_broad_performance_and_product_followups_to_artifacts():
+    request = make_request(message="收益怎么样，有哪些产品？")
+    canonical_context = canonicalize_request(request)
+    policy = compile_policy(request)
+    program = select_prompt_program(
+        PromptAssemblyContext(
+            stage="planner_intent",
+            model_family="ds_v4pro",
+            request=request,
+            canonical_context=canonical_context,
+            policy=policy,
+            intent_gate=route_intent(request, canonical_context, policy),
+        )
+    )
+
+    assert "select weekly_report.send" in program.prompt_text
+    assert "select material_pack.send" in program.prompt_text
+    assert "target/expected/guaranteed/minimum return" in program.prompt_text
+
+
+def test_planner_prompt_treats_self_operated_strategy_as_faq():
+    request = make_request(message="自营盘规模多少？")
+    canonical_context = canonicalize_request(request)
+    policy = compile_policy(request)
+    program = select_prompt_program(
+        PromptAssemblyContext(
+            stage="planner_intent",
+            model_family="ds_v4pro",
+            request=request,
+            canonical_context=canonical_context,
+            policy=policy,
+            intent_gate=route_intent(request, canonical_context, policy),
+        )
+    )
+
+    assert "自营盘" in program.prompt_text
+    assert "compliant FAQ questions" in program.prompt_text
+    assert "proprietary" not in program.prompt_text
