@@ -36,6 +36,19 @@ class CrewAIAgentFactory:
             llm_api_key=self.settings.planner_llm_api_key,
         )
 
+    def build_planner_fallback_agent(self):
+        spec = prompt_agent_spec_by_id("agent.planner")
+        return self._build_crewai_agent(
+            role=spec.role,
+            goal=spec.goal,
+            backstory=spec.backstory,
+            inject_date=True,
+            prompt_profile=prompt_profile_by_stage(
+                "planner_intent",
+                model_family_from_settings(self.settings),
+            ),
+        )
+
     def build_composer_agent(self, stage="knowledge_composer"):
         spec = prompt_agent_spec_by_id("agent.composer")
         return self._build_crewai_agent(
