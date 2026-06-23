@@ -9,7 +9,9 @@ from market_support_crewai_agent.runtime.evidence.document_mcp import (
     DocumentMcpClient,
     DocumentMcpError,
     DocumentMcpEvidenceService,
+    DocumentProductCandidate,
     DocumentProductSelection,
+    _document_product_selector_prompt,
     _parse_mcp_message,
     _sanitize_document_text,
     _select_document_text,
@@ -376,6 +378,27 @@ def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
     assert client.requested_document_ids == [("衍复公司介绍(简介)",)]
     assert [chunk.document_id for chunk in chunks] == ["衍复公司介绍(简介)"]
     assert "2026年一季度末规模" in chunks[0].text
+
+
+def test_document_product_selector_prompt_puts_question_before_candidates():
+    request = make_request(message="self-operated book size?")
+    prompt = _document_product_selector_prompt(
+        request=request,
+        evidence_query="self-operated book size?",
+        canonical_context=canonicalize_request(request),
+        candidates=(
+            DocumentProductCandidate(
+                id="faq",
+                title="FAQ",
+                category="FAQ",
+                summary="Operational Q&A.",
+            ),
+        ),
+        max_documents=1,
+    )
+
+    assert prompt.index('"user_message"') < prompt.index('"candidate_documents"')
+    assert prompt.index('"evidence_query"') < prompt.index('"candidate_documents"')
 
 
 def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
