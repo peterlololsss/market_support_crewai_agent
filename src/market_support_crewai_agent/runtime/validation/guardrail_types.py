@@ -8,7 +8,7 @@ from pydantic import Field
 from market_support_crewai_agent.runtime.domain.capabilities import CapabilityName
 from market_support_crewai_agent.runtime.domain.ontology import ArtifactType
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.schemas import SideEffectActionType, StrictModel
+from market_support_crewai_agent.schemas import OutboundActionType, StrictModel
 
 GuardrailOutcome = Literal[
     "allow",
@@ -37,7 +37,7 @@ class RequestedScope(StrictModel):
     """Structured user-request scope emitted by the planner."""
 
     capability: CapabilityName | None = None
-    action: SideEffectActionType | None = None
+    action: OutboundActionType | None = None
     destination_type: DestinationType = "none"
     destination_id: str | None = None
     destination_name: str | None = None
@@ -61,7 +61,7 @@ class SendScopePolicy(StrictModel):
     allowed_capabilities: list[CapabilityName] = Field(default_factory=list)
     allowed_artifact_types: list[ArtifactType] = Field(default_factory=list)
     allowed_destinations: list[str] = Field(default_factory=list)
-    allowed_actions: list[SideEffectActionType] = Field(default_factory=list)
+    allowed_actions: list[OutboundActionType] = Field(default_factory=list)
     required_user_confirmation: list[str] = Field(default_factory=list)
     redaction_policy: dict[str, object] = Field(default_factory=dict)
 

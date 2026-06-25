@@ -164,7 +164,7 @@ adapter internals:
 ```text
 request/context ids
 policy id/hash
-canonical scope
+policy scope
 PlanSpec / ExecutionPlan summary
 guardrail decisions and reason codes
 evidence source ids and scopes

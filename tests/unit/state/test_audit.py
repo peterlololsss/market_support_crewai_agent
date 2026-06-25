@@ -9,7 +9,6 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
 )
 from market_support_crewai_agent.runtime.state.audit import AuditStore, build_audit_trace
 from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.evidence import evidence_facts_from_preflight
@@ -107,11 +106,10 @@ class ResolvedWeeklyPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_material_pack_options
+        del request, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolve_item(
@@ -131,7 +129,6 @@ def test_build_audit_trace_records_adapter_safe_runtime_state():
     plan = compile_plan_spec(
         make_weekly_plan_spec(request=request),
         request,
-        canonicalize_request(request),
         policy,
     )
     plan_validation = validate_execution_plan(plan, policy)
@@ -197,7 +194,7 @@ def test_build_audit_trace_records_adapter_safe_runtime_state():
     assert len(trace.policy_hash) == 16
     assert trace.plan_validation["valid"] is True
     assert trace.response_directive["mode"] == "action"
-    assert trace.canonical_entities["material_pack_options"] == ["指增"]
+    assert trace.policy_scope["material_pack_options"] == ["指增"]
     assert trace.reply_validation is not None
     assert trace.reply_validation["valid"] is True
     assert trace.business_facts["weekly_report"]["status"] == "available"
@@ -241,15 +238,10 @@ def test_runtime_records_trace_for_deterministic_action_response():
     assert trace.reply_validation is not None
     assert trace.reply_validation["valid"] is True
     assert trace.adapter_execution_status == "pending_adapter_execution"
-    assert trace.llm_executions[0]["response_format"] == "PlanSpec"
-    assert trace.llm_executions[0]["stage"] == "planner_intent"
-    assert trace.llm_executions[0]["prompt_profile_id"] == "planner_intent.ds_v4pro"
-    assert trace.llm_executions[0]["prompt_hash"].startswith("sha256:")
-    assert "planner.intent_taxonomy" in trace.llm_executions[0]["prompt_fragment_ids"]
-    assert trace.versions["prompt_profile_ids"] == ["planner_intent.ds_v4pro"]
+    assert trace.llm_executions == []
+    assert trace.versions["prompt_profile_ids"] == []
     assert trace.versions["runtime_trace"] == "runtime-trace-v1"
     assert trace.runtime_trace["schema_version"] == "runtime-trace-v1"
     trace_event_names = [event["name"] for event in trace.runtime_trace["events"]]
     assert "candidate.build" in trace_event_names
-    assert "llm.crewai_kickoff" in trace_event_names
     assert all(item["stage"] != "knowledge_composer" for item in trace.llm_executions)

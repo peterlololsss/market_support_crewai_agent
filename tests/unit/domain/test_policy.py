@@ -41,13 +41,13 @@ def test_compile_policy_allows_reports_from_available_artifacts_without_material
     )
 
     assert policy.policy_id == "support-reply-policy:bank"
-    assert policy.allowed_side_effect_actions == frozenset(
+    assert policy.allowed_outbound_actions == frozenset(
         {
             "send_weekly_report",
             "send_monthly_report",
         }
     )
-    assert "send_material_pack" not in policy.allowed_side_effect_actions
+    assert "send_material_pack" not in policy.allowed_outbound_actions
     assert policy.allowed_adapter_resolves == frozenset(
         {
             "weekly_report",
@@ -67,7 +67,7 @@ def test_compile_policy_allows_only_material_pack_from_available_artifacts():
         )
     )
 
-    assert policy.allowed_side_effect_actions == frozenset({"send_material_pack"})
+    assert policy.allowed_outbound_actions == frozenset({"send_material_pack"})
     assert policy.allowed_adapter_resolves == frozenset(
         {"material_pack", "sales_mention"}
     )
@@ -120,7 +120,7 @@ def test_compile_policy_intersects_structured_adapter_read_capabilities():
         {"resolve_weekly_report", "query_internal_company_info"}
     )
     assert policy.allowed_adapter_resolves == frozenset({"weekly_report"})
-    assert policy.allowed_side_effect_actions == frozenset({"send_weekly_report"})
+    assert policy.allowed_outbound_actions == frozenset({"send_weekly_report"})
 
 
 def test_compile_policy_scopes_document_capability_by_channel_type():

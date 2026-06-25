@@ -17,7 +17,7 @@ from market_support_crewai_agent.schemas import (
     ChannelType,
     MaterialType,
     ReplyRequest,
-    SideEffectActionType,
+    OutboundActionType,
 )
 
 _DEFAULT_REPLY_MODES: frozenset[ResponseMode] = frozenset(
@@ -53,7 +53,7 @@ class PolicyManifest:
     policy_id: str
     allowed_reply_modes: frozenset[ResponseMode]
     allowed_capabilities: frozenset[CapabilityName]
-    allowed_side_effect_actions: frozenset[SideEffectActionType]
+    allowed_outbound_actions: frozenset[OutboundActionType]
     allowed_read_capabilities: frozenset[ReadCapability]
     allowed_adapter_resolves: frozenset[AdapterResolveType]
     material_pack_options: tuple[str, ...] = ()
@@ -93,11 +93,11 @@ def compile_policy(
         }
 
     allowed_actions = {
-        capability.side_effect_action_type
+        capability.outbound_action_type
         for capability_name in allowed_capabilities
         if (
             capability := capability_by_name(capability_name)
-        ) is not None and capability.side_effect_action_type is not None
+        ) is not None and capability.outbound_action_type is not None
     }
 
     allowed_read_capabilities = frozenset(
@@ -125,7 +125,7 @@ def compile_policy(
         policy_id=f"support-reply-policy:{policy_scope}",
         allowed_reply_modes=allowed_reply_modes,
         allowed_capabilities=frozenset(allowed_capabilities),
-        allowed_side_effect_actions=frozenset(allowed_actions),
+        allowed_outbound_actions=frozenset(allowed_actions),
         allowed_read_capabilities=allowed_read_capabilities,
         allowed_adapter_resolves=allowed_adapter_resolves,
         material_pack_options=tuple(

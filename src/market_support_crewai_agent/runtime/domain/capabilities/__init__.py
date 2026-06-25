@@ -19,7 +19,7 @@ from market_support_crewai_agent.schemas import (
     AdapterResolveType,
     MaterialType,
     ReadCapability,
-    SideEffectActionType,
+    OutboundActionType,
 )
 
 CapabilityName = Literal[
@@ -64,7 +64,7 @@ class CapabilitySpec:
     artifact_kind: ArtifactKind
     read_capability: ReadCapability | None
     resolve_type: AdapterResolveType | None
-    side_effect_action_type: SideEffectActionType | None
+    outbound_action_type: OutboundActionType | None
     resolvable_fact_type: str | None
     business_state_field: str | None
     supports_material_pack_option: bool = False
@@ -78,7 +78,7 @@ CAPABILITY_REGISTRY: tuple[CapabilitySpec, ...] = (
         artifact_kind="material_pack",
         read_capability="resolve_material_pack",
         resolve_type="material_pack",
-        side_effect_action_type="send_material_pack",
+        outbound_action_type="send_material_pack",
         resolvable_fact_type="material_pack_resolvable",
         business_state_field="material_pack",
         supports_material_pack_option=True,
@@ -89,7 +89,7 @@ CAPABILITY_REGISTRY: tuple[CapabilitySpec, ...] = (
         artifact_kind="weekly_report",
         read_capability="resolve_weekly_report",
         resolve_type="weekly_report",
-        side_effect_action_type="send_weekly_report",
+        outbound_action_type="send_weekly_report",
         resolvable_fact_type="weekly_report_resolvable",
         business_state_field="weekly_report",
         is_report=True,
@@ -100,7 +100,7 @@ CAPABILITY_REGISTRY: tuple[CapabilitySpec, ...] = (
         artifact_kind="monthly_report",
         read_capability="resolve_monthly_report",
         resolve_type="monthly_report",
-        side_effect_action_type="send_monthly_report",
+        outbound_action_type="send_monthly_report",
         resolvable_fact_type="monthly_report_resolvable",
         business_state_field="monthly_report",
         is_report=True,
@@ -111,7 +111,7 @@ CAPABILITY_REGISTRY: tuple[CapabilitySpec, ...] = (
         artifact_kind="human_support",
         read_capability="resolve_sales_mention",
         resolve_type="sales_mention",
-        side_effect_action_type=None,
+        outbound_action_type=None,
         resolvable_fact_type="sales_mention_resolvable",
         business_state_field="sales_mention",
         prompt_label="销售/支持同事",
@@ -121,7 +121,7 @@ CAPABILITY_REGISTRY: tuple[CapabilitySpec, ...] = (
         artifact_kind="knowledge_answer",
         read_capability="query_internal_company_info",
         resolve_type=None,
-        side_effect_action_type=None,
+        outbound_action_type=None,
         resolvable_fact_type="document_context",
         business_state_field=None,
         prompt_label="文档证据",
@@ -159,10 +159,10 @@ def capability_by_resolve_type(
 
 
 def capability_by_action_type(
-    action_type: SideEffectActionType | str,
+    action_type: OutboundActionType | str,
 ) -> CapabilitySpec | None:
     for capability in CAPABILITY_REGISTRY:
-        if capability.side_effect_action_type == action_type:
+        if capability.outbound_action_type == action_type:
             return capability
     return None
 
@@ -194,11 +194,11 @@ def adapter_resolve_types() -> frozenset[AdapterResolveType]:
     return frozenset(_RESOLVE_ORDER)
 
 
-def side_effect_action_types() -> frozenset[SideEffectActionType]:
+def outbound_action_types() -> frozenset[OutboundActionType]:
     return frozenset(
-        capability.side_effect_action_type
+        capability.outbound_action_type
         for capability in CAPABILITY_REGISTRY
-        if capability.side_effect_action_type is not None
+        if capability.outbound_action_type is not None
     )
 
 
@@ -235,7 +235,7 @@ def resolvable_fact_type_for_resolve(
 
 
 def resolve_type_for_action(
-    action_type: SideEffectActionType | str,
+    action_type: OutboundActionType | str,
 ) -> AdapterResolveType | None:
     capability = capability_by_action_type(action_type)
     return capability.resolve_type if capability is not None else None
@@ -243,9 +243,9 @@ def resolve_type_for_action(
 
 def action_type_for_resolve(
     resolve_type: AdapterResolveType | str,
-) -> SideEffectActionType | None:
+) -> OutboundActionType | None:
     capability = capability_by_resolve_type(resolve_type)
-    return capability.side_effect_action_type if capability is not None else None
+    return capability.outbound_action_type if capability is not None else None
 
 
 def read_capability_for_resolve(
@@ -262,18 +262,18 @@ def resolve_type_for_read_capability(
     return capability.resolve_type if capability is not None else None
 
 
-def material_action_type(material_type: MaterialType) -> SideEffectActionType | None:
+def material_action_type(material_type: MaterialType) -> OutboundActionType | None:
     if material_type != "material":
         return None
     capability = capability_by_name("material_pack")
-    return capability.side_effect_action_type if capability is not None else None
+    return capability.outbound_action_type if capability is not None else None
 
 
-def report_action_types() -> frozenset[SideEffectActionType]:
+def report_action_types() -> frozenset[OutboundActionType]:
     return frozenset(
-        capability.side_effect_action_type
+        capability.outbound_action_type
         for capability in CAPABILITY_REGISTRY
-        if capability.is_report and capability.side_effect_action_type is not None
+        if capability.is_report and capability.outbound_action_type is not None
     )
 
 
@@ -291,7 +291,7 @@ def capability_prompt_dict() -> list[dict]:
             "artifact_kind": capability.artifact_kind,
             "read_capability": capability.read_capability,
             "resolve_type": capability.resolve_type,
-            "side_effect_action_type": capability.side_effect_action_type,
+            "outbound_action_type": capability.outbound_action_type,
             "resolvable_fact_type": capability.resolvable_fact_type,
             "business_state_field": capability.business_state_field,
             "supports_material_pack_option": capability.supports_material_pack_option,

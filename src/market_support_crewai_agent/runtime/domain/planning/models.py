@@ -20,7 +20,7 @@ from market_support_crewai_agent.runtime.validation.guardrail_types import (
 )
 from market_support_crewai_agent.schemas import (
     AdapterResolveType,
-    SideEffectActionType,
+    OutboundActionType,
     StrictModel,
 )
 
@@ -65,7 +65,7 @@ class AdapterResolveSpec(StrictModel):
 
 
 class ActionIntentSpec(StrictModel):
-    action_type: SideEffectActionType
+    action_type: OutboundActionType
     capability: CapabilityName
     material_pack_option: str | None = None
 

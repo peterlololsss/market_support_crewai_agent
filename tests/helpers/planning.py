@@ -3,7 +3,6 @@ from __future__ import annotations
 from market_support_crewai_agent.runtime.domain.capabilities import (
     CAPABILITY_MANIFEST_REGISTRY,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
 from market_support_crewai_agent.runtime.domain.planning import (
@@ -141,7 +140,6 @@ def compile_test_plan(
     return compile_plan_spec(
         make_plan_spec(request, **intent_like),
         request,
-        canonicalize_request(request),
         policy,
         domain_context=domain_context,
     )
@@ -196,8 +194,6 @@ def _capability_id_from_payload(payload: dict) -> str:
             return "weekly_report.product_performance"
         if "monthly_report" in requested:
             return "monthly_report.product_performance"
-        if "material_pack" in requested:
-            return "material_pack.product_list"
     if artifact_kind == "smalltalk":
         return "general.smalltalk"
     return "general.abstention"

@@ -1,22 +1,13 @@
 from __future__ import annotations
 
-import asyncio
-import json
-from dataclasses import dataclass
-from typing import Literal
+from math import ceil
+from typing import Literal, Sequence
 
-from pydantic import Field
-
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.capabilities import capability_by_name
 from market_support_crewai_agent.runtime.domain.ontology import artifact_scope_for_evidence
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.runtime.llm.prompting.assembler import (
-    assembleCanonicalizationPrompt,
-)
-from market_support_crewai_agent.runtime.llm.prompting.registry import prompt_agent_spec_by_id
 from market_support_crewai_agent.runtime.evidence.adapter_client import (
     AdapterClientError,
     AdapterResolveClient,
@@ -24,61 +15,19 @@ from market_support_crewai_agent.runtime.evidence.adapter_client import (
 from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.state.runtime_trace import trace_span
 from market_support_crewai_agent.schemas import (
     AdapterReportScopeRequest,
     AdapterReportScopeResult,
     AdapterResolveType,
     ReplyRequest,
     ReportScopeProduct,
-    ReportScopeSection,
-    StrictModel,
 )
 from market_support_crewai_agent.settings import Settings, get_settings
 
-_REPORT_CAPABILITIES = {"weekly_report", "monthly_report"}
 _REPORT_SCOPE_SUMMARY_QUERY = "report_scope_summary"
 _REPORT_SCOPE_PRODUCTS_QUERY = "report_scope_products"
-_MAX_SELECTOR_PRODUCTS = 250
 _PAGE_SIZE = 50
-
-
-class ReportScopeSelection(StrictModel):
-    selected_name: str = Field(default="", max_length=240)
-    selected_type: Literal["section", "product", "none"] = "none"
-    confidence: Literal["none", "low", "medium", "high"] = "none"
-    rationale: str = Field(default="", max_length=400)
-
-
-class ReportScopeSelector:
-    """Closed-set report-scope selector that runs outside the main reply prompt."""
-
-    def __init__(self, settings: Settings | None = None) -> None:
-        self.settings = settings or get_settings()
-
-    async def select(
-        self,
-        *,
-        request: ReplyRequest,
-        query: str,
-        material_type: str,
-        sections: list[ReportScopeSection],
-        products: list[ReportScopeProduct],
-    ) -> ReportScopeSelection:
-        if not self.settings.llm_api_key or not query.strip():
-            return ReportScopeSelection()
-        prompt = _selector_prompt(
-            request=request,
-            query=query,
-            material_type=material_type,
-            sections=sections,
-            products=products,
-        )
-        return await _run_selector_llm(
-            prompt,
-            self.settings,
-            timeout_seconds=self.settings.llm_timeout_seconds,
-        )
+_MAX_PRODUCTS_IN_PROMPT = 200
 
 
 class ReportScopeEvidenceService:
@@ -86,21 +35,17 @@ class ReportScopeEvidenceService:
         self,
         settings: Settings | None = None,
         adapter_client: AdapterResolveClient | None = None,
-        selector: ReportScopeSelector | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.adapter_client = adapter_client or AdapterResolveClient(self.settings)
-        self.selector = selector or ReportScopeSelector(self.settings)
 
     async def collect(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
         preflight: AdapterPreflightSnapshot,
     ) -> list[EvidenceFact]:
-        del canonical_context
         if plan.compliance.is_compliant is not True:
             return []
         if plan.response_mode != "knowledge_answer" and not plan.answer_capabilities:
@@ -172,7 +117,6 @@ class ReportScopeEvidenceService:
                         material_type=material_type,
                         period=period,
                         query=query,
-                        summary=summary,
                     )
                 )
         return facts
@@ -185,7 +129,6 @@ class ReportScopeEvidenceService:
         material_type: str,
         period: str | None,
         query: str,
-        summary: AdapterReportScopeResult,
     ) -> list[EvidenceFact]:
         try:
             match_result = await self.adapter_client.report_scope_async(
@@ -208,90 +151,7 @@ class ReportScopeEvidenceService:
                 )
             ]
 
-        facts = [_match_fact(resolve_type, match_result, selector_used=False)]
-        if match_result.match is not None and match_result.match.status == "matched":
-            return facts
-
-        selected_name = await self._select_name_from_products(
-            request=request,
-            material_type=material_type,
-            period=period,
-            query=query,
-            summary=summary,
-        )
-        if not selected_name:
-            return facts
-
-        try:
-            selected_match = await self.adapter_client.report_scope_async(
-                AdapterReportScopeRequest(
-                    material_type=material_type,  # type: ignore[arg-type]
-                    dist_name=request.dist_channel_name,
-                    command="match",
-                    period=period,
-                    query=selected_name,
-                    page=1,
-                    page_size=10,
-                )
-            )
-        except AdapterClientError:
-            return facts
-        facts.append(_match_fact(resolve_type, selected_match, selector_used=True))
-        return facts
-
-    async def _select_name_from_products(
-        self,
-        *,
-        request: ReplyRequest,
-        material_type: str,
-        period: str | None,
-        query: str,
-        summary: AdapterReportScopeResult,
-    ) -> str:
-        total_count = int(summary.expected_product_count or 0)
-        if total_count <= 0 or total_count > _MAX_SELECTOR_PRODUCTS:
-            return ""
-        products = await self._fetch_products(
-            request.dist_channel_name,
-            material_type,
-            period,
-            total_count,
-        )
-        if not products:
-            return ""
-        selection = await self.selector.select(
-            request=request,
-            query=query,
-            material_type=material_type,
-            sections=summary.report_sections,
-            products=products,
-        )
-        if selection.confidence == "none" or selection.selected_type == "none":
-            return ""
-        return selection.selected_name.strip()
-
-    async def _fetch_products(
-        self,
-        dist_name: str,
-        material_type: str,
-        period: str | None,
-        total_count: int,
-    ) -> list[ReportScopeProduct]:
-        products: list[ReportScopeProduct] = []
-        page_count = min((total_count + _PAGE_SIZE - 1) // _PAGE_SIZE, 5)
-        for page in range(1, page_count + 1):
-            result = await self.adapter_client.report_scope_async(
-                AdapterReportScopeRequest(
-                    material_type=material_type,  # type: ignore[arg-type]
-                    dist_name=dist_name,
-                    command="list_products",
-                    period=period,
-                    page=page,
-                    page_size=_PAGE_SIZE,
-                )
-            )
-            products.extend(result.products)
-        return products[:_MAX_SELECTOR_PRODUCTS]
+        return [_match_fact(resolve_type, match_result)]
 
     async def _product_facts(
         self,
@@ -302,16 +162,28 @@ class ReportScopeEvidenceService:
         period: str | None,
     ) -> list[EvidenceFact]:
         try:
-            result = await self.adapter_client.report_scope_async(
-                AdapterReportScopeRequest(
-                    material_type=material_type,  # type: ignore[arg-type]
-                    dist_name=request.dist_channel_name,
-                    command="list_products",
-                    period=period,
-                    page=1,
-                    page_size=_PAGE_SIZE,
-                )
+            result = await self._product_page(
+                request=request,
+                material_type=material_type,
+                period=period,
+                page=1,
             )
+            products = list(result.products)
+            total_count = result.product_total_count
+            if (
+                result.status == "resolved"
+                and total_count is not None
+                and len(products) < min(total_count, _MAX_PRODUCTS_IN_PROMPT)
+            ):
+                target_count = min(total_count, _MAX_PRODUCTS_IN_PROMPT)
+                for page in range(2, ceil(target_count / _PAGE_SIZE) + 1):
+                    page_result = await self._product_page(
+                        request=request,
+                        material_type=material_type,
+                        period=period,
+                        page=page,
+                    )
+                    products.extend(page_result.products)
         except AdapterClientError as exc:
             return [
                 _unavailable_fact(
@@ -320,19 +192,37 @@ class ReportScopeEvidenceService:
                     error_type=type(exc).__name__,
                 )
             ]
-        return [_products_fact(resolve_type, result)]
+        return [_products_fact(resolve_type, result, products=products)]
+
+    async def _product_page(
+        self,
+        *,
+        request: ReplyRequest,
+        material_type: str,
+        period: str | None,
+        page: int,
+    ) -> AdapterReportScopeResult:
+        return await self.adapter_client.report_scope_async(
+            AdapterReportScopeRequest(
+                material_type=material_type,  # type: ignore[arg-type]
+                dist_name=request.dist_channel_name,
+                command="list_products",
+                period=period,
+                page=page,
+                page_size=_PAGE_SIZE,
+            )
+        )
 
 
 class NoopReportScopeEvidenceService:
     async def collect(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
         preflight: AdapterPreflightSnapshot,
     ) -> list[EvidenceFact]:
-        del request, canonical_context, plan, policy, preflight
+        del request, plan, policy, preflight
         return []
 
 
@@ -356,14 +246,11 @@ def _summary_fact(
 def _match_fact(
     resolve_type: AdapterResolveType,
     result: AdapterReportScopeResult,
-    *,
-    selector_used: bool,
 ) -> EvidenceFact:
     metadata = _result_metadata(result)
     if result.match is not None:
         match_payload = result.match.model_dump(mode="json", exclude_none=True)
         metadata["match"] = match_payload
-        metadata["selector_used"] = selector_used
     return EvidenceFact(
         fact_type="report_scope_match",
         value=(
@@ -383,22 +270,28 @@ def _match_fact(
 def _products_fact(
     resolve_type: AdapterResolveType,
     result: AdapterReportScopeResult,
+    *,
+    products: Sequence[ReportScopeProduct] | None = None,
 ) -> EvidenceFact:
     metadata = _result_metadata(result)
+    product_items = list(result.products if products is None else products)
     metadata.update(
         {
             "products": [
                 product.model_dump(mode="json", exclude_none=True)
-                for product in result.products
+                for product in product_items
             ],
             "product_page": result.product_page,
             "product_page_size": result.product_page_size,
             "product_total_count": result.product_total_count,
+            "product_returned_count": len(product_items),
         }
     )
-    returned_count = len(result.products)
-    total_count = int(result.product_total_count or returned_count)
-    metadata["full_product_list_in_prompt"] = total_count <= returned_count
+    returned_count = len(product_items)
+    total_count = result.product_total_count
+    metadata["full_product_list_in_prompt"] = (
+        total_count is not None and total_count <= returned_count
+    )
     return EvidenceFact(
         fact_type="report_scope_products",
         value=result.status == "resolved",
@@ -484,80 +377,3 @@ def _period_from_preflight(
 
 def _material_type(resolve_type: AdapterResolveType) -> Literal["weekly", "monthly"]:
     return "weekly" if resolve_type == "weekly_report" else "monthly"
-
-
-def _selector_prompt(
-    *,
-    request: ReplyRequest,
-    query: str,
-    material_type: str,
-    sections: list[ReportScopeSection],
-    products: list[ReportScopeProduct],
-) -> str:
-    payload = {
-        "user_message": request.message,
-        "query": query,
-        "material_type": material_type,
-        "candidate_sections": [
-            section.model_dump(mode="json", exclude_none=True)
-            for section in sections
-        ],
-        "candidate_products": [
-            product.model_dump(mode="json", exclude_none=True)
-            for product in products
-        ],
-    }
-    return assembleCanonicalizationPrompt(
-        "canonicalization.report_scope_selector",
-        stage="report_scope_selector",
-        selector_input_json=json.dumps(
-            payload,
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ),
-    )
-
-
-async def _run_selector_llm(
-    prompt: str,
-    settings: Settings,
-    *,
-    timeout_seconds: float,
-) -> ReportScopeSelection:
-    from crewai import Agent, LLM
-
-    spec = prompt_agent_spec_by_id("agent.report_scope_selector")
-    agent = Agent(
-        role=spec.role,
-        goal=spec.goal,
-        backstory=spec.backstory,
-        llm=LLM(
-            model=settings.llm_model,
-            provider=settings.llm_provider,
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            temperature=0,
-            max_tokens=min(settings.llm_max_tokens, 1000),
-            timeout=settings.llm_timeout_seconds,
-        ),
-        allow_delegation=False,
-        verbose=settings.crewai_verbose,
-        max_iter=1,
-        max_execution_time=settings.crewai_max_execution_time,
-        max_retry_limit=settings.crewai_max_retry_limit,
-        planning=False,
-    )
-    with trace_span(
-        "llm.selector",
-        stage="report_scope_selector",
-        prompt_chars=len(prompt),
-        response_format="ReportScopeSelection",
-    ):
-        result = await asyncio.wait_for(
-            agent.kickoff_async(prompt, response_format=ReportScopeSelection),
-            timeout=timeout_seconds,
-        )
-    if result.pydantic is not None:
-        return ReportScopeSelection.model_validate(result.pydantic)
-    return ReportScopeSelection.model_validate_json(result.raw)

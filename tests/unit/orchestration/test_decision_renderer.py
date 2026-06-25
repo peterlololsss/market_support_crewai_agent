@@ -272,7 +272,7 @@ def test_decision_keeps_actions_for_mixed_answer_and_send_composer_path():
 
 def test_decision_keeps_action_when_mixed_answer_evidence_is_missing():
     request = make_request(
-        message="\u4ec0\u4e48\u662f\u53e6\u7c7b\u6570\u636e\u56e0\u5b50\n\u4f60\u4eec\u4ee3\u9500\u7684\u7075\u6d3b\u5bf9\u51b2\u7684\u4ea7\u54c1\u6709\u54ea\u4e9b\u5440",
+        message="什么是另类数据因子\n你们代销的灵活对冲的产品有哪些呀",
         available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         channel_type="non_bank",
     )
@@ -288,7 +288,7 @@ def test_decision_keeps_action_when_mixed_answer_evidence_is_missing():
             {
                 "artifact_kind": "material_pack",
                 "action_intent": "send",
-                "material_pack_option": "\u7075\u6d3b\u5bf9\u51b2",
+                "material_pack_option": "灵活对冲",
             },
         ],
     )

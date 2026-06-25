@@ -103,7 +103,7 @@ def validate_execution_plan(
             )
 
     for action in plan.action_intents:
-        if action.action_type not in policy.allowed_side_effect_actions:
+        if action.action_type not in policy.allowed_outbound_actions:
             issues.append(
                 PlanValidationIssue(
                     code="action_not_allowed",
@@ -165,7 +165,7 @@ def validate_execution_plan(
         issues.append(
             PlanValidationIssue(
                 code="unknown_compliance_has_actions",
-                message="unknown compliance status cannot propose side-effect actions",
+                message="unknown compliance status cannot propose outbound actions",
                 severity="fatal",
             )
         )
@@ -196,7 +196,7 @@ def validate_execution_plan(
             issues.append(
                 PlanValidationIssue(
                     code="ambiguous_plan_has_actions",
-                    message="ambiguous plans must not propose side-effect actions",
+                    message="ambiguous plans must not propose outbound actions",
                     severity="fatal",
                     metadata={"ambiguity_slots": list(plan.ambiguity_slots)},
                 )

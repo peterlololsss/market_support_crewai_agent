@@ -6,9 +6,6 @@ from market_support_crewai_agent.runtime.evidence.adapter_client import (
     AdapterClientError,
     AdapterResolveClient,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import (
-    CanonicalContext,
-)
 from market_support_crewai_agent.runtime.domain.capabilities import (
     adapter_resolve_types,
     capability_by_resolve_type,
@@ -67,13 +64,11 @@ class AdapterPreflightService:
     async def collect(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext | None = None,
         resolve_types: list[AdapterResolveType] | None = None,
         resolve_material_pack_options: dict[AdapterResolveType, str] | None = None,
     ) -> AdapterPreflightSnapshot:
         resolve_requests = _build_resolve_requests(
             request,
-            canonical_context,
             resolve_types,
             resolve_material_pack_options,
         )
@@ -117,11 +112,9 @@ class AdapterPreflightService:
 
 def _build_resolve_requests(
     request: ReplyRequest,
-    canonical_context: CanonicalContext | None = None,
     resolve_types: list[AdapterResolveType] | None = None,
     resolve_material_pack_options: dict[AdapterResolveType, str] | None = None,
 ) -> list[AdapterResolveRequest]:
-    del canonical_context
     common = {
         "dist_name": request.dist_channel_name,
     }

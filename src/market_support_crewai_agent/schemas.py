@@ -51,7 +51,6 @@ OutboundActionType = Literal[
     "send_weekly_report",
     "send_monthly_report",
 ]
-SideEffectActionType = OutboundActionType
 
 
 class StrictModel(BaseModel):
@@ -335,9 +334,6 @@ class OutboundActionBase(StrictModel):
     action_id: str = ""
 
 
-SideEffectActionBase = OutboundActionBase
-
-
 class SendActionBase(OutboundActionBase):
     resolve_ref: str = Field(min_length=1)
 
@@ -376,7 +372,6 @@ OutboundAction = Annotated[
     ],
     Field(discriminator="type"),
 ]
-SideEffectAction = OutboundAction
 
 
 class ReplyResponse(StrictModel):

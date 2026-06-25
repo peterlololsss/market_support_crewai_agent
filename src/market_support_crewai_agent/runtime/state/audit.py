@@ -12,10 +12,6 @@ from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
 from market_support_crewai_agent.runtime.state.runtime_trace import RUNTIME_TRACE_VERSION
 from market_support_crewai_agent.runtime.evidence.adapter_preflight import AdapterPreflightSnapshot
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
-from market_support_crewai_agent.runtime.domain.canonicalization import (
-    CanonicalContext,
-    canonicalize_request,
-)
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
@@ -70,7 +66,7 @@ class AuditTrace:
     policy_id: str
     policy_hash: str
     policy: dict
-    canonical_entities: dict
+    policy_scope: dict
     domain_context: dict
     planner_output: dict
     response_directive: dict
@@ -178,7 +174,6 @@ def build_audit_trace(
         response: ReplyResponse,
         reply_validation: ValidationResult | None,
         guardrail_decisions: list[GuardrailDecision] | None = None,
-        canonical_context: CanonicalContext | None = None,
         domain_context: DomainContext | None = None,
         intent_gate: IntentGateResult | None = None,
         prompt_programs: list[PromptProgram] | None = None,
@@ -189,9 +184,6 @@ def build_audit_trace(
         runtime_trace: dict | None = None,
 ) -> AuditTrace:
     policy_payload = _compact_policy(policy)
-    canonical_payload = _compact_canonical_context(
-        canonical_context or canonicalize_request(request)
-    )
     reply_validation_payload = (
         _compact_reply_validation(reply_validation)
         if reply_validation is not None
@@ -220,7 +212,7 @@ def build_audit_trace(
         policy_id=policy.policy_id,
         policy_hash=_stable_hash(policy_payload),
         policy=policy_payload,
-        canonical_entities=canonical_payload,
+        policy_scope={"material_pack_options": list(policy.material_pack_options)},
         domain_context=(
             domain_context.to_prompt_dict()
             if domain_context is not None
@@ -354,18 +346,15 @@ def _compact_prompt_program(program: PromptProgram) -> dict:
     return payload
 
 
-def _compact_canonical_context(canonical_context: CanonicalContext) -> dict:
-    return canonical_context.to_prompt_dict()
-
-
 def _compact_policy(policy: PolicyManifest) -> dict:
     return {
         "policy_id": policy.policy_id,
         "allowed_reply_modes": sorted(policy.allowed_reply_modes),
         "allowed_capabilities": sorted(policy.allowed_capabilities),
-        "allowed_side_effect_actions": sorted(policy.allowed_side_effect_actions),
+        "allowed_outbound_actions": sorted(policy.allowed_outbound_actions),
         "allowed_read_capabilities": sorted(policy.allowed_read_capabilities),
         "allowed_adapter_resolves": sorted(policy.allowed_adapter_resolves),
+        "material_pack_options": list(policy.material_pack_options),
         "ledger_summary": policy.ledger_summary.to_prompt_dict(),
         "evidence_call_limit": policy.evidence_call_limit,
     }

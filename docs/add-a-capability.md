@@ -36,7 +36,7 @@ CapabilityManifest(
     capability_type="answer",
     domain_entities=["channel", "strategy", "product", "artifact"],
     required_inputs=["request.dist_channel_name"],
-    optional_inputs=["canonical_context.material_pack_options"],
+    optional_inputs=["policy.material_pack_options"],
     required_artifacts=["material_pack"],
     allowed_artifacts=["material_pack"],
     forbidden_artifacts=["weekly_report", "monthly_report"],

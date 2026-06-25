@@ -126,9 +126,7 @@ def _manifest_ids_for_execution_plan(plan: ExecutionPlan) -> list[str]:
             elif action_type == "send_monthly_report":
                 manifest_ids.append("monthly_report.send")
     for capability_name in plan.answer_capabilities:
-        if capability_name == "material_pack":
-            manifest_ids.append("material_pack.product_list")
-        elif capability_name == "weekly_report":
+        if capability_name == "weekly_report":
             manifest_ids.append("weekly_report.product_performance")
         elif capability_name == "monthly_report":
             manifest_ids.append("monthly_report.product_performance")

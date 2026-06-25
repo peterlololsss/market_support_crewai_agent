@@ -9,7 +9,6 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
 )
 from market_support_crewai_agent.runtime.state.audit import AuditStore
 from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
@@ -90,11 +89,10 @@ class ResolvedWeeklyPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_material_pack_options
+        del request, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 AdapterPreflightItem(
@@ -123,8 +121,8 @@ class ResolvedWeeklyPreflight:
 
 
 class DocumentEvidenceExecutor:
-    async def execute(self, request, canonical_context, plan, policy, action_history=None):
-        del canonical_context, plan, policy, action_history
+    async def execute(self, request, plan, policy, action_history=None):
+        del plan, policy, action_history
         facts = [
             EvidenceFact(
                 fact_type="document_context",
@@ -155,7 +153,7 @@ def test_runtime_audit_records_intent_gate_and_prompt_programs():
     trace = audit_store.latest()
     assert trace is not None
     assert trace.intent_gate["artifact_hint"] == "unclear"
-    assert trace.intent_gate["side_effect_hint"] is False
+    assert trace.intent_gate["outbound_action_hint"] is False
     assert len(trace.prompt_programs) == 1
     assert trace.prompt_programs[0]["stage"] == "planner_intent"
     assert trace.prompt_programs[0]["prompt_hash"].startswith("sha256:")
@@ -244,8 +242,8 @@ def test_audit_records_projection_metadata_without_large_payload():
     huge = "LARGE-DOC-PAYLOAD" * 500
 
     class HugeDocumentEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
-            del canonical_context, plan, policy, action_history
+        async def execute(self, request, plan, policy, action_history=None):
+            del plan, policy, action_history
             facts = [
                 EvidenceFact(
                     fact_type="document_context",

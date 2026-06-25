@@ -10,7 +10,6 @@ from market_support_crewai_agent.runtime.knowledge.approved_knowledge import (
     ApprovedKnowledgeSelection,
     approved_image_markers,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.validation.reply_validator import allowed_image_markers
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.schemas import ReplyRequest
@@ -42,7 +41,6 @@ def make_request(message: str) -> ReplyRequest:
 
 def make_plan(request: ReplyRequest):
     policy = compile_policy(request, doc_mcp_enabled=True)
-    canonical_context = canonicalize_request(request)
     plan = compile_test_plan(
         request,
         policy=policy,
@@ -58,7 +56,7 @@ def make_plan(request: ReplyRequest):
         },
         confidence=0.9,
     )
-    return canonical_context, policy, plan
+    return policy, plan
 
 
 class FakeSelector:
@@ -75,9 +73,9 @@ def collect_with_selection(
     selection: ApprovedKnowledgeSelection,
 ):
     request = make_request(message)
-    canonical_context, policy, plan = make_plan(request)
+    policy, plan = make_plan(request)
     service = ApprovedKnowledgeEvidenceService(selector=FakeSelector(selection))
-    return asyncio.run(service.collect(request, canonical_context, plan, policy))
+    return asyncio.run(service.collect(request, plan, policy))
 
 
 def test_approved_knowledge_does_not_select_by_keyword_when_selector_declines():
