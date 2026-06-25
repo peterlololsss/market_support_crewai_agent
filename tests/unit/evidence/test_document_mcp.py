@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.evidence.document_mcp import (
     DocumentEvidenceChunk,
     DocumentMcpClient,
@@ -68,10 +67,8 @@ class FakeDocumentClient:
     def __init__(self):
         self.calls = []
 
-    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
-        self.calls.append(
-            (request.message, canonical_context.material_pack_options, evidence_query)
-        )
+    async def fetch_context_async(self, request, *, evidence_query=None):
+        self.calls.append((request.message, evidence_query))
         return [
             DocumentEvidenceChunk(
                 document_id="衍复中证1000指数增强策略",
@@ -82,20 +79,20 @@ class FakeDocumentClient:
 
 
 class ErrorDocumentClient:
-    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
-        del request, canonical_context, evidence_query
+    async def fetch_context_async(self, request, *, evidence_query=None):
+        del request, evidence_query
         raise DocumentMcpError("test failure")
 
 
 class EmptyDocumentClient:
-    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
-        del request, canonical_context, evidence_query
+    async def fetch_context_async(self, request, *, evidence_query=None):
+        del request, evidence_query
         return []
 
 
 class OversizedDocumentClient:
-    async def fetch_context_async(self, request, canonical_context, *, evidence_query=None):
-        del request, canonical_context, evidence_query
+    async def fetch_context_async(self, request, *, evidence_query=None):
+        del request, evidence_query
         return [
             DocumentEvidenceChunk(
                 document_id="oversized-doc",
@@ -139,7 +136,6 @@ class FakeMcpClient(DocumentMcpClient):
 
 def test_document_mcp_evidence_service_returns_document_context_when_enabled():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     settings = Settings(
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
@@ -151,15 +147,12 @@ def test_document_mcp_evidence_service_returns_document_context_when_enabled():
     facts = asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request, doc_mcp_enabled=True),
         )
     )
 
-    assert fake_client.calls == [
-        ("介绍一下中证1000指增的因子贡献", ("中证500", "中证1000"), None)
-    ]
+    assert fake_client.calls == [(request.message, None)]
     assert facts[0].fact_type == "document_context"
     assert facts[0].artifact_type == "document_context"
     assert facts[0].source_type == "document_mcp"
@@ -172,7 +165,6 @@ def test_document_mcp_evidence_service_returns_document_context_when_enabled():
 
 def test_document_mcp_evidence_service_passes_planner_evidence_query():
     request = make_request(message="yanfu???")
-    canonical_context = canonicalize_request(request)
     settings = Settings(
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
@@ -184,24 +176,21 @@ def test_document_mcp_evidence_service_passes_planner_evidence_query():
     asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(evidence_query="?? ???? ????"),
             compile_policy(request, doc_mcp_enabled=True),
         )
     )
 
-    assert fake_client.calls[-1][2] == "?? ???? ????"
+    assert fake_client.calls[-1][1] == "?? ???? ????"
 
 def test_document_mcp_evidence_service_stays_disabled_by_default():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     fake_client = FakeDocumentClient()
     service = DocumentMcpEvidenceService(Settings(), client=fake_client)
 
     facts = asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request),
         )
@@ -213,7 +202,6 @@ def test_document_mcp_evidence_service_stays_disabled_by_default():
 
 def test_document_mcp_evidence_service_returns_unavailable_fact_on_error():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     settings = Settings(
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
@@ -223,7 +211,6 @@ def test_document_mcp_evidence_service_returns_unavailable_fact_on_error():
     facts = asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request, doc_mcp_enabled=True),
         )
@@ -241,7 +228,6 @@ def test_document_mcp_evidence_service_returns_unavailable_fact_on_error():
 
 def test_document_mcp_evidence_service_returns_unavailable_fact_when_no_context():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     settings = Settings(
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
@@ -251,7 +237,6 @@ def test_document_mcp_evidence_service_returns_unavailable_fact_when_no_context(
     facts = asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request, doc_mcp_enabled=True),
         )
@@ -264,7 +249,6 @@ def test_document_mcp_evidence_service_returns_unavailable_fact_when_no_context(
 
 def test_document_mcp_evidence_service_truncates_oversized_context():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     settings = Settings(
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
@@ -275,7 +259,6 @@ def test_document_mcp_evidence_service_truncates_oversized_context():
     facts = asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request, doc_mcp_enabled=True),
         )
@@ -294,7 +277,6 @@ def test_document_mcp_evidence_service_truncates_oversized_context():
 
 def test_document_mcp_evidence_service_denies_disallowed_channel_before_client_call():
     request = make_request(channel_type="bank")
-    canonical_context = canonicalize_request(request)
     settings = Settings(
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
@@ -306,7 +288,6 @@ def test_document_mcp_evidence_service_denies_disallowed_channel_before_client_c
     facts = asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(
                 request,
@@ -336,7 +317,6 @@ def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
         available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}],
         channel_type="non_bank",
     )
-    canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(
         DocumentProductSelection(
             document_ids=("衍复公司介绍(简介)",),
@@ -371,7 +351,7 @@ def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
         selector=selector,
     )
 
-    chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
+    chunks = asyncio.run(client.fetch_context_async(request))
 
     assert selector.calls[0]["evidence_query"] == "最新规模情况"
     assert selector.calls[0]["products"][0]["id"] == "衍复万得小市值指数增强策略"
@@ -385,7 +365,6 @@ def test_document_product_selector_prompt_puts_question_before_candidates():
     prompt = _document_product_selector_prompt(
         request=request,
         evidence_query="self-operated book size?",
-        canonical_context=canonicalize_request(request),
         candidates=(
             DocumentProductCandidate(
                 id="faq",
@@ -403,7 +382,6 @@ def test_document_product_selector_prompt_puts_question_before_candidates():
 
 def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
     request = make_request(message="最新规模情况", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(
         DocumentProductSelection(
             document_ids=("unknown", "company", "company"),
@@ -420,7 +398,7 @@ def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
     )
 
     chunks = asyncio.run(
-        client.fetch_context_async(request, canonical_context, max_documents=1)
+        client.fetch_context_async(request, max_documents=1)
     )
 
     assert client.requested_document_ids == [("company",)]
@@ -429,7 +407,6 @@ def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
 
 def test_document_mcp_client_reads_all_context_when_selector_declines():
     request = make_request(message="最新规模情况", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
         products=[{"id": "company"}],
@@ -437,7 +414,7 @@ def test_document_mcp_client_reads_all_context_when_selector_declines():
         selector=selector,
     )
 
-    chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
+    chunks = asyncio.run(client.fetch_context_async(request))
 
     assert client.requested_document_ids == [("company",)]
     assert [chunk.document_id for chunk in chunks] == ["company"]
@@ -482,7 +459,6 @@ def test_sanitize_document_text_redacts_locators_secrets_and_document_instructio
 
 def test_select_document_text_keeps_small_selected_document_complete():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     content = (
         "Q：衍复中证1000指数增强策略的策略定位？\n"
         "A：这是中证1000指数增强策略。\n"
@@ -494,7 +470,6 @@ def test_select_document_text_keeps_small_selected_document_complete():
     selected = _select_document_text(
         content,
         request.message,
-        canonical_context,
         max_chars=6000,
     )
 
@@ -504,7 +479,6 @@ def test_select_document_text_keeps_small_selected_document_complete():
 
 def test_select_document_text_bounds_without_semantic_block_ranking():
     request = make_request(message="分红频率是怎样的")
-    canonical_context = canonicalize_request(request)
     unrelated_blocks = [
         f"Q：无关问题{i}\nA：" + ("无关内容。" * 80)
         for i in range(30)
@@ -515,7 +489,6 @@ def test_select_document_text_bounds_without_semantic_block_ranking():
     selected = _select_document_text(
         content,
         request.message,
-        canonical_context,
         max_chars=400,
     )
 
@@ -530,9 +503,9 @@ class LargeDocumentClient:
         self.char_count = char_count
 
     async def fetch_context_async(
-        self, request, canonical_context, *, evidence_query=None
+        self, request, *, evidence_query=None
     ):
-        del request, canonical_context, evidence_query
+        del request, evidence_query
         return [
             DocumentEvidenceChunk(
                 document_id="faq",
@@ -544,7 +517,6 @@ class LargeDocumentClient:
 
 def test_document_mcp_evidence_service_keeps_full_document_under_raised_default_cap():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     settings = Settings(
         doc_mcp_enabled=True,
         doc_mcp_base_url="http://192.168.209.195:23000",
@@ -556,7 +528,6 @@ def test_document_mcp_evidence_service_keeps_full_document_under_raised_default_
     facts = asyncio.run(
         service.collect(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request, doc_mcp_enabled=True),
         )
@@ -570,7 +541,6 @@ def test_document_mcp_evidence_service_keeps_full_document_under_raised_default_
 
 def test_document_mcp_client_reads_baseline_first_when_selector_declines():
     request = make_request(message="什么是过拟合？", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
         products=[
@@ -587,7 +557,7 @@ def test_document_mcp_client_reads_baseline_first_when_selector_declines():
         selector=selector,
     )
 
-    chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
+    chunks = asyncio.run(client.fetch_context_async(request))
 
     # Topic absent from metadata still reads broadly instead of dropping to no
     # evidence; baseline categories are loaded first.
@@ -600,7 +570,6 @@ def test_document_mcp_client_reads_baseline_first_when_selector_declines():
 
 def test_document_mcp_client_reads_all_docs_even_without_baseline_categories():
     request = make_request(message="什么是过拟合？", available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    canonical_context = canonicalize_request(request)
     selector = FakeProductSelector(DocumentProductSelection(confidence="none"))
     client = FakeMcpClient(
         products=[{"id": "常见q&a", "category": "常见问答"}],
@@ -609,7 +578,7 @@ def test_document_mcp_client_reads_all_docs_even_without_baseline_categories():
     )
     client.baseline_categories = ()
 
-    chunks = asyncio.run(client.fetch_context_async(request, canonical_context))
+    chunks = asyncio.run(client.fetch_context_async(request))
 
     assert client.requested_document_ids == [("常见q&a",)]
     assert [chunk.document_id for chunk in chunks] == ["常见q&a"]

@@ -13,7 +13,6 @@ from urllib.request import Request, urlopen
 from pydantic import Field
 
 from market_support_crewai_agent.runtime.domain.capabilities import read_capabilities_for_artifact
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import artifact_scope_for_evidence
 from market_support_crewai_agent.runtime.domain.sources.metadata import (
     source_metadata_from_mapping,
@@ -135,7 +134,6 @@ class DocumentProductSelector(Protocol):
         *,
         request: ReplyRequest,
         evidence_query: str,
-        canonical_context: CanonicalContext,
         products: list[dict],
         max_documents: int,
     ) -> DocumentProductSelection: ...
@@ -147,11 +145,10 @@ class NoopDocumentProductSelector:
         *,
         request: ReplyRequest,
         evidence_query: str,
-        canonical_context: CanonicalContext,
         products: list[dict],
         max_documents: int,
     ) -> DocumentProductSelection:
-        del request, evidence_query, canonical_context, products, max_documents
+        del request, evidence_query, products, max_documents
         return DocumentProductSelection(confidence="none")
 
 
@@ -166,7 +163,6 @@ class CrewAIDocumentProductSelector:
         *,
         request: ReplyRequest,
         evidence_query: str,
-        canonical_context: CanonicalContext,
         products: list[dict],
         max_documents: int,
     ) -> DocumentProductSelection:
@@ -178,7 +174,6 @@ class CrewAIDocumentProductSelector:
         prompt = _document_product_selector_prompt(
             request=request,
             evidence_query=evidence_query,
-            canonical_context=canonical_context,
             candidates=manifest,
             max_documents=max_documents,
         )
@@ -208,7 +203,6 @@ class DocumentMcpClient:
     def fetch_context(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         *,
         evidence_query: str | None = None,
         max_documents: int = 50,
@@ -220,7 +214,6 @@ class DocumentMcpClient:
             return asyncio.run(
                 self.fetch_context_async(
                     request,
-                    canonical_context,
                     evidence_query=evidence_query,
                     max_documents=max_documents,
                     max_chars_per_document=max_chars_per_document,
@@ -233,7 +226,6 @@ class DocumentMcpClient:
     async def fetch_context_async(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         *,
         evidence_query: str | None = None,
         max_documents: int = 50,
@@ -253,7 +245,6 @@ class DocumentMcpClient:
             selection = await self.product_selector.select(
                 request=request,
                 evidence_query=query_text,
-                canonical_context=canonical_context,
                 products=products,
                 max_documents=max_documents,
             )
@@ -289,7 +280,6 @@ class DocumentMcpClient:
                     text=_select_document_text(
                         content,
                         query_text,
-                        canonical_context,
                         max_chars=effective_max_chars,
                     ),
                     metadata=_document_artifact_metadata(document),
@@ -398,7 +388,6 @@ class DocumentMcpEvidenceService:
     async def collect(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
     ) -> list[EvidenceFact]:
@@ -424,7 +413,6 @@ class DocumentMcpEvidenceService:
         try:
             chunks = await self.client.fetch_context_async(
                 request,
-                canonical_context,
                 evidence_query=plan.evidence_query,
             )
         except DocumentMcpError as exc:
@@ -498,11 +486,10 @@ class NoopDocumentMcpEvidenceService:
     async def collect(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
     ) -> list[EvidenceFact]:
-        del request, canonical_context, plan, policy
+        del request, plan, policy
         return []
 
 
@@ -659,14 +646,12 @@ def _document_product_selector_prompt(
     *,
     request: ReplyRequest,
     evidence_query: str,
-    canonical_context: CanonicalContext,
     candidates: tuple[DocumentProductCandidate, ...],
     max_documents: int,
 ) -> str:
     payload = {
         "user_message": str(request.message or "").strip(),
         "evidence_query": evidence_query,
-        "canonical_context": canonical_context.to_prompt_dict(),
         "max_documents": max_documents,
         "candidate_documents": [
             candidate.model_dump(mode="json", exclude_none=True)
@@ -833,11 +818,10 @@ def _retrieval_query(request: ReplyRequest, evidence_query: str | None) -> str:
 def _select_document_text(
     content: str,
     message: str,
-    canonical_context: CanonicalContext,
     *,
     max_chars: int,
 ) -> str:
-    del message, canonical_context
+    del message
     if len(content) <= max_chars:
         return content
     return content[:max_chars].rstrip()

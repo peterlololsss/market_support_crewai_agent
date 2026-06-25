@@ -5,7 +5,6 @@ from typing import Literal, Protocol
 from pydantic import Field, model_validator
 
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
@@ -89,7 +88,6 @@ class ReplyAlignmentVerifier(Protocol):
         self,
         *,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         domain_context: DomainContext,
         plan: ExecutionPlan,
         directive: ResponseDirective,
@@ -106,7 +104,6 @@ class NoopReplyAlignmentVerifier:
         self,
         *,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         domain_context: DomainContext,
         plan: ExecutionPlan,
         directive: ResponseDirective,
@@ -118,7 +115,6 @@ class NoopReplyAlignmentVerifier:
     ) -> ReplyAlignmentVerdict:
         del (
             request,
-            canonical_context,
             domain_context,
             plan,
             directive,

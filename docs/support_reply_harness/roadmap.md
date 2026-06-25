@@ -139,7 +139,7 @@ BusinessFacts include material/report resolvability, sales mention resolvability
 
 ## Phase 7: planner integration
 
-Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, canonical scope, policy manifest, and available materials/strategies.
+Planner input includes request metadata, recent turns, adapter-safe executed-action ledger summary, policy scope, policy manifest, and available materials/strategies.
 
 Planner output is `PlanSpec`: one or more capability-scoped `plan_units`, each with domain scope, required artifacts/tools, answerability policy, output schema reference, evidence contract, and execution steps.
 
@@ -197,12 +197,12 @@ Acceptance criteria:
 Adapter validates action type, executable material/report reference or selector, channel validity, group sendability, mention target, and schema. It writes executed/failed status and adapter-native metadata back to the runtime ledger/audit path.
 
 Current status: material/report send proposals are action-only at the harness boundary. The postcondition validator
-rejects non-empty `reply.text` or mentions on side-effect action responses, so the WeCom adapter can own the standard
+rejects non-empty `reply.text` or mentions on outbound action responses, so the WeCom adapter can own the standard
 post-send follow-up copy without duplicate agent text.
 
 ## Phase 11: observability and audit
 
-Audit records request/context id, inbound message id, conversation key, policy id/hash, canonical scope, compiled plan, response directive, validations, evidence ids, adapter resolves, EvidenceFacts, BusinessFacts, reply output, error-on-invalid path, final actions, adapter execution status, latency, token usage, and model/profile/version metadata.
+Audit records request/context id, inbound message id, conversation key, policy id/hash, policy scope, compiled plan, response directive, validations, evidence ids, adapter resolves, EvidenceFacts, BusinessFacts, reply output, error-on-invalid path, final actions, adapter execution status, latency, token usage, and model/profile/version metadata.
 
 Avoid logging secrets, unnecessary PII, and sensitive full evidence bodies.
 

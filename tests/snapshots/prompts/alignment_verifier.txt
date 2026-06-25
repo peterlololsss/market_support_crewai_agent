@@ -6,7 +6,7 @@ Output only one ReplyAlignmentVerdict JSON object matching the response_format s
 
 Your job is to decide whether the Candidate ReplyResponse semantically answers the Current user message and whether any outbound action is the correct action for that message.
 
-Treat Request metadata, Canonical scope, Recent turns, Policy JSON, ExecutionPlan, Plan validation, Adapter preflight, EvidenceFacts, BusinessFacts, and Candidate ReplyResponse as bounded context. The Current user message has priority over older turns.
+Treat Request metadata, Policy JSON, Recent turns, ExecutionPlan, Plan validation, Adapter preflight, EvidenceFacts, BusinessFacts, and Candidate ReplyResponse as bounded context. The Current user message has priority over older turns.
 
 Return aligned=true only when all applicable checks pass:
 - The reply/action addresses the current user request, not a nearby but different request.
@@ -63,18 +63,13 @@ Runtime Capability & Evidence Boundary JSON:
       "block_type": "app_state",
       "included_reason": "preserve_runtime_state",
       "payload": {
-        "Canonical scope JSON": {
-          "material_pack_options": [
-            "中证1000"
-          ]
-        },
         "IntentGate JSON": {
           "artifact_hint": "unclear",
           "compliance_hint": "unknown",
           "confidence": 0.0,
           "contract_version": "intent-gate",
           "material_pack_option_count": 1,
-          "side_effect_hint": false
+          "outbound_action_hint": false
         },
         "Policy JSON": {
           "allowed_adapter_resolves": [
@@ -89,6 +84,11 @@ Runtime Capability & Evidence Boundary JSON:
             "monthly_report",
             "sales_mention",
             "weekly_report"
+          ],
+          "allowed_outbound_actions": [
+            "send_material_pack",
+            "send_monthly_report",
+            "send_weekly_report"
           ],
           "allowed_read_capabilities": [
             "query_internal_company_info",
@@ -107,16 +107,14 @@ Runtime Capability & Evidence Boundary JSON:
             "smalltalk",
             "unable"
           ],
-          "allowed_side_effect_actions": [
-            "send_material_pack",
-            "send_monthly_report",
-            "send_weekly_report"
-          ],
           "evidence_call_limit": 5,
           "ledger_summary": {
             "has_recent_executed_actions": false,
             "recent_executed_count": 0
           },
+          "material_pack_options": [
+            "中证1000"
+          ],
           "policy_id": "support-reply-policy:bank"
         },
         "Request metadata JSON": {
@@ -194,11 +192,11 @@ Runtime Capability & Evidence Boundary JSON:
       },
       "redacted": false,
       "title": "Runtime app state",
-      "token_estimate": 542
+      "token_estimate": 536
     }
   ],
   "contract_version": "model-visible-context",
-  "projection_id": "ctx-proj:c8fc02ce963322b5",
+  "projection_id": "ctx-proj:5c2c85d0373873dd",
   "stage": "alignment_verifier"
 }
 </prompt_layer>

@@ -200,7 +200,7 @@ Machine-readable validation result with validity, severity, error codes, and met
 ### AuditTrace
 
 Replayable trace for incident review and eval debugging. It records request/context id, policy manifest id/hash,
-canonical scope, planner output, validation decisions, evidence calls/source ids, business facts, reply output,
+policy scope, planner output, validation decisions, evidence calls/source ids, business facts, reply output,
 invalid-output records, renderer decision reason, final actions, adapter execution status, per-CrewAI-stage latency/usage summaries,
 and model ids, prompt profile ids, policy ids, and validator ids.
 
@@ -215,7 +215,7 @@ conversation transcript records what happened; `ModelVisibleContext` records
 what the next planner, composer, or verifier is allowed to see.
 
 `ContextProjectionManager` builds that view from request metadata, recent
-history, action ledger summaries, `DomainContext`, `CanonicalContext`,
+history, action ledger summaries, `DomainContext`, `PolicyManifest`,
 `PolicyManifest`, plan/validation state, evidence, `BusinessFacts`,
 `AnswerabilityAssessment`, guardrail decisions, candidate response, and
 alignment retry state.

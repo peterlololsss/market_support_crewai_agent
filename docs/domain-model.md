@@ -20,7 +20,7 @@ The agent must reason over typed business scope, not free-text keywords.
 - Bank channels may have multiple `策略`; missing strategy for a bank
   `材料包` request requires clarification.
 - Non-bank channels may have one strategy; a single strategy may be inferred but
-  must still appear in `DomainContext`/canonical scope metadata.
+  must still appear in `DomainContext`/policy scope metadata.
 - Future non-bank multiple-strategy channels are allowed; they should use the
   same ambiguity path as bank channels.
 

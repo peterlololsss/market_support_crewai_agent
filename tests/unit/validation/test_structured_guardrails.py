@@ -37,8 +37,6 @@ from tests.helpers.structured_guardrails import (
     make_directive,
     make_plan,
     make_request,
-    material_answer_plan,
-    material_product_fact,
     resolved_fact,
     weekly_action,
 )
@@ -140,47 +138,6 @@ def test_validate_reply_blocks_resolve_ref_mismatch():
     assert result.issues[0].message == "action resolve_ref does not match adapter evidence"
 
 
-def test_validate_reply_does_not_use_send_claim_keywords_as_final_guard():
-    request = make_request(
-        message="材料包里有哪些产品",
-        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-    )
-    plan = material_answer_plan(request)
-    response = ReplyResponse(
-        response_id="resp-1",
-        reply=PrimaryReply(kind="answer", text="材料包包含：Product A。周报已发送，请查收。"),
-        actions=[],
-    )
-    fact = material_product_fact("Product A")
-    evidence_id = "adapter_material_pack_content:material_pack:material_pack_product_list"
-    composer_output = ComposerReplyOutput(
-        response_id="resp-1",
-        response_mode="answer",
-        claims=["材料包包含 Product A"],
-        evidence_ids=[evidence_id],
-        reply=response.reply,
-    )
-
-    result = validate_reply(
-        response,
-        make_directive(
-            plan,
-            mode="knowledge_answer",
-            reply_kind="answer",
-            requires_knowledge_composer=True,
-            action_intents=[],
-        ),
-        plan,
-        derive_business_facts([fact], request),
-        [fact],
-        compile_policy(request),
-        domain_context=DomainContextBuilder().build(request, available_artifacts=[fact]),
-        composer_output=composer_output,
-    )
-
-    assert result.valid is True
-
-
 def test_remove_pre_execution_send_claims_keeps_answer_text():
     text = (
         "本周报覆盖以下2只产品：\n\n"
@@ -224,11 +181,11 @@ def test_validate_reply_blocks_action_reply_text():
 
 
 def test_validate_reply_allows_action_reply_text_when_supplied_by_directive():
-    request = make_request(message="è¯·å‘å‘¨æŠ¥ï¼Œå†è¯´ä¸€ä¸‹æ—¶é—´æ®µ")
+    request = make_request(message="请发周报，再说一下时间段")
     plan = make_plan()
     response = ReplyResponse(
         response_id="resp-1",
-        reply=PrimaryReply(kind="answer", text="æ—¶é—´æ®µæ˜¯2026-05-26è‡³2026-05-29ã€‚"),
+        reply=PrimaryReply(kind="answer", text="时间段是2026-05-26至2026-05-29。"),
         actions=[weekly_action()],
     )
     facts = [resolved_fact("weekly_report", "weekly:ref")]
@@ -237,7 +194,7 @@ def test_validate_reply_allows_action_reply_text_when_supplied_by_directive():
         response,
         make_directive(
             plan,
-            text="æ—¶é—´æ®µæ˜¯2026-05-26è‡³2026-05-29ã€‚",
+            text="时间段是2026-05-26至2026-05-29。",
         ),
         plan,
         derive_business_facts(facts, request),
@@ -448,106 +405,6 @@ def test_validate_reply_requires_document_evidence_for_knowledge_answer():
     assert result.issues[0].code == "knowledge_answer_without_document_evidence"
 
 
-def test_retrieval_guard_blocks_weekly_evidence_for_material_pack_question():
-    request = make_request(
-        message="材料包里有哪些产品",
-        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-    )
-    plan = material_answer_plan(request)
-    weekly_fact = EvidenceFact(
-        fact_type="report_scope_products",
-        value=True,
-        source_type="adapter_report_scope",
-        source_id="weekly_report",
-        resolve_type="weekly_report",
-        metadata={"products": [{"product_name": "Product A"}]},
-    )
-
-    decision = retrieval_source_guard(
-        plan=plan,
-        policy=compile_policy(request),
-        evidence_facts=[weekly_fact],
-        domain_context=DomainContextBuilder().build(request),
-    )
-
-    assert decision.outcome == "abstain"
-    assert decision.phase == "retrieval_source"
-    assert decision.reason_code == "required_evidence_missing"
-
-
-def test_retrieval_guard_blocks_wrong_channel_evidence():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    plan = material_answer_plan(request)
-    fact = material_product_fact(
-        "Product A",
-        scope=ArtifactScope(channel_id="adapter_channel:bank:other channel"),
-    )
-
-    decision = retrieval_source_guard(
-        plan=plan,
-        policy=compile_policy(request),
-        evidence_facts=[fact],
-        domain_context=DomainContextBuilder().build(request),
-    )
-
-    assert decision.outcome == "abstain"
-    assert decision.reason_code == "channel_scope_mismatch"
-
-
-def test_retrieval_guard_blocks_wrong_material_pack_option_evidence():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    plan = material_answer_plan(request).model_copy(
-        update={"material_pack_option": "指增"}
-    )
-    fact = material_product_fact("Product A", material_pack_option="中证500")
-
-    decision = retrieval_source_guard(
-        plan=plan,
-        policy=compile_policy(request),
-        evidence_facts=[fact],
-        domain_context=DomainContextBuilder().build(request),
-    )
-
-    assert decision.outcome == "abstain"
-    assert decision.reason_code == "material_pack_option_scope_mismatch"
-
-
-def test_retrieval_guard_blocks_history_when_current_material_artifact_required():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    plan = material_answer_plan(request)
-    fact = material_product_fact(
-        "Product A",
-        source_type="action_ledger",
-        artifact_type="history",
-    )
-
-    decision = retrieval_source_guard(
-        plan=plan,
-        policy=compile_policy(request),
-        evidence_facts=[fact],
-        domain_context=DomainContextBuilder().build(request),
-    )
-
-    assert decision.outcome == "abstain"
-    assert decision.reason_code == "history_source_not_current_artifact"
-
-
-def test_retrieval_guard_allows_valid_material_pack_artifact():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    plan = material_answer_plan(request)
-    fact = material_product_fact("Product A", material_pack_option="指增")
-
-    decision = retrieval_source_guard(
-        plan=plan,
-        policy=compile_policy(request),
-        evidence_facts=[fact],
-        domain_context=DomainContextBuilder().build(request),
-    )
-
-    assert decision.outcome == "allow"
-    assert decision.evidence_seen
-
-
 def test_execution_tool_guard_blocks_invalid_artifact_id_before_execution():
     request = make_request()
     domain_context = DomainContextBuilder().build(request)
@@ -627,163 +484,6 @@ def test_execution_tool_guard_allows_document_tool_through_capability_policy():
 
     assert decision.outcome == "allow"
     assert "document_mcp.get_documents" in decision.metadata["tools_seen"]
-
-
-def test_output_guard_does_not_use_product_keyword_scan_as_final_authority():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    plan = material_answer_plan(request)
-    fact = material_product_fact("Product A")
-    response = ReplyResponse(
-        response_id="resp-1",
-        reply=PrimaryReply(kind="answer", text="材料包包含：Product B。"),
-        actions=[],
-    )
-
-    result = validate_reply(
-        response,
-        make_directive(
-            plan,
-            mode="knowledge_answer",
-            reply_kind="answer",
-            requires_knowledge_composer=True,
-            action_intents=[],
-        ),
-        plan,
-        derive_business_facts([fact], request),
-        [fact],
-        compile_policy(request),
-        domain_context=DomainContextBuilder().build(request),
-    )
-
-    assert result.valid is True
-
-
-def test_runtime_keeps_output_when_only_old_product_keyword_scan_would_fail():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    plan = material_answer_plan(request)
-    fact = material_product_fact("Product A")
-    directive = make_directive(
-        plan,
-        mode="knowledge_answer",
-        reply_kind="answer",
-        requires_knowledge_composer=True,
-        action_intents=[],
-    )
-    runtime = CrewAIReplyRuntime(
-        Settings(llm_api_key="test-key", reply_alignment_verifier_enabled=False)
-    )
-
-    attempt = runtime._validated_attempt(
-        plan=plan,
-        plan_validation=PlanValidationResult(valid=True),
-        preflight=AdapterPreflightSnapshot.empty(),
-        evidence_facts=[fact],
-        business_facts=derive_business_facts([fact], request),
-        domain_context=DomainContextBuilder().build(
-            request,
-            available_artifacts=[fact],
-        ),
-        directive=directive,
-        response=ReplyResponse(
-            response_id="resp-1",
-            reply=PrimaryReply(kind="answer", text="材料包包含：Product B。"),
-            actions=[],
-        ),
-        policy=compile_policy(request),
-        guardrail_decisions=[],
-    )
-
-    assert attempt.response.reply.kind == "answer"
-    assert attempt.response.reply.text == "材料包包含：Product B。"
-    assert attempt.response.actions == []
-    assert attempt.reply_validation.valid is True
-
-
-def test_output_guard_requires_composer_to_cite_allowed_evidence_ids():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    plan = material_answer_plan(request)
-    fact = material_product_fact("Product A")
-    response = ReplyResponse(
-        response_id="resp-1",
-        reply=PrimaryReply(kind="answer", text="材料包包含：Product A。"),
-        actions=[],
-    )
-    composer_output = ComposerReplyOutput(
-        response_id="resp-1",
-        response_mode="answer",
-        claims=["材料包包含 Product A"],
-        evidence_ids=[],
-        reply=response.reply,
-    )
-
-    result = validate_reply(
-        response,
-        make_directive(
-            plan,
-            mode="knowledge_answer",
-            reply_kind="answer",
-            requires_knowledge_composer=True,
-            action_intents=[],
-        ),
-        plan,
-        derive_business_facts([fact], request),
-        [fact],
-        compile_policy(request),
-        domain_context=DomainContextBuilder().build(request),
-        composer_output=composer_output,
-    )
-
-    assert result.valid is False
-    assert result.issues[0].code == "unsupported_evidence_claim"
-    assert result.issues[0].metadata["claims"] == ["材料包包含 Product A"]
-
-
-def test_validate_reply_rejects_claim_citing_history_source():
-    request = make_request(
-        message="材料包里有哪些产品",
-        available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-    )
-    plan = material_answer_plan(request)
-    history_fact = material_product_fact(
-        "Old Product",
-        source_type="conversation_history",
-        artifact_type="material_pack",
-    )
-    evidence_id = "conversation_history:material_pack:material_pack_product_list"
-    response = ReplyResponse(
-        response_id="resp-1",
-        reply=PrimaryReply(kind="answer", text="材料包包含：Old Product。"),
-        actions=[],
-    )
-    composer_output = ComposerReplyOutput(
-        response_id="resp-1",
-        response_mode="answer",
-        claims=["材料包包含 Old Product"],
-        evidence_ids=[evidence_id],
-        reply=response.reply,
-    )
-
-    result = validate_reply(
-        response,
-        make_directive(
-            plan,
-            mode="knowledge_answer",
-            reply_kind="answer",
-            requires_knowledge_composer=True,
-            action_intents=[],
-        ),
-        plan,
-        derive_business_facts([history_fact], request),
-        [history_fact],
-        compile_policy(request),
-        domain_context=DomainContextBuilder().build(request, available_artifacts=[history_fact]),
-        composer_output=composer_output,
-    )
-
-    assert result.valid is False
-    assert result.issues[0].code == "unsupported_evidence_claim"
-    assert result.issues[0].metadata["invalid_evidence_ids"] == [evidence_id]
-
 
 
 def test_validate_reply_allows_report_scope_evidence_for_knowledge_answer():

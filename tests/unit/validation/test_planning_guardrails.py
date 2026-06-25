@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.planning import (
     compile_plan_spec,
     validate_execution_plan,
@@ -20,7 +19,6 @@ def test_compile_plan_spec_builds_weekly_report_action():
             action_intent="send",
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -47,7 +45,6 @@ def test_compile_plan_spec_does_not_scope_report_send_by_material_pack_option():
             material_pack_option="指增",
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -70,7 +67,6 @@ def test_material_pack_scope_must_be_request_option():
             material_pack_option="中证500",
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -92,7 +88,6 @@ def test_compile_plan_spec_uses_document_context_for_knowledge_answer():
             requested_capabilities=["document_context"],
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -116,7 +111,6 @@ def test_compile_plan_spec_routes_report_product_question_to_evidence():
             evidence_query="report_scope_products",
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -129,8 +123,8 @@ def test_compile_plan_spec_routes_report_product_question_to_evidence():
 def test_compile_plan_spec_routes_general_product_availability_to_material_pack_send():
     request = make_request(
         message=(
-            "\u4f60\u4eec\u4ee3\u9500\u7684\u7075\u6d3b\u5bf9\u51b2"
-            "\u7684\u4ea7\u54c1\u6709\u54ea\u4e9b\u5440"
+            "你们代销的灵活对冲"
+            "的产品有哪些呀"
         ),
         available_artifacts=[{"type": "material_pack", "options": ["flexible_hedge"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
@@ -144,7 +138,6 @@ def test_compile_plan_spec_routes_general_product_availability_to_material_pack_
             material_pack_option="flexible_hedge",
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -161,7 +154,7 @@ def test_compile_plan_spec_routes_general_product_availability_to_material_pack_
 
 def test_compile_plan_spec_drops_material_pack_option_when_request_has_single_current_pack():
     request = make_request(
-        message="\u4f60\u4eec\u4ee3\u9500\u7684\u7075\u6d3b\u5bf9\u51b2\u7684\u4ea7\u54c1\u6709\u54ea\u4e9b\u5440",
+        message="你们代销的灵活对冲的产品有哪些呀",
         available_artifacts=[{"type": "material_pack", "options": []}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     policy = compile_policy(request)
@@ -171,10 +164,9 @@ def test_compile_plan_spec_drops_material_pack_option_when_request_has_single_cu
             request,
             artifact_kind="material_pack",
             action_intent="send",
-            material_pack_option="\u7075\u6d3b\u5bf9\u51b2",
+            material_pack_option="灵活对冲",
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -205,7 +197,6 @@ def test_compile_plan_spec_builds_multiple_send_actions():
             ],
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -244,7 +235,6 @@ def test_compile_plan_spec_builds_mixed_answer_and_send_plan():
             ],
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -278,7 +268,6 @@ def test_compile_plan_spec_keeps_answer_when_one_clause_abstains():
             ],
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -305,7 +294,6 @@ def test_compile_plan_spec_refusal_has_no_actions_or_evidence():
             },
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -328,7 +316,6 @@ def test_compile_plan_spec_carries_artifact_clarification_slot():
             ambiguity_slots=["artifact"],
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 
@@ -349,7 +336,6 @@ def test_report_query_is_not_a_user_clarification_slot():
             ambiguity_slots=["report_query"],
         ),
         request,
-        canonicalize_request(request),
         policy,
     )
 

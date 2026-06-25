@@ -12,7 +12,6 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
 from market_support_crewai_agent.runtime.domain.compliance_policy import (
     ComplianceReasonCode,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.plan_spec import (
     AnswerabilityPolicy,
@@ -35,11 +34,10 @@ from market_support_crewai_agent.schemas import ReplyRequest
 def compile_plan_spec(
     spec: PlanSpec,
     request: ReplyRequest,
-    canonical_context: CanonicalContext,
     policy: PolicyManifest,
     domain_context: DomainContext | None = None,
 ) -> ExecutionPlan:
-    del request, canonical_context, domain_context
+    del request, domain_context
     units = list(spec.plan_units)
     response_mode = _response_mode_for_plan_spec(units)
     material_pack_option = _material_pack_option_for_plan_spec(units, policy)
@@ -89,7 +87,7 @@ def compile_plan_spec(
                         unit_material_pack_option,
                     )
                 )
-            if answerability == "send" and capability.side_effect_action_type is not None:
+            if answerability == "send" and capability.outbound_action_type is not None:
                 unit_material_pack_option = _material_pack_option_for_plan_unit(
                     unit,
                     capability.name,
@@ -97,7 +95,7 @@ def compile_plan_spec(
                 )
                 action_intents.append(
                     ActionIntentSpec(
-                        action_type=capability.side_effect_action_type,
+                        action_type=capability.outbound_action_type,
                         capability=capability.name,
                         material_pack_option=_action_material_pack_option(
                             capability.name,

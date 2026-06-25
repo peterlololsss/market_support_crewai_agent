@@ -15,7 +15,6 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightSnapshot,
 )
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationMessage
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
@@ -53,7 +52,7 @@ class IntentGateResult(StrictModel):
         "unclear",
         "smalltalk",
     ]
-    side_effect_hint: bool = False
+    outbound_action_hint: bool = False
     material_pack_option_count: int = 0
     compliance_hint: Literal["clean", "risky", "blocked", "unknown"] = "unknown"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -64,7 +63,6 @@ class PromptAssemblyContext:
     stage: PromptStage
     model_family: ModelFamily
     request: ReplyRequest
-    canonical_context: CanonicalContext
     policy: PolicyManifest
     model_visible_context: ModelVisibleContext | None = None
     domain_context: DomainContext | None = None
@@ -93,7 +91,6 @@ def render_prompt_context_layers(ctx: PromptAssemblyContext) -> dict[PromptLayer
     projection = ctx.model_visible_context or ContextProjectionManager().project_for_stage(
         stage=ctx.stage,
         request=ctx.request,
-        canonical_context=ctx.canonical_context,
         domain_context=ctx.domain_context,
         policy=ctx.policy,
         intent_gate=ctx.intent_gate,

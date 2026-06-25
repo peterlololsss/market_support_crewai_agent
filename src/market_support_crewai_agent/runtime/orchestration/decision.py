@@ -26,7 +26,6 @@ from market_support_crewai_agent.runtime.domain.planning.clarification import (
 )
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.runtime.domain.sources.precedence import (
-    evidence_facts_for_plan,
     plan_has_knowledge_evidence,
 )
 from market_support_crewai_agent.runtime.validation.guardrail_types import (
@@ -72,12 +71,15 @@ class DecisionEngine:
             )
 
         if plan.response_mode == "clarification" or plan.ambiguity_slots:
+            deterministic_clarification = _deterministic_clarification(plan)
             return _directive(
                 mode="clarification",
                 reply_kind="clarification",
                 text=_clarification_text(plan, business_facts, request),
-                requires_knowledge_composer=True,
-                composer_stage="knowledge_composer",
+                requires_knowledge_composer=not deterministic_clarification,
+                composer_stage=None
+                if deterministic_clarification
+                else "knowledge_composer",
                 reason_code="ambiguous_request",
             )
 
@@ -97,18 +99,6 @@ class DecisionEngine:
                     reply_kind="answer",
                     text=report_period_text,
                     reason_code="report_period_metadata_available",
-                )
-            material_products_text = _material_pack_product_answer(
-                plan,
-                evidence_facts,
-                domain_context,
-            )
-            if material_products_text:
-                return _directive(
-                    mode="knowledge_answer",
-                    reply_kind="answer",
-                    text=material_products_text,
-                    reason_code="material_pack_product_list_available",
                 )
             if _has_knowledge_answer_evidence(plan, evidence_facts, domain_context):
                 return _directive(
@@ -199,6 +189,13 @@ def _report_period_answer(
         if report_state.report_date:
             return f"这是{report_state.report_date}的{label}"
     return ""
+
+
+def _deterministic_clarification(plan: ExecutionPlan) -> bool:
+    return any(
+        decision.reason_code == "material_pack_option_confirmation_required"
+        for decision in plan.guardrail_decisions
+    )
 
 
 def _answer_report_resolve_types(plan: ExecutionPlan) -> set[str]:
@@ -311,19 +308,6 @@ def _action_directive(
                 action_intents=plan.action_intents,
                 reason_code="action_ready_with_deterministic_answer",
             )
-        material_products_text = _material_pack_product_answer(
-            plan,
-            evidence_facts,
-            domain_context,
-        )
-        if material_products_text:
-            return _directive(
-                mode="action",
-                reply_kind="answer",
-                text=material_products_text,
-                action_intents=plan.action_intents,
-                reason_code="action_ready_with_material_pack_product_list",
-            )
         if _has_knowledge_answer_evidence(plan, evidence_facts, domain_context):
             return _directive(
                 mode="action",
@@ -419,9 +403,9 @@ def _best_candidates(
 
 def _artifact_candidates(request: ReplyRequest) -> tuple[str, ...]:
     labels = {
-        "material_pack": "\u6750\u6599\u5305",
-        "weekly_report": "\u5468\u62a5",
-        "monthly_report": "\u6708\u62a5",
+        "material_pack": "材料包",
+        "weekly_report": "周报",
+        "monthly_report": "月报",
     }
     return tuple(
         label
@@ -490,35 +474,6 @@ def _has_knowledge_answer_evidence(
     domain_context: DomainContext | None = None,
 ) -> bool:
     return plan_has_knowledge_evidence(plan, evidence_facts, domain_context)
-
-
-def _material_pack_product_answer(
-    plan: ExecutionPlan,
-    evidence_facts: list[EvidenceFact],
-    domain_context: DomainContext | None = None,
-) -> str:
-    if "material_pack" not in plan.answer_capabilities:
-        return ""
-    products: list[str] = []
-    for fact in evidence_facts_for_plan(plan, evidence_facts, domain_context):
-        if fact.fact_type != "material_pack_product_list" or not fact.value:
-            continue
-        for item in fact.metadata.get("products", []):
-            name = _product_name(item)
-            if name and name not in products:
-                products.append(name)
-    if not products:
-        return ""
-    return "材料包包含：" + "、".join(products)
-
-
-def _product_name(value: object) -> str:
-    if isinstance(value, dict):
-        for key in ("product_name", "name", "display_name"):
-            text = str(value.get(key) or "").strip()
-            if text:
-                return text
-    return str(value or "").strip()
 
 
 def _sentence(text: str) -> str:

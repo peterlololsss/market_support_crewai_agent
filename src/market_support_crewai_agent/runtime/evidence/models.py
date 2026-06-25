@@ -23,7 +23,6 @@ from market_support_crewai_agent.schemas import AdapterResolveType
 
 EvidenceFactType = Literal[
     "material_pack_resolvable",
-    "material_pack_product_list",
     "material_pack_open_calendar",
     "weekly_report_resolvable",
     "monthly_report_resolvable",

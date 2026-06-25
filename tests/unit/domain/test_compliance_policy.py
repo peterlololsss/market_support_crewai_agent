@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.compliance_policy import (
     NON_COMPLIANT_REASON_CODES,
     compliance_policy_prompt_lines,
@@ -155,16 +154,14 @@ def test_non_compliant_reason_codes_require_refusal_text_for_reason(
 
 def test_planner_prompt_uses_harness_compliance_policy_allowlist():
     request = make_request(message="赎回费可以免了吗？")
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request)
     program = select_prompt_program(
         PromptAssemblyContext(
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
-            intent_gate=route_intent(request, canonical_context, policy),
+            intent_gate=route_intent(request, policy),
         )
     )
 
@@ -176,16 +173,14 @@ def test_planner_prompt_uses_harness_compliance_policy_allowlist():
 
 def test_compliance_prompt_uses_universal_taxonomy_for_blocked_requests():
     request = make_request(message="能保本吗？")
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request)
     program = select_prompt_program(
         PromptAssemblyContext(
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
-            intent_gate=route_intent(request, canonical_context, policy),
+            intent_gate=route_intent(request, policy),
         )
     )
 
@@ -197,16 +192,14 @@ def test_compliance_prompt_uses_universal_taxonomy_for_blocked_requests():
 
 def test_compliance_prompt_program_records_fragment_hashes():
     request = make_request(message="预期收益多少？")
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request)
     program = select_prompt_program(
         PromptAssemblyContext(
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
-            intent_gate=route_intent(request, canonical_context, policy),
+            intent_gate=route_intent(request, policy),
         )
     )
 
@@ -231,16 +224,14 @@ def test_compliance_prompt_prioritizes_named_service_person_handoff():
 
 def test_planner_prompt_routes_broad_performance_and_product_followups_to_artifacts():
     request = make_request(message="收益怎么样，有哪些产品？")
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request)
     program = select_prompt_program(
         PromptAssemblyContext(
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
-            intent_gate=route_intent(request, canonical_context, policy),
+            intent_gate=route_intent(request, policy),
         )
     )
 
@@ -249,18 +240,37 @@ def test_planner_prompt_routes_broad_performance_and_product_followups_to_artifa
     assert "target/expected/guaranteed/minimum return" in program.prompt_text
 
 
-def test_planner_prompt_treats_self_operated_strategy_as_faq():
-    request = make_request(message="自营盘规模多少？")
-    canonical_context = canonicalize_request(request)
+def test_planner_prompt_keeps_report_product_lists_separate_from_material_pack_sends():
+    request = make_request(message="有哪些产品？")
     policy = compile_policy(request)
     program = select_prompt_program(
         PromptAssemblyContext(
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
-            intent_gate=route_intent(request, canonical_context, policy),
+            intent_gate=route_intent(request, policy),
+        )
+    )
+
+    assert "general product availability" in program.prompt_text
+    assert "material-pack artifact" in program.prompt_text
+    assert "Only use report product-list capabilities" in program.prompt_text
+    assert "explicitly asks about products inside a weekly/monthly report" in program.prompt_text
+    assert 'evidence_query exactly to "report_scope_products"' in program.prompt_text
+    assert "shorthand/partial/informal product label" in program.prompt_text
+
+
+def test_planner_prompt_treats_self_operated_strategy_as_faq():
+    request = make_request(message="自营盘规模多少？")
+    policy = compile_policy(request)
+    program = select_prompt_program(
+        PromptAssemblyContext(
+            stage="planner_intent",
+            model_family="ds_v4pro",
+            request=request,
+            policy=policy,
+            intent_gate=route_intent(request, policy),
         )
     )
 

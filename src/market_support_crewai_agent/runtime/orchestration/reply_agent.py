@@ -29,10 +29,6 @@ from market_support_crewai_agent.runtime.state.runtime_trace import (
     use_runtime_trace,
 )
 from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
-from market_support_crewai_agent.runtime.domain.canonicalization import (
-    CanonicalContext,
-    canonicalize_request,
-)
 from market_support_crewai_agent.runtime.domain.ontology import (
     DomainContext,
     DomainContextBuilder,
@@ -98,6 +94,9 @@ from market_support_crewai_agent.runtime.domain.planning import (
     PlanValidationResult,
     plan_spec_for_execution_plan,
     validate_execution_plan,
+)
+from market_support_crewai_agent.runtime.domain.planning.direct_send import (
+    match_direct_send_command,
 )
 from market_support_crewai_agent.runtime.domain.policy import (
     PolicyManifest,
@@ -312,12 +311,6 @@ class CrewAIReplyRuntime:
                         },
                     )
 
-                with trace_span("domain.canonicalize"):
-                    canonical_context = canonicalize_request(
-                        request,
-                        domain_context=domain_context,
-                    )
-
                 model_family = model_family_from_settings(self.settings)
                 with trace_span("policy.compile"):
                     policy = compile_policy(
@@ -331,13 +324,12 @@ class CrewAIReplyRuntime:
                 trace_event(
                     "state.policy_compiled",
                     allowed_capabilities=policy.allowed_capabilities,
-                    allowed_actions=policy.allowed_side_effect_actions,
+                    allowed_actions=policy.allowed_outbound_actions,
                 )
 
                 with trace_span("intent.route"):
                     intent_gate = route_intent(
                         request,
-                        canonical_context,
                         policy,
                         history=history,
                     )
@@ -349,7 +341,6 @@ class CrewAIReplyRuntime:
                 with trace_span("candidate.build"):
                     candidate = await self._build_candidate_response(
                         request=request,
-                        canonical_context=canonical_context,
                         domain_context=domain_context,
                         policy=policy,
                         model_family=model_family,
@@ -362,11 +353,11 @@ class CrewAIReplyRuntime:
                 if (
                     candidate.reply_validation.valid
                     and self.settings.reply_alignment_verifier_enabled
+                    and not _skip_alignment_verifier(candidate)
                 ):
                     with trace_span("alignment.ensure"):
                         candidate = await self._ensure_aligned_response(
                             request=request,
-                            canonical_context=canonical_context,
                             domain_context=domain_context,
                             policy=policy,
                             model_family=model_family,
@@ -395,7 +386,6 @@ class CrewAIReplyRuntime:
                         directive=candidate.directive,
                         plan_validation=candidate.plan_validation,
                         action_history=action_history,
-                        canonical_context=canonical_context,
                         domain_context=candidate.domain_context,
                         preflight=candidate.preflight,
                         evidence_facts=candidate.evidence_facts,
@@ -436,7 +426,6 @@ class CrewAIReplyRuntime:
             self,
             *,
             request: ReplyRequest,
-            canonical_context: CanonicalContext,
             domain_context: DomainContext,
             policy: PolicyManifest,
             model_family,
@@ -448,11 +437,34 @@ class CrewAIReplyRuntime:
             alignment_verdict: ReplyAlignmentVerdict | None = None,
             alignment_attempt: int = 0,
     ) -> RuntimeAttemptResult:
+        with trace_span("direct_send.match"):
+            direct_send = match_direct_send_command(request, policy)
+        if direct_send.matched and direct_send.plan is not None:
+            trace_event(
+                "direct_send.matched",
+                status=direct_send.status,
+                reason_code=direct_send.reason_code,
+                pattern_id=direct_send.pattern_id,
+            )
+            return await self._build_candidate_from_plan(
+                request=request,
+                domain_context=domain_context,
+                policy=policy,
+                model_family=model_family,
+                intent_gate=intent_gate,
+                history=history,
+                action_history=action_history,
+                prompt_programs=prompt_programs,
+                llm_executions=llm_executions,
+                plan=direct_send.plan,
+                alignment_verdict=alignment_verdict,
+                alignment_attempt=alignment_attempt,
+            )
+
         with trace_span("planner.project_context"):
             planner_context = self._project_context(
                 stage="planner_intent",
                 request=request,
-                canonical_context=canonical_context,
                 domain_context=domain_context,
                 policy=policy,
                 intent_gate=intent_gate,
@@ -468,7 +480,6 @@ class CrewAIReplyRuntime:
                 stage="planner_intent",
             ),
             request=request,
-            canonical_context=canonical_context,
             model_visible_context=planner_context,
             domain_context=domain_context,
             policy=policy,
@@ -526,7 +537,6 @@ class CrewAIReplyRuntime:
             plan, error_summary = _coerce_planner_plan_with_error(
                 frame_result,
                 request,
-                canonical_context,
                 policy,
                 domain_context=domain_context,
                 history=history,
@@ -578,9 +588,8 @@ class CrewAIReplyRuntime:
                 plan, error_summary = _coerce_planner_plan_with_error(
                     frame_result,
                     request,
-                    canonical_context,
-                    policy,
-                    domain_context=domain_context,
+                        policy,
+                domain_context=domain_context,
                     history=history,
                 )
         if plan is None:
@@ -597,7 +606,6 @@ class CrewAIReplyRuntime:
         )
         return await self._build_candidate_from_plan(
             request=request,
-            canonical_context=canonical_context,
             domain_context=domain_context,
             policy=policy,
             model_family=model_family,
@@ -615,7 +623,6 @@ class CrewAIReplyRuntime:
             self,
             *,
             request: ReplyRequest,
-            canonical_context: CanonicalContext,
             domain_context: DomainContext,
             policy: PolicyManifest,
             model_family,
@@ -633,7 +640,7 @@ class CrewAIReplyRuntime:
                 update={
                     "plan_spec": plan_spec_for_execution_plan(
                         plan,
-                        domain_context=domain_context,
+                    domain_context=domain_context,
                     )
                 }
             )
@@ -649,7 +656,6 @@ class CrewAIReplyRuntime:
         with trace_span("evidence.execute"):
             evidence_result = await self.evidence_executor.execute(
                 request,
-                canonical_context,
                 plan,
                 policy,
                 action_history=action_history,
@@ -664,7 +670,6 @@ class CrewAIReplyRuntime:
         )
         return await self._build_candidate_from_evidence(
             request=request,
-            canonical_context=canonical_context,
             domain_context=getattr(evidence_result, "domain_context", domain_context),
             policy=policy,
             model_family=model_family,
@@ -690,7 +695,6 @@ class CrewAIReplyRuntime:
             self,
             *,
             request: ReplyRequest,
-            canonical_context: CanonicalContext,
             domain_context: DomainContext,
             policy: PolicyManifest,
             model_family,
@@ -711,7 +715,6 @@ class CrewAIReplyRuntime:
         with trace_span("answerability.assess"):
             answerability = AnswerabilityGate().assess(
                 request=request,
-                canonical_context=canonical_context,
                 domain_context=domain_context,
                 plan=plan,
                 policy=policy,
@@ -755,7 +758,6 @@ class CrewAIReplyRuntime:
         )
         response, composer_output = await self._compose_or_render_response(
             request=request,
-            canonical_context=canonical_context,
             domain_context=domain_context,
             policy=policy,
             model_family=model_family,
@@ -795,7 +797,6 @@ class CrewAIReplyRuntime:
             self,
             *,
             request: ReplyRequest,
-            canonical_context: CanonicalContext,
             domain_context: DomainContext,
             policy: PolicyManifest,
             model_family,
@@ -832,7 +833,6 @@ class CrewAIReplyRuntime:
             composer_context = self._project_context(
                 stage=composer_stage,
                 request=request,
-                canonical_context=canonical_context,
                 domain_context=domain_context,
                 policy=policy,
                 intent_gate=intent_gate,
@@ -854,9 +854,8 @@ class CrewAIReplyRuntime:
                     stage=composer_stage,
                     model_family=model_family,
                     request=request,
-                    canonical_context=canonical_context,
-                    model_visible_context=composer_context,
-                    domain_context=domain_context,
+                            model_visible_context=composer_context,
+                domain_context=domain_context,
                     policy=policy,
                     intent_gate=intent_gate,
                     execution_plan=plan,
@@ -1004,7 +1003,6 @@ class CrewAIReplyRuntime:
             self,
             *,
             request: ReplyRequest,
-            canonical_context: CanonicalContext,
             domain_context: DomainContext,
             policy: PolicyManifest,
             model_family,
@@ -1020,7 +1018,6 @@ class CrewAIReplyRuntime:
         return await ensure_aligned_response(
             self,
             request=request,
-            canonical_context=canonical_context,
             domain_context=domain_context,
             policy=policy,
             model_family=model_family,
@@ -1038,7 +1035,6 @@ class CrewAIReplyRuntime:
             self,
             *,
             request: ReplyRequest,
-            canonical_context: CanonicalContext,
             policy: PolicyManifest,
             model_family,
             intent_gate: IntentGateResult,
@@ -1053,7 +1049,6 @@ class CrewAIReplyRuntime:
             with trace_span("alignment.external_verifier", attempt=attempt):
                 verdict = await self.alignment_verifier.verify(
                     request=request,
-                    canonical_context=canonical_context,
                     domain_context=candidate.domain_context,
                     plan=candidate.plan,
                     directive=candidate.directive,
@@ -1069,7 +1064,6 @@ class CrewAIReplyRuntime:
             verifier_context = self._project_context(
                 stage="alignment_verifier",
                 request=request,
-                canonical_context=canonical_context,
                 domain_context=candidate.domain_context,
                 policy=policy,
                 intent_gate=intent_gate,
@@ -1091,9 +1085,8 @@ class CrewAIReplyRuntime:
                     stage="alignment_verifier",
                     model_family=model_family,
                     request=request,
-                    canonical_context=canonical_context,
-                    model_visible_context=verifier_context,
-                    domain_context=candidate.domain_context,
+                            model_visible_context=verifier_context,
+                domain_context=candidate.domain_context,
                     policy=policy,
                     intent_gate=intent_gate,
                     execution_plan=candidate.plan,
@@ -1195,7 +1188,6 @@ class CrewAIReplyRuntime:
             directive: ResponseDirective,
             plan_validation: PlanValidationResult,
             action_history: list[ActionLedgerRecord],
-            canonical_context: CanonicalContext,
             domain_context: DomainContext,
             preflight: AdapterPreflightSnapshot,
             evidence_facts: list,
@@ -1220,7 +1212,6 @@ class CrewAIReplyRuntime:
                 directive=directive,
                 plan_validation=plan_validation,
                 action_history=action_history,
-                canonical_context=canonical_context,
                 domain_context=domain_context,
                 preflight=preflight,
                 evidence_facts=evidence_facts,
@@ -1273,6 +1264,17 @@ class CrewAIReplyRuntime:
 
 def _validation_error_summary(validation: PlanValidationResult) -> str:
     return "; ".join(issue.code for issue in validation.issues) or "unknown"
+
+
+def _skip_alignment_verifier(candidate: RuntimeAttemptResult) -> bool:
+    return any(
+        decision.reason_code
+        in {
+            "direct_send_command_matched",
+            "material_pack_option_confirmation_required",
+        }
+        for decision in candidate.plan.guardrail_decisions
+    )
 
 
 async def _run_planner_kickoff_with_retry(
@@ -1385,7 +1387,6 @@ def _trace_composer_retry(attempt: int, delay_seconds: float, reason: str) -> No
 def _coerce_planner_plan_with_error(
     frame_result,
     request: ReplyRequest,
-    canonical_context: CanonicalContext,
     policy: PolicyManifest,
     *,
     domain_context: DomainContext,
@@ -1395,7 +1396,6 @@ def _coerce_planner_plan_with_error(
         plan = coerce_planner_plan(
             frame_result,
             request,
-            canonical_context,
             policy,
             domain_context=domain_context,
             history=history,

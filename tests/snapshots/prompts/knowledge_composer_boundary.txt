@@ -30,6 +30,8 @@ Answer only the current user question. Keep facts highly relevant, concise, and 
 
 Report-period evidence only supports report period/date/version answers. For weekly/monthly "date" questions, answer with the covered duration from period_start to period_end when available; do not answer with only report_date unless no duration fields exist. Do not use report-period evidence alone for product coverage, generated-product-list, or performance-metric answers.
 
+For report_scope_products evidence, inspect only the explicit products in Allowed evidence JSON. If full_product_list_in_prompt=true, you may answer product-presence/list questions from that closed list; when a shorthand or partial user label clearly points to one listed product, answer using the exact listed product_name. If several listed products could fit, ask one clarification. If full_product_list_in_prompt=false, do not claim a product is absent from the report; state that the current visible product page cannot fully confirm it.
+
 If evidence contains an explicit "截至" date, update date, report date, period, or other time limitation that qualifies the answer, preserve that time qualifier in the answer.
 
 Strictly distinguish similar product names in the evidence and the question. Do not mix 中证A500 with 中证500, 中证1000 with 中证500, or 沪深300 with 中证500.
@@ -82,7 +84,7 @@ Use only facts in Allowed evidence JSON permitted by the Runtime Capability & Ev
 
 Report-period facts are default report metadata. They may include period, report_date, period_start, period_end, and period_label; answer period/date questions from these facts without requiring report-scope product lookup. For weekly/monthly "date" questions, prefer the covered duration from period_start to period_end over a single report_date. Do not use report-period facts alone to answer product coverage, generated-product-list, or performance-metric questions.
 
-Report-scope facts are compact evidence. They may include period, report_date, product counts, report_sections, a bounded match result, or one paginated product page. Do not assume the full product list is present unless products are explicitly included and product_total_count is no larger than the returned products count.
+Report-scope facts are compact evidence. They may include period, report_date, product counts, report_sections, a bounded match result, or a bounded product list. Do not assume the full product list is present unless products are explicitly included and full_product_list_in_prompt=true.
 
 If evidence conflicts, prefer the allowed supplied evidence and avoid unsupported claims. If evidence is insufficient or only disallowed evidence is present, output response_mode=abstain with reply.kind=unable_to_answer and actions=[].
 
@@ -99,18 +101,13 @@ Runtime Capability & Evidence Boundary JSON:
       "block_type": "app_state",
       "included_reason": "preserve_runtime_state",
       "payload": {
-        "Canonical scope JSON": {
-          "material_pack_options": [
-            "中证1000"
-          ]
-        },
         "IntentGate JSON": {
           "artifact_hint": "unclear",
           "compliance_hint": "unknown",
           "confidence": 0.0,
           "contract_version": "intent-gate",
           "material_pack_option_count": 1,
-          "side_effect_hint": false
+          "outbound_action_hint": false
         },
         "Policy JSON": {
           "allowed_adapter_resolves": [
@@ -125,6 +122,11 @@ Runtime Capability & Evidence Boundary JSON:
             "monthly_report",
             "sales_mention",
             "weekly_report"
+          ],
+          "allowed_outbound_actions": [
+            "send_material_pack",
+            "send_monthly_report",
+            "send_weekly_report"
           ],
           "allowed_read_capabilities": [
             "query_internal_company_info",
@@ -143,16 +145,14 @@ Runtime Capability & Evidence Boundary JSON:
             "smalltalk",
             "unable"
           ],
-          "allowed_side_effect_actions": [
-            "send_material_pack",
-            "send_monthly_report",
-            "send_weekly_report"
-          ],
           "evidence_call_limit": 5,
           "ledger_summary": {
             "has_recent_executed_actions": false,
             "recent_executed_count": 0
           },
+          "material_pack_options": [
+            "中证1000"
+          ],
           "policy_id": "support-reply-policy:bank"
         },
         "Request metadata JSON": {
@@ -184,7 +184,7 @@ Runtime Capability & Evidence Boundary JSON:
         "answerability_assessment": {
           "ambiguity": "unknown_artifact",
           "can_answer": false,
-          "capability_id": "material_pack.product_list",
+          "capability_id": "channel.strategy_summary",
           "disallowed_evidence_ids": [
             {
               "evidence_id": "adapter_report_scope:weekly_report:report_scope_products",
@@ -192,16 +192,16 @@ Runtime Capability & Evidence Boundary JSON:
             }
           ],
           "missing_artifacts": [
-            "material_pack"
+            "document_context"
           ],
           "recommended_response_mode": "abstain",
           "required_artifacts": [
-            "material_pack"
+            "document_context"
           ],
           "required_runtime_inputs": [
             "request.dist_channel_name"
           ],
-          "user_facing_reason": "老师，材料包里的产品范围我这边暂时无法确认。"
+          "user_facing_reason": "document evidence missing"
         },
         "available_artifacts": [
           {
@@ -235,11 +235,11 @@ Runtime Capability & Evidence Boundary JSON:
       },
       "redacted": false,
       "title": "Runtime app state",
-      "token_estimate": 595
+      "token_estimate": 591
     }
   ],
   "contract_version": "model-visible-context",
-  "projection_id": "ctx-proj:f1935c10bb6e1c3f",
+  "projection_id": "ctx-proj:33a6ad65630331ba",
   "stage": "knowledge_composer"
 }
 </prompt_layer>

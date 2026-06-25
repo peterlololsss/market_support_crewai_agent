@@ -218,14 +218,6 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         required=True,
     ),
     PromptFragment(
-        id="canonicalization.report_scope_selector",
-        stage="report_scope_selector",
-        layer="task",
-        priority=10,
-        template_name="canonicalization/report_scope_selector.md",
-        required=True,
-    ),
-    PromptFragment(
         id="canonicalization.approved_knowledge_selector",
         stage="approved_knowledge_selector",
         layer="task",
@@ -287,15 +279,6 @@ PROMPT_AGENT_SPECS: tuple[PromptAgentSpec, ...] = (
         backstory=(
             "You specialize in choosing evidence sources from a fixed catalog. "
             "You never compose customer replies, invent IDs, or call tools."
-        ),
-    ),
-    PromptAgentSpec(
-        id="agent.report_scope_selector",
-        role="Closed-set Report Scope Selector",
-        goal="Select only a valid candidate report section or product name.",
-        backstory=(
-            "You select evidence targets from a fixed report-scope manifest. You "
-            "never compose customer replies or invent candidate names."
         ),
     ),
     PromptAgentSpec(

@@ -6,7 +6,6 @@ import logging
 from types import SimpleNamespace
 from time import perf_counter
 
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.planning import (
     ExecutionPlan,
@@ -205,7 +204,6 @@ def _log_llm_execution(
 def coerce_planner_plan(
     result,
     request: ReplyRequest,
-    canonical_context: CanonicalContext,
     policy: PolicyManifest,
     *,
     domain_context: DomainContext,
@@ -217,7 +215,6 @@ def coerce_planner_plan(
         return compile_plan_spec(
             plan_spec,
             request,
-            canonical_context,
             policy,
             domain_context=domain_context,
         )

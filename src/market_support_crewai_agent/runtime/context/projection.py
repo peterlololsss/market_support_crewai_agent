@@ -26,7 +26,6 @@ from market_support_crewai_agent.runtime.domain.business_facts import BusinessFa
 from market_support_crewai_agent.runtime.domain.capabilities.adapters import (
     planner_capability_cards,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.planning import (
     ExecutionPlan,
@@ -97,7 +96,6 @@ class ContextProjectionManager:
         *,
         stage: str,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         policy: PolicyManifest,
         domain_context: DomainContext | None = None,
         intent_gate: object | None = None,
@@ -129,7 +127,6 @@ class ContextProjectionManager:
                 exclude_none=True,
             ),
             current_user_message=request.message,
-            canonical_context=_compact_canonical_context(canonical_context),
             domain_context=_compact_domain_context(domain_context),
             policy=_compact_policy(policy),
             intent_gate=_model_dump(intent_gate),
@@ -307,7 +304,6 @@ class ContextProjectionManager:
             request=request,
             history=history,
             action_history=action_history,
-            canonical_context=canonical_context,
             domain_context=domain_context,
             policy=policy,
             intent_gate=intent_gate,
@@ -699,7 +695,6 @@ def _app_state_payload(app_state: RuntimeAppState) -> dict[str, Any]:
     payload = app_state.to_prompt_dict()
     payload.pop("current_user_message", None)
     request_payload = payload.pop("request_metadata", {})
-    canonical_payload = payload.pop("canonical_context", {})
     domain_payload = payload.pop("domain_context", {})
     policy_payload = payload.pop("policy", {})
     _rename(payload, "intent_gate", "IntentGate JSON")
@@ -710,11 +705,10 @@ def _app_state_payload(app_state: RuntimeAppState) -> dict[str, Any]:
     _rename(payload, "business_facts", "BusinessFacts JSON")
     return {
         "Request metadata JSON": request_payload,
-        "Canonical scope JSON": canonical_payload,
         "DomainContext JSON": domain_payload,
         "Policy JSON": policy_payload,
         "current_channel": _current_channel(domain_payload, request_payload),
-        "material_pack_routing": _material_pack_routing(canonical_payload),
+        "material_pack_routing": _material_pack_routing(policy_payload),
         "available_artifacts": _available_artifacts(domain_payload, request_payload),
         **payload,
     }
@@ -745,14 +739,6 @@ def _compact_domain_context(domain_context: DomainContext | None) -> dict[str, A
     return payload
 
 
-def _compact_canonical_context(canonical_context: CanonicalContext) -> dict[str, Any]:
-    payload = canonical_context.to_prompt_dict()
-    compact = {
-        "material_pack_options": payload.get("material_pack_options"),
-    }
-    return {key: value for key, value in compact.items() if value not in (None, [], {})}
-
-
 def _current_channel(domain_payload: object, request_payload: object) -> dict[str, Any]:
     if isinstance(domain_payload, dict) and isinstance(domain_payload.get("channel"), dict):
         return domain_payload["channel"]
@@ -765,10 +751,10 @@ def _current_channel(domain_payload: object, request_payload: object) -> dict[st
     }
 
 
-def _material_pack_routing(canonical_payload: object) -> dict[str, Any]:
-    canonical = canonical_payload if isinstance(canonical_payload, dict) else {}
+def _material_pack_routing(policy_payload: object) -> dict[str, Any]:
+    policy = policy_payload if isinstance(policy_payload, dict) else {}
     payload: dict[str, Any] = {
-        "material_pack_options": canonical.get("material_pack_options"),
+        "material_pack_options": policy.get("material_pack_options"),
     }
     return {key: value for key, value in payload.items() if value}
 
@@ -905,9 +891,10 @@ def _compact_policy(policy: PolicyManifest) -> dict[str, Any]:
         "policy_id": policy.policy_id,
         "allowed_reply_modes": sorted(policy.allowed_reply_modes),
         "allowed_capabilities": sorted(policy.allowed_capabilities),
-        "allowed_side_effect_actions": sorted(policy.allowed_side_effect_actions),
+        "allowed_outbound_actions": sorted(policy.allowed_outbound_actions),
         "allowed_read_capabilities": sorted(policy.allowed_read_capabilities),
         "allowed_adapter_resolves": sorted(policy.allowed_adapter_resolves),
+        "material_pack_options": list(policy.material_pack_options),
         "ledger_summary": policy.ledger_summary.to_prompt_dict(),
         "evidence_call_limit": policy.evidence_call_limit,
     }

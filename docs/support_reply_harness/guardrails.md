@@ -66,7 +66,7 @@ Outputs:
 ```text
 allowed reply modes
 allowed capabilities
-allowed side-effect actions
+allowed outbound actions
 allowed read capabilities
 allowed adapter resolves
 evidence size/call limits
@@ -88,7 +88,7 @@ allowed_capabilities:
 - monthly_report
 - sales_mention
 
-allowed_side_effect_actions:
+allowed_outbound_actions:
 - send_weekly_report
 - send_monthly_report
 

@@ -51,7 +51,7 @@ def send_scope_policy(
         allowed_capabilities=sorted(policy.allowed_capabilities),
         allowed_artifact_types=artifact_types,
         allowed_destinations=ordered_unique(destinations),
-        allowed_actions=sorted(policy.allowed_side_effect_actions),
+        allowed_actions=sorted(policy.allowed_outbound_actions),
         required_user_confirmation=[],
         redaction_policy={
             "sensitive_fields": ["resolve_ref", "internal_locator"],
@@ -84,7 +84,7 @@ def input_guard(
         for item in getattr(intent_frame, "requested_capabilities", []) or []
     ]
     work_items = list(getattr(intent_frame, "work_items", []) or [])
-    side_effect_requested = action_intent == "send" or any(
+    outbound_action_requested = action_intent == "send" or any(
         str(getattr(item, "intent", "") or "") == "send" for item in work_items
     )
 
@@ -130,7 +130,7 @@ def input_guard(
             source_scopes=[requested_scope_dict(scope)],
         )
 
-    if not side_effect_requested and not scope.has_destination:
+    if not outbound_action_requested and not scope.has_destination:
         return make_decision(
             "allow",
             "input",

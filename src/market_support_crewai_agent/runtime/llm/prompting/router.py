@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationMessage
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
 from market_support_crewai_agent.runtime.llm.prompting.assembler import (
@@ -41,23 +40,19 @@ def model_family_from_settings(
 
 def route_intent(
     request: ReplyRequest,
-    canonical_context: CanonicalContext,
     policy: PolicyManifest,
     history: list[ConversationMessage] | None = None,
 ) -> IntentGateResult:
     """Audit hint only.
 
     The planner LLM is the semantic router. This function must not infer artifact
-    kind, compliance status, or side-effect intent from message substrings.
+    kind, compliance status, or outbound-action intent from message substrings.
     """
-    del policy, history
+    del history
     return IntentGateResult(
         artifact_hint="unclear",
-        side_effect_hint=False,
-        material_pack_option_count=_material_pack_option_count(
-            request,
-            canonical_context,
-        ),
+        outbound_action_hint=False,
+        material_pack_option_count=_material_pack_option_count(request, policy),
         compliance_hint="unknown",
         confidence=0.0,
     )
@@ -126,7 +121,7 @@ def _model_fragment(model_family: ModelFamily) -> str:
 
 def _material_pack_option_count(
     request: ReplyRequest,
-    canonical_context: CanonicalContext,
+    policy: PolicyManifest,
 ) -> int:
     del request
-    return len(canonical_context.material_pack_options)
+    return len(policy.material_pack_options)

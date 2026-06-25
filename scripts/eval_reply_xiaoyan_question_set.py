@@ -15,6 +15,7 @@ Examples:
     uv run --extra dev python scripts/eval_reply_xiaoyan_question_set.py --live-adapter
     uv run --extra dev python scripts/eval_reply_xiaoyan_question_set.py --label refuse_unsafe
     uv run --extra dev python scripts/eval_reply_xiaoyan_question_set.py --ids 26,87,106
+    uv run --extra dev python scripts/eval_reply_xiaoyan_question_set.py --output-md report.md
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ import sys
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -120,17 +122,29 @@ def _load_dotenv(path: Path = Path(".env")) -> None:
             os.environ[key] = value
 
 
+def _env(name: str, default: str) -> str:
+    return os.getenv(name, default)
+
+
 def _payload(question: Question) -> dict:
+    conversation_key_base = _env(
+        "MARKET_AGENT_EVAL_CONVERSATION_KEY_BASE",
+        "wecom:R:208304695202088:1688857180791030",
+    )
     return {
         "context_id": f"xiaoyan-eval-{question.id}",
-        "conversation_key": f"wecom:xiaoyan-eval:{question.id}",
-        "group_id": "xiaoyan-eval-group",
-        "sender_id": f"sender-{question.id}",
+        "conversation_key": f"{conversation_key_base}:q{question.id}",
+        "group_id": _env("MARKET_AGENT_EVAL_GROUP_ID", "R:208304695202088"),
+        "sender_id": _env("MARKET_AGENT_EVAL_SENDER_ID", "1688857180791030"),
         "message": question.question,
         "is_group": True,
-        "group_name": "xiaoyan eval group",
-        "dist_channel_name": os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME", "测试渠道"),
-        "sender_nickname": "测试用户",
+        "group_name": _env(
+            "MARKET_AGENT_EVAL_GROUP_NAME",
+            "银河证券-衍复投资沟通交流测试4",
+        ),
+        "dist_channel_name": os.getenv("MARKET_AGENT_LIVE_ADAPTER_DIST_NAME")
+        or _env("MARKET_AGENT_EVAL_DIST_CHANNEL_NAME", "银河证券"),
+        "sender_nickname": _env("MARKET_AGENT_EVAL_SENDER_NICKNAME", "孙逸凡"),
         "available_artifacts": [
             {
                 "type": "material_pack",
@@ -140,6 +154,13 @@ def _payload(question: Question) -> dict:
             {"type": "monthly_report"},
         ],
         "channel_type": "non_bank",
+        "allowed_read_capabilities": [
+            "query_internal_company_info",
+            "resolve_material_pack",
+            "resolve_monthly_report",
+            "resolve_sales_mention",
+            "resolve_weekly_report",
+        ],
     }
 
 
@@ -215,9 +236,81 @@ def _summarize_actions(actions: list) -> str:
     return "; ".join(parts)
 
 
+def _write_markdown_report(
+    path: Path,
+    *,
+    results: list[tuple[Question, int, str, list, str]],
+    started: datetime,
+    finished: datetime,
+    parallel: int,
+    live_adapter: bool,
+) -> None:
+    sample_payload = _payload(results[0][0]) if results else {}
+    by_label: dict[str, int] = defaultdict(int)
+    by_status: dict[int, int] = defaultdict(int)
+    by_kind: dict[str, int] = defaultdict(int)
+    action_count = 0
+    for item, status, kind, actions, _text in results:
+        by_label[item.label] += 1
+        by_status[status] += 1
+        by_kind[kind or "-"] += 1
+        action_count += len(actions)
+
+    lines = [
+        "# Xiaoyan Question Set Eval Report",
+        "",
+        f"Generated: {finished.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Started: {started.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Finished: {finished.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Questions: {len(results)}",
+        f"Parallel: {parallel}",
+        "Runner: in-process POST /reply via FastAPI TestClient",
+        f"Adapter: {'live xiaoyan adapter' if live_adapter else 'fake preflight'}",
+        "Document MCP / LLM: .env settings",
+        f"dist_channel_name: `{sample_payload.get('dist_channel_name', '-')}`",
+        f"group_id: `{sample_payload.get('group_id', '-')}`",
+        f"group_name: {sample_payload.get('group_name', '-')}",
+        f"sender_id: `{sample_payload.get('sender_id', '-')}`",
+        "",
+        "## Counts",
+        "",
+        "### By label",
+        "",
+    ]
+    lines += [f"- {label}: {count}" for label, count in by_label.items()]
+    lines += ["", "### By HTTP status", ""]
+    lines += [f"- {status}: {count}" for status, count in sorted(by_status.items())]
+    lines += ["", "### By reply kind", ""]
+    lines += [f"- {kind}: {count}" for kind, count in by_kind.items()]
+    lines += ["", f"Actions proposed: {action_count}", "", "## Results", ""]
+
+    for item, status, kind, actions, text in results:
+        flag = "ok" if status == 200 else "ERR"
+        lines += [
+            f"### [{flag}] #{item.id} {item.label}",
+            "",
+            f"- status: `{status}`",
+            f"- kind: `{kind or '-'}`",
+            f"- actions: {_summarize_actions(actions)}",
+            "",
+            "Q:",
+            "",
+            item.question,
+            "",
+            "A:",
+            "",
+            text.strip() or "<empty>",
+            "",
+        ]
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main() -> None:
     _load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-md", type=Path, help="Write a markdown report for manual quality review.")
     parser.add_argument("--label", choices=LABELS, help="Only run one label.")
     parser.add_argument("--ids", help="Comma-separated question ids to run.")
     parser.add_argument("--limit", type=int, help="Cap the number of questions.")
@@ -251,11 +344,13 @@ def main() -> None:
         status, kind, actions, text = _post_reply(_thread_client(app), _payload(item))
         return item, status, kind, actions, text
 
+    started = datetime.now().astimezone()
     if parallel == 1:
-        results = map(run_one, items)
+        results = list(map(run_one, items))
     else:
         with ThreadPoolExecutor(max_workers=parallel) as pool:
             results = list(pool.map(run_one, items))
+    finished = datetime.now().astimezone()
 
     for item, status, kind, actions, text in results:
         by_label_total[item.label] += 1
@@ -277,6 +372,16 @@ def main() -> None:
     total_all = sum(by_label_total.values())
     if total_all:
         print(f"  {'TOTAL':<14} {total_all:>3}")
+    if args.output_md:
+        _write_markdown_report(
+            args.output_md,
+            results=results,
+            started=started,
+            finished=finished,
+            parallel=parallel,
+            live_adapter=args.live_adapter,
+        )
+        print(f"\nreport written: {args.output_md}")
 
 
 if __name__ == "__main__":

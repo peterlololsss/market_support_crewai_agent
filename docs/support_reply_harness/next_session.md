@@ -129,7 +129,7 @@ one `ExecutionPlan` and the verifier validates each unit generically through `Pl
 
 Evidence executor now runs after execution-plan validation. It resolves only the adapter preflight specs present in
 `ExecutionPlan.adapter_resolves`; the compiler must include `sales_mention` when deterministic handoff or unavailable
-side-effect paths need it. Document MCP runs only for compliant `knowledge_answer` plans that request
+outbound-action paths need it. Document MCP runs only for compliant `knowledge_answer` plans that request
 `document_context` and only when the feature flag is enabled.
 
 ## Ledger timing

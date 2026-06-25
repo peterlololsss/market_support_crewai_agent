@@ -13,7 +13,7 @@ Last updated: 2026-06-17.
 | Reply sent/report claim guarding | Final validation scans over reply text for send/report/material tokens and report exclusion templates. | Action legality, source scope, and answerability are enforced through `ExecutionPlan`, `BusinessFacts`, direct guard functions, `ComposerReplyOutput.evidence_ids`, and plan-spec verification. |
 | Material product claim scan | Regex scan for `Product...` strings in final answer text. | Composer must cite allowed evidence IDs; evidence contract and plan-spec checks decide whether answer output is valid. |
 | Document MCP block ranking | Local semantic term/n-gram/strategy substring block scoring. | Closed-set document selection chooses document IDs before fetch; local bounding now truncates selected document text without semantic ranking. |
-| Prompt router audit field | Empty `matched_keywords` field. | Removed. The router returns only non-authoritative audit hints derived from `CanonicalContext`. |
+| Prompt router audit field | Empty `matched_keywords` field. | Removed. The router returns only non-authoritative audit hints derived from `PolicyManifest`. |
 
 ## Original Failure Mode
 

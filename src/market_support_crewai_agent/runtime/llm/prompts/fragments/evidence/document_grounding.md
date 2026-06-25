@@ -4,7 +4,7 @@ Use only facts in Allowed evidence JSON permitted by the Runtime Capability & Ev
 
 Report-period facts are default report metadata. They may include period, report_date, period_start, period_end, and period_label; answer period/date questions from these facts without requiring report-scope product lookup. For weekly/monthly "date" questions, prefer the covered duration from period_start to period_end over a single report_date. Do not use report-period facts alone to answer product coverage, generated-product-list, or performance-metric questions.
 
-Report-scope facts are compact evidence. They may include period, report_date, product counts, report_sections, a bounded match result, or one paginated product page. Do not assume the full product list is present unless products are explicitly included and product_total_count is no larger than the returned products count.
+Report-scope facts are compact evidence. They may include period, report_date, product counts, report_sections, a bounded match result, or a bounded product list. Do not assume the full product list is present unless products are explicitly included and full_product_list_in_prompt=true.
 
 If evidence conflicts, prefer the allowed supplied evidence and avoid unsupported claims. If evidence is insufficient or only disallowed evidence is present, output response_mode=abstain with reply.kind=unable_to_answer and actions=[].
 

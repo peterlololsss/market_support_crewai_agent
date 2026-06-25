@@ -11,7 +11,6 @@ from market_support_crewai_agent.runtime.knowledge.approved_knowledge import (
     ApprovedKnowledgeEvidenceService,
     ApprovedKnowledgeSelection,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.evidence.executor import EvidenceExecutor
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
@@ -69,14 +68,12 @@ class FakePreflightService:
     async def collect(
             self,
             request,
-            canonical_context=None,
             resolve_types=None,
             resolve_material_pack_options=None,
     ):
         self.calls.append(
             (
                 request,
-                canonical_context,
                 tuple(resolve_types or []),
                 dict(resolve_material_pack_options or {}),
             )
@@ -110,21 +107,19 @@ class FakePreflightService:
 
 def test_evidence_executor_runs_preflight_and_derives_business_facts():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     fake_preflight = FakePreflightService()
     executor = EvidenceExecutor(fake_preflight)
 
     result = asyncio.run(
         executor.execute(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request),
         )
     )
 
     assert fake_preflight.calls == [
-        (request, canonical_context, ("weekly_report", "sales_mention"), {})
+        (request, ("weekly_report", "sales_mention"), {})
     ]
     assert result.preflight.items[0].status == "resolved"
     assert result.evidence_facts[0].fact_type == "weekly_report_resolvable"
@@ -135,7 +130,6 @@ def test_evidence_executor_runs_preflight_and_derives_business_facts():
 
 def test_evidence_executor_passes_material_pack_option_to_preflight():
     request = make_request(message="这个材料包发一下")
-    canonical_context = canonicalize_request(request)
     fake_preflight = FakePreflightService()
     executor = EvidenceExecutor(fake_preflight)
     plan = make_plan(
@@ -146,7 +140,6 @@ def test_evidence_executor_passes_material_pack_option_to_preflight():
     result = asyncio.run(
         executor.execute(
             request,
-            canonical_context,
             plan,
             compile_policy(request),
         )
@@ -155,7 +148,6 @@ def test_evidence_executor_passes_material_pack_option_to_preflight():
     assert fake_preflight.calls == [
         (
             request,
-            canonical_context,
             ("material_pack", "sales_mention"),
             {"material_pack": "中证1000"},
         )
@@ -165,7 +157,6 @@ def test_evidence_executor_passes_material_pack_option_to_preflight():
 
 def test_evidence_executor_allows_plan_without_adapter_resolves():
     request = make_request(message="hi")
-    canonical_context = canonicalize_request(request)
 
     class EmptyPreflightService:
         def __init__(self):
@@ -174,14 +165,12 @@ def test_evidence_executor_allows_plan_without_adapter_resolves():
         async def collect(
                 self,
                 request,
-                canonical_context=None,
-                resolve_types=None,
+                    resolve_types=None,
                 resolve_material_pack_options=None,
         ):
             self.calls.append(
                 (
                         request,
-                        canonical_context,
                         tuple(resolve_types or []),
                         dict(resolve_material_pack_options or {}),
                     )
@@ -208,13 +197,12 @@ def test_evidence_executor_allows_plan_without_adapter_resolves():
     result = asyncio.run(
         executor.execute(
             request,
-            canonical_context,
             plan,
             policy,
         )
     )
 
-    assert preflight.calls == [(request, canonical_context, (), {})]
+    assert preflight.calls == [(request, (), {})]
     assert result.preflight == AdapterPreflightSnapshot.empty()
     assert result.evidence_facts == []
 
@@ -224,7 +212,6 @@ def test_evidence_executor_adds_approved_static_knowledge_context():
         message="你们有微信公众号吗",
         allowed_read_capabilities=["query_internal_company_info"],
     )
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
     plan = compile_test_plan(
         request,
@@ -246,11 +233,10 @@ def test_evidence_executor_adds_approved_static_knowledge_context():
         async def collect(
                 self,
                 request,
-                canonical_context=None,
-                resolve_types=None,
+                    resolve_types=None,
                 resolve_material_pack_options=None,
         ):
-            del request, canonical_context, resolve_types, resolve_material_pack_options
+            del request, resolve_types, resolve_material_pack_options
             return AdapterPreflightSnapshot.empty()
 
     class FakeSelector:
@@ -270,7 +256,6 @@ def test_evidence_executor_adds_approved_static_knowledge_context():
             ),
         ).execute(
             request,
-            canonical_context,
             plan,
             policy,
         )
@@ -289,7 +274,6 @@ def test_evidence_executor_adds_approved_static_knowledge_context():
 
 def test_evidence_executor_merges_recent_executed_action_facts():
     request = make_request()
-    canonical_context = canonicalize_request(request)
     ledger = ActionLedger()
     ledger.record_feedback(
         ActionFeedbackRequest.model_validate(
@@ -319,7 +303,6 @@ def test_evidence_executor_merges_recent_executed_action_facts():
     result = asyncio.run(
         executor.execute(
             request,
-            canonical_context,
             make_plan(),
             compile_policy(request),
             action_history=ledger.recent_executed_for_conversation(

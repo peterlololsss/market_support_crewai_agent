@@ -207,24 +207,24 @@ def test_legacy_single_capability_plan_spec_shape_is_invalid():
     assert result.issues[0].code == "plan_spec_invalid_schema"
 
 
-def test_plan_spec_requiring_material_pack_fails_when_only_weekly_report_exists():
+def test_plan_spec_requiring_weekly_report_fails_when_only_material_pack_exists():
     spec = plan_spec(
-        selected_capability_id="material_pack.product_list",
-        required_artifacts=["material_pack"],
-        allowed_artifacts=["material_pack"],
-        forbidden_artifacts=["weekly_report"],
-        required_tools=["adapter_material_pack_content.products"],
-        output_schema_ref="material_pack.product_list:output_schema",
-        evidence_contract_ref="material_pack.product_list:evidence_contract",
+        selected_capability_id="weekly_report.product_performance",
+        required_artifacts=["weekly_report"],
+        allowed_artifacts=["weekly_report"],
+        forbidden_artifacts=["material_pack"],
+        required_tools=["adapter_resolve.weekly_report", "adapter_report_scope"],
+        output_schema_ref="weekly_report.product_performance:output_schema",
+        evidence_contract_ref="weekly_report.product_performance:evidence_contract",
         steps=[
             {
                 "step_id": "step-1",
-                "description": "answer material products",
-                "uses_artifacts": ["material_pack"],
-                "required_artifacts": ["material_pack"],
-                "allowed_artifacts": ["material_pack"],
-                "forbidden_artifacts": ["weekly_report"],
-                "required_tools": ["adapter_material_pack_content.products"],
+                "description": "answer weekly report question",
+                "uses_artifacts": ["weekly_report"],
+                "required_artifacts": ["weekly_report"],
+                "allowed_artifacts": ["weekly_report"],
+                "forbidden_artifacts": ["material_pack"],
+                "required_tools": ["adapter_resolve.weekly_report", "adapter_report_scope"],
             }
         ],
     )
@@ -234,9 +234,9 @@ def test_plan_spec_requiring_material_pack_fails_when_only_weekly_report_exists(
         output_payload=reply_payload(),
         evidence_facts=[
             fact(
-                "weekly_report_resolvable",
-                artifact_type="weekly_report",
-                source_id="weekly",
+                "material_pack_resolvable",
+                artifact_type="material_pack",
+                source_id="material",
             )
         ],
     )
@@ -371,23 +371,23 @@ def test_plan_spec_inline_contract_cannot_loosen_registry_contract():
 
 def test_plan_spec_accepts_abstention_when_required_artifacts_are_missing():
     spec = plan_spec(
-        selected_capability_id="material_pack.product_list",
-        required_artifacts=["material_pack"],
-        allowed_artifacts=["material_pack"],
-        forbidden_artifacts=["weekly_report"],
-        required_tools=["adapter_material_pack_content.products"],
+        selected_capability_id="weekly_report.product_performance",
+        required_artifacts=["weekly_report"],
+        allowed_artifacts=["weekly_report"],
+        forbidden_artifacts=["material_pack"],
+        required_tools=["adapter_resolve.weekly_report", "adapter_report_scope"],
         answerability_policy="abstain",
-        output_schema_ref="material_pack.product_list:output_schema",
-        evidence_contract_ref="material_pack.product_list:evidence_contract",
+        output_schema_ref="weekly_report.product_performance:output_schema",
+        evidence_contract_ref="weekly_report.product_performance:evidence_contract",
         steps=[
             {
                 "step_id": "step-1",
-                "description": "abstain on missing material evidence",
+                "description": "abstain on missing weekly report evidence",
                 "uses_artifacts": [],
-                "required_artifacts": ["material_pack"],
-                "allowed_artifacts": ["material_pack"],
-                "forbidden_artifacts": ["weekly_report"],
-                "required_tools": ["adapter_material_pack_content.products"],
+                "required_artifacts": ["weekly_report"],
+                "allowed_artifacts": ["weekly_report"],
+                "forbidden_artifacts": ["material_pack"],
+                "required_tools": ["adapter_resolve.weekly_report", "adapter_report_scope"],
             }
         ],
     )

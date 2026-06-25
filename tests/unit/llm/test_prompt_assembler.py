@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
 from market_support_crewai_agent.runtime.domain.ontology import (
     ArtifactScope,
@@ -55,15 +54,13 @@ def make_request(message: str = "发一下中证1000材料", **overrides) -> Rep
 
 def make_ctx(message: str = "发一下中证1000材料", stage: str = "planner_intent"):
     request = make_request(message)
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
     return PromptAssemblyContext(
         stage=stage,  # type: ignore[arg-type]
         model_family="ds_v4pro",
         request=request,
-        canonical_context=canonical_context,
         policy=policy,
-        intent_gate=route_intent(request, canonical_context, policy),
+        intent_gate=route_intent(request, policy),
     )
 
 
@@ -193,10 +190,10 @@ def test_composer_prompt_uses_compact_no_action_skeleton_not_full_schema_dump():
 def test_knowledge_composer_prompt_includes_runtime_boundary_block_snapshot():
     assessment = AnswerabilityAssessment(
         can_answer=False,
-        capability_id="material_pack.product_list",
-        required_artifacts=["material_pack"],
+        capability_id="channel.strategy_summary",
+        required_artifacts=["document_context"],
         available_matching_artifacts=[],
-        missing_artifacts=["material_pack"],
+        missing_artifacts=["document_context"],
         required_runtime_inputs=["request.dist_channel_name"],
         missing_runtime_inputs=[],
         allowed_evidence_ids=[],
@@ -208,7 +205,7 @@ def test_knowledge_composer_prompt_includes_runtime_boundary_block_snapshot():
         ],
         ambiguity="unknown_artifact",
         recommended_response_mode="abstain",
-        user_facing_reason="老师，材料包里的产品范围我这边暂时无法确认。",
+        user_facing_reason="document evidence missing",
     )
     ctx = replace(
         make_ctx(stage="knowledge_composer"),
@@ -222,13 +219,13 @@ def test_knowledge_composer_prompt_includes_runtime_boundary_block_snapshot():
     assert '"current_channel": {' in program.prompt_text
     assert '"material_pack_routing": {' in program.prompt_text
     assert '"available_artifacts": [' in program.prompt_text
-    assert '"capability_id": "material_pack.product_list"' in program.prompt_text
+    assert '"capability_id": "channel.strategy_summary"' in program.prompt_text
     assert (
         '"evidence_id": "adapter_report_scope:weekly_report:report_scope_products"'
         in program.prompt_text
     )
     assert (
-        '"user_facing_reason": "老师，材料包里的产品范围我这边暂时无法确认。"'
+        '"user_facing_reason": "document evidence missing"'
         in program.prompt_text
     )
 
@@ -238,15 +235,14 @@ def test_knowledge_composer_prompt_separates_allowed_evidence_from_disallowed_co
         "材料包里有哪些产品",
         available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
     plan = compile_test_plan(
         request,
         policy=policy,
-        user_need="answer material pack products",
+        user_need="answer strategy summary",
         artifact_kind="knowledge_answer",
         action_intent="answer",
-        requested_capabilities=["material_pack"],
+        requested_capabilities=["document_context"],
         compliance={
             "is_compliant": True,
             "reason_code": "compliant_product_request",
@@ -255,31 +251,25 @@ def test_knowledge_composer_prompt_separates_allowed_evidence_from_disallowed_co
         confidence=0.9,
     )
     allowed_fact = EvidenceFact(
-        fact_type="material_pack_product_list",
+        fact_type="document_context",
         value=True,
-        source_type="adapter_material_pack_content",
-        source_id="material_pack",
-        resolve_type="material_pack",
-        metadata={
-            "status": "resolved",
-            "material_pack_option": "指增",
-            "products": [{"product_name": "Current Product"}],
-        },
-        artifact_type="material_pack",
+        source_type="document_mcp",
+        source_id="doc-current",
+        metadata={"documents": [{"text": "Current Product"}]},
+        artifact_type="document_context",
         scope=ArtifactScope(channel_id="unknown"),
     )
     stale_history_fact = EvidenceFact(
-        fact_type="material_pack_product_list",
+        fact_type="document_context",
         value=True,
         source_type="conversation_history",
-        source_id="old-material-pack",
-        resolve_type="material_pack",
-        metadata={"products": [{"product_name": "Old Product"}]},
-        artifact_type="material_pack",
+        source_id="old-doc",
+        metadata={"documents": [{"text": "Old Product"}]},
+        artifact_type="document_context",
         source_metadata=SourceMetadata(
-            source_id="old-material-pack",
+            source_id="old-doc",
             source_type="assistant_message",
-            artifact_type="material_pack",
+            artifact_type="document_context",
             provenance="conversation_store",
             evidence_allowed_by_default=False,
         ),
@@ -291,10 +281,9 @@ def test_knowledge_composer_prompt_separates_allowed_evidence_from_disallowed_co
             stage="knowledge_composer",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             domain_context=domain_context,
             policy=policy,
-            intent_gate=route_intent(request, canonical_context, policy),
+            intent_gate=route_intent(request, policy),
             execution_plan=plan,
             evidence_facts=facts,
             business_facts=derive_business_facts(facts, request),
@@ -340,16 +329,14 @@ def test_alignment_verifier_prompt_uses_compact_schema_and_candidate_response():
 
 def test_knowledge_composer_never_receives_action_fragments():
     request = make_request("这个策略怎么样")
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
     program = select_prompt_program(
         PromptAssemblyContext(
             stage="knowledge_composer",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
-            intent_gate=route_intent(request, canonical_context, policy),
+            intent_gate=route_intent(request, policy),
         )
     )
 
@@ -362,15 +349,13 @@ def test_knowledge_composer_never_receives_action_fragments():
 
 def route_and_select(message: str):
     request = make_request(message)
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
-    gate = route_intent(request, canonical_context, policy)
+    gate = route_intent(request, policy)
     program = select_prompt_program(
         PromptAssemblyContext(
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
             intent_gate=gate,
         )

@@ -6,7 +6,6 @@ from market_support_crewai_agent.runtime.context.models import ContextProjection
 from market_support_crewai_agent.runtime.context.payload_store import ContextPayloadStore
 from market_support_crewai_agent.runtime.context.projection import ContextProjectionManager
 from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.ontology import ArtifactScope, DomainContextBuilder
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
@@ -73,7 +72,6 @@ def test_projection_keeps_recent_turns_verbatim_and_summarizes_older_span():
     projection = manager.project_for_stage(
         stage="planner_intent",
         request=request,
-        canonical_context=canonicalize_request(request),
         policy=compile_policy(request),
         history=_messages(6),
     )
@@ -101,7 +99,6 @@ def test_conversation_history_is_context_only_not_allowed_evidence():
     projection = ContextProjectionManager().project_for_stage(
         stage="knowledge_composer",
         request=request,
-        canonical_context=canonicalize_request(request),
         policy=policy,
         execution_plan=plan,
         history=history,
@@ -111,90 +108,6 @@ def test_conversation_history_is_context_only_not_allowed_evidence():
     assert all(block.block_type != "allowed_evidence" for block in projection.blocks)
     assert any(block.block_type == "recent_verbatim" for block in projection.blocks)
     assert projection.context_only_source_ids
-
-
-def test_weekly_report_history_or_evidence_cannot_answer_material_pack():
-    request = make_request(message="材料包里有什么产品")
-    policy = compile_policy(request)
-    plan = _material_plan(request, policy)
-    weekly_fact = EvidenceFact(
-        fact_type="report_scope_products",
-        value=True,
-        source_type="adapter_report_scope",
-        source_id="weekly_report",
-        resolve_type="weekly_report",
-        metadata={"products": [{"product_name": "Weekly Product"}]},
-        artifact_type="weekly_report",
-        scope=ArtifactScope(channel_id="unknown"),
-    )
-    domain_context = DomainContextBuilder().build(request, available_artifacts=[weekly_fact])
-    answerability = AnswerabilityGate().assess(
-        request=request,
-        canonical_context=canonicalize_request(request, domain_context=domain_context),
-        domain_context=domain_context,
-        plan=plan,
-        policy=policy,
-        evidence_facts=[weekly_fact],
-    )
-
-    projection = ContextProjectionManager().project_for_stage(
-        stage="knowledge_composer",
-        request=request,
-        canonical_context=canonicalize_request(request, domain_context=domain_context),
-        domain_context=domain_context,
-        policy=policy,
-        execution_plan=plan,
-        evidence_facts=[weekly_fact],
-        answerability_assessment=answerability,
-    )
-    prompt = prompt_json(projection.to_prompt_runtime_payload())
-
-    assert answerability.recommended_response_mode == "abstain"
-    assert projection.allowed_evidence_ids == []
-    assert "Weekly Product" not in prompt
-    assert any(block.redacted for block in projection.blocks if block.block_type == "disallowed_evidence")
-
-
-def test_current_material_pack_evidence_is_allowed_and_report_evidence_redacted():
-    request = make_request(message="材料包里有什么产品", available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    policy = compile_policy(request)
-    plan = _material_plan(request, policy)
-    material_fact = EvidenceFact(
-        fact_type="material_pack_product_list",
-        value=True,
-        source_type="adapter_material_pack_content",
-        source_id="material_pack",
-        resolve_type="material_pack",
-        metadata={"products": [{"product_name": "Current Product"}]},
-        artifact_type="material_pack",
-        scope=ArtifactScope(channel_id="unknown"),
-    )
-    weekly_fact = EvidenceFact(
-        fact_type="report_scope_products",
-        value=True,
-        source_type="adapter_report_scope",
-        source_id="weekly_report",
-        resolve_type="weekly_report",
-        metadata={"products": [{"product_name": "Weekly Product"}]},
-        artifact_type="weekly_report",
-        scope=ArtifactScope(channel_id="unknown"),
-    )
-
-    projection = ContextProjectionManager().project_for_stage(
-        stage="knowledge_composer",
-        request=request,
-        canonical_context=canonicalize_request(request),
-        policy=policy,
-        execution_plan=plan,
-        evidence_facts=[material_fact, weekly_fact],
-        business_facts=derive_business_facts([material_fact, weekly_fact], request),
-    )
-    prompt = prompt_json(projection.to_prompt_runtime_payload())
-
-    assert any(block.block_type == "allowed_evidence" for block in projection.blocks)
-    assert "Current Product" in prompt
-    assert "Weekly Product" not in prompt
-    assert any(block.redacted for block in projection.blocks if block.block_type == "disallowed_evidence")
 
 
 def test_large_evidence_becomes_preview_with_reload_handle():
@@ -218,7 +131,6 @@ def test_large_evidence_becomes_preview_with_reload_handle():
     projection = manager.project_for_stage(
         stage="knowledge_composer",
         request=request,
-        canonical_context=canonicalize_request(request),
         policy=policy,
         execution_plan=plan,
         evidence_facts=[fact],
@@ -245,7 +157,6 @@ def test_large_old_conversation_message_is_summarized_not_inlined():
     ).project_for_stage(
         stage="planner_intent",
         request=request,
-        canonical_context=canonicalize_request(request),
         policy=compile_policy(request),
         history=history,
     )
@@ -262,7 +173,6 @@ def test_prompt_renderer_uses_model_visible_context_boundary():
     projection = ContextProjectionManager().project_for_stage(
         stage="planner_intent",
         request=request,
-        canonical_context=canonicalize_request(request),
         policy=policy,
     )
 
@@ -271,9 +181,8 @@ def test_prompt_renderer_uses_model_visible_context_boundary():
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonicalize_request(request),
             policy=policy,
-            intent_gate=route_intent(request, canonicalize_request(request), policy),
+            intent_gate=route_intent(request, policy),
             model_visible_context=projection,
         )
     )

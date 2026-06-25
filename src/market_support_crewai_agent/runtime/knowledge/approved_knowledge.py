@@ -10,7 +10,6 @@ from pydantic import Field
 from market_support_crewai_agent.runtime.domain.capabilities import (
     read_capabilities_for_artifact,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import artifact_scope_for_evidence
 from market_support_crewai_agent.runtime.domain.sources.metadata import SourceMetadata
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
@@ -90,7 +89,6 @@ class ApprovedKnowledgeSelector(Protocol):
         *,
         user_message: str,
         evidence_query: str,
-        canonical_context: CanonicalContext,
         catalog_manifest: tuple[ApprovedKnowledgeCandidate, ...],
         max_entries: int,
         max_images: int,
@@ -103,7 +101,6 @@ class NoopApprovedKnowledgeSelector:
         *,
         user_message: str,
         evidence_query: str,
-        canonical_context: CanonicalContext,
         catalog_manifest: tuple[ApprovedKnowledgeCandidate, ...],
         max_entries: int,
         max_images: int,
@@ -111,7 +108,6 @@ class NoopApprovedKnowledgeSelector:
         del (
             user_message,
             evidence_query,
-            canonical_context,
             catalog_manifest,
             max_entries,
             max_images,
@@ -130,7 +126,6 @@ class CrewAIApprovedKnowledgeSelector:
         *,
         user_message: str,
         evidence_query: str,
-        canonical_context: CanonicalContext,
         catalog_manifest: tuple[ApprovedKnowledgeCandidate, ...],
         max_entries: int,
         max_images: int,
@@ -140,7 +135,6 @@ class CrewAIApprovedKnowledgeSelector:
         prompt = _selector_prompt(
             user_message=user_message,
             evidence_query=evidence_query,
-            canonical_context=canonical_context,
             catalog_manifest=catalog_manifest,
             max_entries=max_entries,
             max_images=max_images,
@@ -165,7 +159,6 @@ class ApprovedKnowledgeEvidenceService:
     async def collect(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
         *,
@@ -185,7 +178,6 @@ class ApprovedKnowledgeEvidenceService:
             selection = await self.selector.select(
                 user_message=str(request.message or "").strip(),
                 evidence_query=query,
-                canonical_context=canonical_context,
                 catalog_manifest=manifest,
                 max_entries=max_entries,
                 max_images=max_images,
@@ -266,14 +258,13 @@ class NoopApprovedKnowledgeEvidenceService:
     async def collect(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
         *,
         max_entries: int = 1,
         max_images: int = 2,
     ) -> list[EvidenceFact]:
-        del request, canonical_context, plan, policy, max_entries, max_images
+        del request, plan, policy, max_entries, max_images
         return []
 
 
@@ -386,7 +377,6 @@ def _selector_prompt(
     *,
     user_message: str,
     evidence_query: str,
-    canonical_context: CanonicalContext,
     catalog_manifest: tuple[ApprovedKnowledgeCandidate, ...],
     max_entries: int,
     max_images: int,
@@ -394,7 +384,6 @@ def _selector_prompt(
     payload = {
         "user_message": user_message,
         "evidence_query": evidence_query,
-        "canonical_context": canonical_context.to_prompt_dict(),
         "max_entries": max_entries,
         "max_images": max_images,
         "catalog_manifest": [

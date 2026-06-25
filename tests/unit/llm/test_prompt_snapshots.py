@@ -4,10 +4,8 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.llm.prompting.assembler import (
-    assembleCanonicalizationPrompt,
     assembleGuardrailPrompt,
 )
 from market_support_crewai_agent.runtime.llm.prompting.context import PromptAssemblyContext
@@ -57,15 +55,13 @@ def make_context(
     stage: str = "planner_intent",
 ) -> PromptAssemblyContext:
     request = make_request(message)
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
     return PromptAssemblyContext(
         stage=stage,  # type: ignore[arg-type]
         model_family="ds_v4pro",
         request=request,
-        canonical_context=canonical_context,
         policy=policy,
-        intent_gate=route_intent(request, canonical_context, policy),
+        intent_gate=route_intent(request, policy),
     )
 
 
@@ -79,9 +75,9 @@ def test_knowledge_composer_prompt_snapshot():
     ctx = make_context(stage="knowledge_composer")
     assessment = AnswerabilityAssessment(
         can_answer=False,
-        capability_id="material_pack.product_list",
-        required_artifacts=["material_pack"],
-        missing_artifacts=["material_pack"],
+        capability_id="channel.strategy_summary",
+        required_artifacts=["document_context"],
+        missing_artifacts=["document_context"],
         required_runtime_inputs=["request.dist_channel_name"],
         disallowed_evidence_ids=[
             DisallowedEvidence(
@@ -91,7 +87,7 @@ def test_knowledge_composer_prompt_snapshot():
         ],
         ambiguity="unknown_artifact",
         recommended_response_mode="abstain",
-        user_facing_reason="老师，材料包里的产品范围我这边暂时无法确认。",
+        user_facing_reason="document evidence missing",
     )
     program = select_prompt_program(
         replace(ctx, answerability_assessment=assessment)
@@ -121,22 +117,13 @@ def test_alignment_verifier_prompt_snapshot():
     assert_snapshot("alignment_verifier.txt", program.prompt_text)
 
 
-def test_canonicalization_and_guardrail_prompt_snapshots():
-    selector_prompt = assembleCanonicalizationPrompt(
-        "canonicalization.report_scope_selector",
-        stage="report_scope_selector",
-        selector_input_json='{"query":"report_scope_products","candidate_products":[]}',
-    )
+def test_guardrail_prompt_snapshot():
     guardrail_prompt = assembleGuardrailPrompt(
         "guardrail.image_alignment_verifier",
         stage="image_alignment_verifier",
         verifier_input_json='{"reply_image_filenames":["company_shareholders.png"]}',
     )
 
-    assert_snapshot(
-        "canonicalization_report_scope_selector.txt",
-        selector_prompt,
-    )
     assert_snapshot("guardrail_image_alignment_verifier.txt", guardrail_prompt)
 
 
