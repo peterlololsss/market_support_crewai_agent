@@ -6,14 +6,10 @@ from market_support_crewai_agent.runtime.domain.capabilities.registry import (
     CapabilityRegistry,
     EvidenceContract,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import (
-    canonicalize_request,
-)
 from market_support_crewai_agent.runtime.domain.ontology import (
     ArtifactScope,
     DomainContextBuilder,
 )
-from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.domain.sources.precedence import (
     evidence_facts_for_plan,
@@ -62,23 +58,6 @@ def make_request(**overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def material_plan(request: ReplyRequest, material_pack_option: str | None = "策略S1"):
-    plan = compile_test_plan(
-        request,
-        user_need="answer material pack product list",
-        artifact_kind="knowledge_answer",
-        action_intent="answer",
-        requested_capabilities=["material_pack"],
-        material_pack_option=material_pack_option,
-        compliance={
-            "is_compliant": True,
-            "reason_code": "compliant_product_request",
-            "reason": "normal material question",
-        },
-    )
-    return plan.model_copy(update={"material_pack_option": material_pack_option})
-
-
 def report_plan(request: ReplyRequest, capability: str):
     return compile_test_plan(
         request,
@@ -95,28 +74,13 @@ def report_plan(request: ReplyRequest, capability: str):
     )
 
 
-def material_products(
-    *products: str,
-    material_pack_option: str | None = "策略S1",
-    source_id: str | None = None,
-    source_type: str = "adapter_material_pack_content",
-    artifact_type: str = "material_pack",
-    channel_id: str = "unknown",
-) -> EvidenceFact:
-    metadata = {
-        "products": [{"product_name": product} for product in products],
-    }
-    if material_pack_option:
-        metadata["material_pack_option"] = material_pack_option
+def unrelated_document_fact() -> EvidenceFact:
     return EvidenceFact(
-        fact_type="material_pack_product_list",
+        fact_type="document_context",
         value=True,
-        source_type=source_type,  # type: ignore[arg-type]
-        source_id=source_id or f"material_pack:{material_pack_option or 'default'}",
-        resolve_type="material_pack",
-        artifact_type=artifact_type,  # type: ignore[arg-type]
-        metadata=metadata,
-        scope=ArtifactScope(channel_id=channel_id),
+        source_type="document_mcp",
+        source_id="doc",
+        artifact_type="document_context",
     )
 
 
@@ -139,28 +103,11 @@ def assess(request: ReplyRequest, plan, facts: list[EvidenceFact]):
     domain_context = DomainContextBuilder().build(request, available_artifacts=facts)
     return AnswerabilityGate().assess(
         request=request,
-        canonical_context=canonicalize_request(request, domain_context=domain_context),
         domain_context=domain_context,
         plan=plan,
         policy=compile_policy(request, doc_mcp_enabled=True),
         evidence_facts=facts,
     )
-
-
-def test_regression_original_bug_A_material_pack_question_abstains_without_material_pack_artifact():
-    request = make_request()
-    plan = material_plan(request)
-    facts = [report_products("weekly_report", "产品A")]
-
-    assessment = assess(request, plan, facts)
-    directive = directive_from_answerability(assessment, plan)
-
-    assert assessment.can_answer is False
-    assert assessment.missing_artifacts == ["material_pack"]
-    assert directive is not None
-    assert directive.reason_code == "answerability_missing_evidence"
-    assert "材料包" in directive.text
-    assert "产品A" not in directive.text
 
 
 def test_mixed_intent_partial_evidence_does_not_force_global_abstention():
@@ -235,86 +182,16 @@ def test_unavailable_send_does_not_discard_supported_answer_part():
     assert directive.action_intents == []
 
 
-def test_regression_original_bug_B_material_pack_answer_uses_material_pack_products_only():
-    request = make_request()
-    plan = material_plan(request)
-    facts = [
-        material_products("产品B", material_pack_option="策略S1"),
-        report_products("weekly_report", "产品A"),
-    ]
-    domain_context = DomainContextBuilder().build(request, available_artifacts=facts)
-
-    directive = DecisionEngine().decide(
-        plan,
-        derive_business_facts(facts, request),
-        facts,
-        request,
-        compile_policy(request),
-        domain_context,
-    )
-
-    assert directive.text == "材料包包含：产品B。"
-    assert "产品A" not in directive.text
-
-
-def test_material_pack_options_do_not_force_local_strategy_clarification():
-    request = make_request(
-        available_artifacts=[{"type": "material_pack", "options": ["策略S1", "策略S2"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-        channel_type="bank",
-    )
-    plan = material_plan(request, material_pack_option=None)
-    facts = [
-        material_products("产品B", material_pack_option="策略S1"),
-        material_products("产品A", material_pack_option="策略S2"),
-    ]
-
-    assessment = assess(request, plan, facts)
-    directive = directive_from_answerability(assessment, plan)
-
-    assert assessment.recommended_response_mode == "answer"
-    assert assessment.ambiguity == "none"
-    assert directive is None
-
-
-def test_regression_original_bug_D_bank_material_pack_option_uses_only_that_pack():
-    request = make_request(
-        available_artifacts=[{"type": "material_pack", "options": ["策略S1", "策略S2"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-        channel_type="bank",
-    )
-    plan = material_plan(request, material_pack_option="策略S1")
-    facts = [
-        material_products("产品B", material_pack_option="策略S1"),
-        material_products("产品A", material_pack_option="策略S2"),
-    ]
-    domain_context = DomainContextBuilder().build(request, available_artifacts=facts)
-
-    selected = evidence_facts_for_plan(plan, facts, domain_context)
-    directive = DecisionEngine().decide(
-        plan,
-        derive_business_facts(facts, request),
-        facts,
-        request,
-        compile_policy(request),
-        domain_context,
-    )
-
-    assert selected == [facts[0]]
-    assert directive.text == "材料包包含：产品B。"
-    assert "产品A" not in directive.text
-
-
 def test_non_bank_material_pack_option_is_not_inferred_into_domain_scope():
     request = make_request(
         channel_type="non_bank",
         available_artifacts=[{"type": "material_pack", "options": ["策略S1"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
     domain_context = DomainContextBuilder().build(request)
-    canonical_context = canonicalize_request(request, domain_context=domain_context)
 
     assert domain_context.channel.kind == "non_bank"
     assert domain_context.strategies == ()
     assert domain_context.metadata["material_pack_options"] == ("策略S1",)
-    assert canonical_context.material_pack_options == ("策略S1",)
 
 
 def test_regression_original_bug_F_monthly_performance_uses_monthly_report_not_material_pack():
@@ -369,46 +246,6 @@ def test_regression_original_bug_J_dummy_capability_uses_manifest_verifier_not_b
     assert result.valid is True
 
 
-def test_regression_original_bug_K_send_scope_blocks_wrong_channel_evidence():
-    request = make_request()
-    plan = material_plan(request)
-    domain_context = DomainContextBuilder().build(request)
-    fact = material_products("产品B", channel_id="channel:other")
-
-    decision = retrieval_source_guard(
-        plan=plan,
-        policy=compile_policy(request),
-        evidence_facts=[fact],
-        domain_context=domain_context,
-    )
-
-    assert decision.outcome == "abstain"
-    assert decision.reason_code == "channel_scope_mismatch"
-
-
-def test_regression_original_bug_L_history_only_evidence_rejected_when_allow_history_false():
-    spec = material_history_plan_spec()
-    history_fact = material_products(
-        "历史产品",
-        source_type="conversation_history",
-        artifact_type="history",
-        source_id="history-material",
-    )
-
-    result = verify_plan_spec(
-        spec,
-        output_payload={
-            "reply": {"kind": "answer", "text": "材料包包含：历史产品。"},
-            "actions": [],
-        },
-        evidence_facts=[history_fact],
-        cited_evidence_ids=["history-material"],
-    )
-
-    assert result.valid is False
-    assert "history_evidence_not_allowed" in {issue.code for issue in result.issues}
-
-
 def dummy_manifest() -> CapabilityManifest:
     return CapabilityManifest.model_validate(
         {
@@ -460,33 +297,5 @@ def dummy_manifest() -> CapabilityManifest:
             ],
             "examples_positive": ["dummy"],
             "examples_negative": ["weekly report"],
-        }
-    )
-
-
-def material_history_plan_spec() -> PlanSpec:
-    request = make_request()
-    spec = make_plan_spec(
-        request,
-        selected_capability_id="material_pack.product_list",
-        material_pack_option="策略S1",
-        answerability_policy="answer",
-        user_intent_summary="answer material product list from current material pack",
-    )
-    unit = spec.plan_units[0].model_copy(
-        update={
-            "evidence_contract": EvidenceContract(
-                required_fact_types=["material_pack_product_list"],
-                allowed_source_types=["conversation_history"],
-                allowed_artifact_types=["material_pack"],
-                min_facts=1,
-                allow_history=False,
-            ),
-            "evidence_contract_ref": None,
-        }
-    )
-    return spec.model_copy(
-        update={
-            "plan_units": [unit],
         }
     )

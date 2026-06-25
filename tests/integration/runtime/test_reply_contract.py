@@ -214,7 +214,7 @@ def test_runtime_input_guardrail_runs_before_llm_configuration():
     )
 
     try:
-        asyncio.run(runtime.reply(ReplyRequestShim("abcdef").payload()))
+        asyncio.run(runtime.reply(ReplyRequestBuilder("abcdef").payload()))
     except InputGuardrailError as exc:
         error = exc
     else:
@@ -247,7 +247,7 @@ def test_runtime_times_out_slow_crewai_planner_before_composer_runs():
     runtime._build_agent = lambda *_args, **_kwargs: ComposerShouldNotRun()  # type: ignore[method-assign]
 
     try:
-        asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+        asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
     except AgentRuntimeError as exc:
         error = exc
     else:
@@ -277,7 +277,7 @@ def test_runtime_retries_invalid_planner_contract_with_feedback():
     planner = RetryPlannerAgent()
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(planner.prompts) == 2
@@ -312,7 +312,7 @@ def test_runtime_retries_empty_planner_output_before_contract_feedback():
     planner = EmptyThenValidPlanner()
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(planner.prompts) == 3
@@ -358,7 +358,7 @@ def test_runtime_falls_back_to_default_planner_after_empty_gemini_output():
     runtime._build_planner_agent = lambda: gemini  # type: ignore[method-assign]
     runtime._build_planner_fallback_agent = lambda: fallback  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("weekly report").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(gemini.prompts) == 2
@@ -386,7 +386,7 @@ def test_runtime_accepts_missing_mechanical_evidence_contract_ref():
     planner = MissingRefPlannerAgent()
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(planner.prompts) == 1
@@ -412,7 +412,7 @@ def test_runtime_invalid_planner_contract_error_includes_field_feedback():
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
     try:
-        asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+        asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
     except AgentRuntimeError as exc:
         error = exc
     else:
@@ -605,7 +605,7 @@ def test_build_reply_uses_custom_settings_for_default_runtime_services(monkeypat
     monkeypatch.setattr(CrewAIReplyRuntime, "reply", fake_reply)
 
     response = asyncio.run(
-        build_reply(ReplyRequestShim("介绍一下中证1000").payload(), settings=settings)
+        build_reply(ReplyRequestBuilder("介绍一下中证1000").payload(), settings=settings)
     )
 
     assert response.response_id == "resp-ok"
@@ -628,13 +628,166 @@ def test_runtime_deterministic_action_does_not_call_composer():
 
     runtime._build_agent = lambda *_args, **_kwargs: ComposerShouldNotRun()  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("请发周报").payload()))
 
     assert response.reply.kind == "answer"
     assert response.reply.text == ""
     assert response.actions[0].type == "send_weekly_report"
     assert response.actions[0].resolve_ref == "weekly:ref"
     assert response.actions[0].period == "20260529"
+
+
+def test_runtime_direct_weekly_command_bypasses_planner_and_composer():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+
+    class ShouldNotRun:
+        async def kickoff_async(self, prompt, response_format):
+            raise AssertionError("LLM stages should not run for direct send commands")
+
+    runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
+
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("发周报").payload())
+    )
+
+    assert response.reply.kind == "answer"
+    assert response.reply.text == ""
+    assert response.actions[0].type == "send_weekly_report"
+    assert response.actions[0].resolve_ref == "weekly:ref"
+
+
+def test_runtime_direct_weekly_command_skips_alignment_verifier():
+    runtime = CrewAIReplyRuntime(
+        Settings(llm_api_key="test-key", reply_alignment_verifier_enabled=True),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedWeeklyPreflight(),
+    )
+
+    class ShouldNotRun:
+        async def kickoff_async(self, prompt, response_format):
+            raise AssertionError("LLM stages should not run for direct send commands")
+
+    class ShouldNotVerify:
+        async def verify(self, **kwargs):
+            raise AssertionError("alignment verifier should not run for direct send commands")
+
+    runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
+    runtime.alignment_verifier = ShouldNotVerify()
+
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("发周报").payload())
+    )
+
+    assert response.reply.kind == "answer"
+    assert response.actions[0].type == "send_weekly_report"
+
+
+def test_runtime_direct_monthly_command_bypasses_planner_and_composer():
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=ResolvedMonthlyPreflight(),
+    )
+
+    class ShouldNotRun:
+        async def kickoff_async(self, prompt, response_format):
+            raise AssertionError("LLM stages should not run for direct send commands")
+
+    runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
+
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("发月报").payload())
+    )
+
+    assert response.reply.kind == "answer"
+    assert response.reply.text == ""
+    assert response.actions[0].type == "send_monthly_report"
+    assert response.actions[0].resolve_ref == "monthly:ref"
+
+
+def test_runtime_direct_material_command_sends_when_no_options():
+    preflight = CapturingResolvedMaterialPreflight()
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=preflight,
+    )
+
+    class ShouldNotRun:
+        async def kickoff_async(self, prompt, response_format):
+            raise AssertionError("LLM stages should not run for direct send commands")
+
+    runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "发材料包",
+                    available_artifacts=[
+                        {"type": "material_pack", "options": []},
+                        {"type": "weekly_report"},
+                    ],
+                )
+            )
+        )
+    )
+
+    assert preflight.resolve_material_pack_options == {}
+    assert response.reply.kind == "answer"
+    assert response.reply.text == ""
+    assert response.actions[0].type == "send_material_pack"
+    assert response.actions[0].resolve_ref == "material:ref"
+
+
+def test_runtime_direct_material_command_confirms_when_options_exist():
+    preflight = CapturingEmptyPreflightService()
+    runtime = CrewAIReplyRuntime(
+        _test_settings(),
+        conversation_store=ConversationStore(),
+        preflight_service=preflight,
+    )
+
+    class ShouldNotRun:
+        async def kickoff_async(self, prompt, response_format):
+            raise AssertionError("LLM stages should not run for direct confirmation")
+
+    runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
+    runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
+
+    response = asyncio.run(
+        runtime.reply(
+            ReplyRequest.model_validate(
+                make_payload(
+                    "发材料包",
+                    available_artifacts=[
+                        {
+                            "type": "material_pack",
+                            "options": [
+                                "中证1000指增",
+                                "中证A500指增",
+                            ],
+                        },
+                        {"type": "weekly_report"},
+                    ],
+                )
+            )
+        )
+    )
+
+    assert preflight.calls == [{"resolve_types": [], "resolve_material_pack_options": {}}]
+    assert response.reply.kind == "clarification"
+    assert "中证1000指增" in response.reply.text
+    assert "中证A500指增" in response.reply.text
+    assert response.actions == []
 
 
 def test_runtime_clarifies_concrete_artifact_choice():
@@ -662,7 +815,7 @@ def test_runtime_clarifies_concrete_artifact_choice():
         stages=composer_stages,
     )
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("????").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("????").payload()))
 
     assert response.reply.kind == "clarification"
     assert response.reply.text == "???????????"
@@ -721,7 +874,7 @@ def test_runtime_retries_report_query_clarification_as_invalid_plan():
         runtime.reply(
             ReplyRequest.model_validate(
                 make_payload(
-                    "[adapter_allowed_read_capabilities: query_internal_company_info]\nweekly report",
+                    "[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
                     available_artifacts=[{"type": "material_pack", "options": ["option-a", "option-b", "option-c"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
                 )
             )
@@ -823,11 +976,10 @@ def test_ambiguous_action_candidates_are_structured_for_composer():
         async def collect(
             self,
             request,
-            canonical_context=None,
             resolve_types=None,
             resolve_material_pack_options=None,
         ):
-            del request, canonical_context, resolve_types, resolve_material_pack_options
+            del request, resolve_types, resolve_material_pack_options
             return AdapterPreflightSnapshot(
                 items=[
                     resolved_item(
@@ -908,7 +1060,7 @@ def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch
     )
 
     try:
-        asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+        asyncio.run(runtime.reply(ReplyRequestBuilder("请发周报").payload()))
     except ReplyContractError as exc:
         error = exc
     else:
@@ -929,7 +1081,7 @@ def test_runtime_hands_off_missing_action_when_sales_resolves():
     )
     install_fake_planner(runtime, make_weekly_plan_spec())
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("请发周报").payload()))
 
     assert response.reply.kind == "human_handoff"
     assert response.reply.mentions[0].type == "sales"
@@ -972,7 +1124,7 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
             )
 
     class FakeEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+        async def execute(self, request, plan, policy, action_history=None):
             from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
@@ -1002,7 +1154,7 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
     runtime.evidence_executor = FakeEvidenceExecutor()
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("介绍一下衍复").payload()))
 
     assert response.reply.text == "文档证据回答"
     assert prompts
@@ -1013,7 +1165,7 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
     assert "Weekly Product" not in prompts[0]
 
 
-def test_alignment_verifier_blocks_wrong_side_effect_action():
+def test_alignment_verifier_blocks_wrong_outbound_action():
     runtime = CrewAIReplyRuntime(
         Settings(
             llm_api_key="test-key",
@@ -1036,7 +1188,7 @@ def test_alignment_verifier_blocks_wrong_side_effect_action():
 
     runtime.alignment_verifier = WrongActionVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("月报里为什么没有年化收益率").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload()))
 
     assert response.reply.kind == "unable_to_answer"
     assert response.actions == []
@@ -1049,9 +1201,11 @@ def test_alignment_verifier_allows_valid_action_response():
         preflight_service=ResolvedWeeklyPreflight(),
     )
     install_fake_planner(runtime, make_weekly_plan_spec())
+    verifier_calls: list[str] = []
 
     class PassingVerifier:
         async def verify(self, **kwargs):
+            verifier_calls.append(kwargs["request"].message)
             assert kwargs["response"].actions[0].type == "send_weekly_report"
             return ReplyAlignmentVerdict(
                 aligned=True,
@@ -1061,8 +1215,9 @@ def test_alignment_verifier_allows_valid_action_response():
 
     runtime.alignment_verifier = PassingVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("想确认一下周报能不能发我").payload()))
 
+    assert verifier_calls == ["想确认一下周报能不能发我"]
     assert response.reply.text == ""
     assert response.actions[0].type == "send_weekly_report"
 
@@ -1094,7 +1249,7 @@ def test_alignment_verifier_return_clarification_uses_composer():
 
     runtime.alignment_verifier = ClarifyingVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("报告发我一下").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("报告发我一下").payload()))
 
     assert response.reply.kind == "clarification"
     assert response.reply.text == "当前不确定你要周报还是月报，请确认一下。"
@@ -1132,7 +1287,7 @@ def test_alignment_verifier_replan_path_includes_feedback():
             return SimpleNamespace(pydantic=frames.pop(0), raw="")
 
     class FakeEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+        async def execute(self, request, plan, policy, action_history=None):
             from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import (
                 EvidenceFact,
@@ -1201,7 +1356,7 @@ def test_alignment_verifier_replan_path_includes_feedback():
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
     runtime.alignment_verifier = verifier
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("月报里为什么没有年化收益率").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload()))
 
     assert response.actions == []
     assert response.reply.text == "月报不展示年化收益率。"
@@ -1238,7 +1393,7 @@ def test_alignment_replan_failure_returns_unable_instead_of_raising():
     runtime._build_planner_agent = lambda: planner_agents.pop(0)  # type: ignore[method-assign]
     runtime.alignment_verifier = ReplanVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("报告发我一下").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("报告发我一下").payload()))
 
     assert response.reply.kind == "unable_to_answer"
     assert response.actions == []
@@ -1268,11 +1423,11 @@ def test_alignment_verifier_refetches_document_context_with_refined_query():
     queries: list[str | None] = []
 
     class RefetchEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+        async def execute(self, request, plan, policy, action_history=None):
             from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
-            del canonical_context, policy, action_history
+            del policy, action_history
             queries.append(plan.evidence_query)
             facts = []
             if plan.evidence_query == "月报 年化收益率 展示规则":
@@ -1326,7 +1481,7 @@ def test_alignment_verifier_refetches_document_context_with_refined_query():
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
     runtime.alignment_verifier = verifier
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("月报里为什么没有年化收益率").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload()))
 
     assert queries == ["年化收益率", "月报 年化收益率 展示规则"]
     assert response.reply.text == "月报采用区间收益展示，不展示年化收益率。"
@@ -1353,11 +1508,11 @@ def test_alignment_verifier_refetches_report_scope_products_from_typed_refetch()
     queries: list[str | None] = []
 
     class ReportScopeEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+        async def execute(self, request, plan, policy, action_history=None):
             from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
-            del canonical_context, policy, action_history
+            del policy, action_history
             queries.append(plan.evidence_query)
             facts = [
                 EvidenceFact(
@@ -1457,7 +1612,7 @@ def test_alignment_verifier_refetches_report_scope_products_from_typed_refetch()
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
     runtime.alignment_verifier = verifier
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("weekly report products?").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报里有哪些产品？").payload()))
 
     assert queries == [None, "report_scope_products"]
     assert response.reply.text == "weekly report products: Product1, Product2"
@@ -1495,7 +1650,7 @@ def test_alignment_verifier_failure_does_not_return_action():
 
     runtime.alignment_verifier = FailingVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("请发周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("想确认一下周报能不能发我").payload()))
 
     assert response.reply.kind == "unable_to_answer"
     assert response.actions == []
@@ -1530,7 +1685,7 @@ def test_alignment_verifier_failure_preserves_non_compliant_refusal_text():
 
     runtime.alignment_verifier = FailingVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("加你微信了，通过一下").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("加你微信了，通过一下").payload()))
 
     assert response.reply.kind == "unable_to_answer"
     assert response.reply.text == "老师请问具体是什么产品需求？业务问题请在当前群内沟通，便于留痕和统一回复。"
@@ -1578,11 +1733,11 @@ def test_alignment_verifier_recompose_once():
             )
 
     class FakeEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+        async def execute(self, request, plan, policy, action_history=None):
             from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
-            del canonical_context, plan, policy, action_history
+            del plan, policy, action_history
             facts = [
                 EvidenceFact(
                     fact_type="document_context",
@@ -1619,7 +1774,7 @@ def test_alignment_verifier_recompose_once():
     runtime.alignment_verifier = verifier
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("介绍一下衍复").payload()))
 
     assert response.reply.text == "衍复是一家量化私募管理人。"
     assert len(composer_calls) == 2
@@ -1667,7 +1822,7 @@ def test_runtime_uses_smalltalk_composer_for_triggered_greeting():
         lambda stage="knowledge_composer": stages.append(stage) or FakeSmalltalkComposer()
     )
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("hi").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("hi").payload()))
 
     assert stages == ["smalltalk_composer"]
     assert response.reply.kind == "answer"
@@ -1704,7 +1859,7 @@ def test_runtime_skips_knowledge_composer_without_document_evidence():
             raise AssertionError("composer should not run without document evidence")
 
     class EmptyEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+        async def execute(self, request, plan, policy, action_history=None):
             from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
 
             return SimpleNamespace(
@@ -1716,7 +1871,7 @@ def test_runtime_skips_knowledge_composer_without_document_evidence():
     runtime.evidence_executor = EmptyEvidenceExecutor()
     runtime._build_agent = lambda *_args, **_kwargs: ComposerShouldNotRun()  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("介绍一下衍复").payload()))
 
     assert response.reply.kind == "unable_to_answer"
     assert response.actions == []
@@ -1749,7 +1904,7 @@ def test_runtime_raises_when_composer_returns_invalid_reply_contract():
             return SimpleNamespace(pydantic=None, raw='{"not": "a reply"}')
 
     class FakeEvidenceExecutor:
-        async def execute(self, request, canonical_context, plan, policy, action_history=None):
+        async def execute(self, request, plan, policy, action_history=None):
             from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
@@ -1771,7 +1926,7 @@ def test_runtime_raises_when_composer_returns_invalid_reply_contract():
     runtime._build_agent = lambda *_args, **_kwargs: BadComposer()  # type: ignore[method-assign]
 
     try:
-        asyncio.run(runtime.reply(ReplyRequestShim("介绍一下衍复").payload()))
+        asyncio.run(runtime.reply(ReplyRequestBuilder("介绍一下衍复").payload()))
     except AgentRuntimeError as exc:
         error = exc
     else:
@@ -1794,8 +1949,8 @@ def test_same_conversation_key_reuses_prior_turns():
     )
     install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
-    asyncio.run(runtime.reply(ReplyRequestShim("first question").payload()))
-    asyncio.run(runtime.reply(ReplyRequestShim("follow up").payload()))
+    asyncio.run(runtime.reply(ReplyRequestBuilder("first question").payload()))
+    asyncio.run(runtime.reply(ReplyRequestBuilder("follow up").payload()))
 
     assert "Current user message:\nfirst question" in prompts[0]
     assert '"role": "user"' in prompts[1]
@@ -1817,10 +1972,10 @@ def test_different_conversation_key_does_not_share_history():
     )
     install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
-    asyncio.run(runtime.reply(ReplyRequestShim("group one history").payload()))
+    asyncio.run(runtime.reply(ReplyRequestBuilder("group one history").payload()))
     asyncio.run(
         runtime.reply(
-            ReplyRequestShim(
+            ReplyRequestBuilder(
                 "group two current",
                 conversation_key="wecom:group-2:sender-1",
                 group_id="group-2",
@@ -1869,7 +2024,7 @@ def test_adapter_execution_history_is_in_planner_prompt():
     )
     install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
-    asyncio.run(runtime.reply(ReplyRequestShim("刚才发了吗").payload()))
+    asyncio.run(runtime.reply(ReplyRequestBuilder("刚才发了吗").payload()))
 
     assert '"ledger_summary"' in planner_prompts[0]
     assert '"has_recent_executed_actions": true' in planner_prompts[0]
@@ -1898,7 +2053,7 @@ def test_runtime_passes_projected_context_to_planner_without_raw_huge_history():
     )
     install_fake_clarification_composer(runtime, text="请确认一下具体需求。")
 
-    asyncio.run(runtime.reply(ReplyRequestShim("current question").payload()))
+    asyncio.run(runtime.reply(ReplyRequestBuilder("current question").payload()))
 
     assert prompts
     assert "model-visible-context" in prompts[0]
@@ -1967,7 +2122,7 @@ def _missing_ref_weekly_plan_raw() -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-class ReplyRequestShim:
+class ReplyRequestBuilder:
     def __init__(
         self,
         message: str,

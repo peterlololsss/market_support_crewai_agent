@@ -10,7 +10,6 @@ from market_support_crewai_agent.runtime.context.pressure import (
     ProjectionLimitError,
 )
 from market_support_crewai_agent.runtime.context.projection import ContextProjectionManager
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationMessage
 from tests.helpers.planning import make_request
@@ -45,7 +44,6 @@ def test_projection_limit_error_only_after_projected_context_exceeds_hard_limit(
         manager.project_for_stage(
             stage="planner_intent",
             request=request,
-            canonical_context=canonicalize_request(request),
             policy=compile_policy(request),
             history=[
                 ConversationMessage("assistant", "old" * 1000, datetime.now(timezone.utc))

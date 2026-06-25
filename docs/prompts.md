@@ -70,7 +70,6 @@ output.plan_spec_schema
 output.reply_response_no_actions
 output.reply_alignment_verdict_schema
 canonicalization.document_product_selector
-canonicalization.report_scope_selector
 canonicalization.approved_knowledge_selector
 guardrail.image_alignment_verifier
 ```
@@ -82,7 +81,6 @@ agent.planner
 agent.composer
 agent.alignment_verifier
 agent.document_product_selector
-agent.report_scope_selector
 agent.approved_knowledge_selector
 agent.image_alignment_verifier
 ```

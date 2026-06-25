@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.domain.canonicalization import canonicalize_request
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.llm.prompting.context import PromptAssemblyContext
 from market_support_crewai_agent.runtime.llm.prompting.router import (
@@ -49,15 +48,13 @@ def make_request(message: str, **overrides) -> ReplyRequest:
 
 def planner_program(message: str, **overrides):
     request = make_request(message, **overrides)
-    canonical_context = canonicalize_request(request)
     policy = compile_policy(request, doc_mcp_enabled=True)
-    gate = route_intent(request, canonical_context, policy)
+    gate = route_intent(request, policy)
     return gate, select_prompt_program(
         PromptAssemblyContext(
             stage="planner_intent",
             model_family="ds_v4pro",
             request=request,
-            canonical_context=canonical_context,
             policy=policy,
             intent_gate=gate,
         )
@@ -68,7 +65,7 @@ def test_route_intent_is_non_authoritative_audit_hint():
     gate, _ = planner_program("发一下中证1000材料")
 
     assert gate.artifact_hint == "unclear"
-    assert gate.side_effect_hint is False
+    assert gate.outbound_action_hint is False
     assert gate.compliance_hint == "unknown"
     assert gate.confidence == 0.0
     assert gate.material_pack_option_count == 3
@@ -107,7 +104,7 @@ def test_planner_prompt_fits_context_budget_for_default_fixture():
     assert len(program.prompt_text) < 1_000_000
     assert "Universal intent taxonomy for Xiaoyan market support." in program.prompt_text
     assert "Capability registry JSON" in program.prompt_text
-    assert "material_pack.product_list" in program.prompt_text
+    assert "material_pack.send" in program.prompt_text
     assert "PlanSpec compact schema:" in program.prompt_text
     assert "Canonical JSON schema:" not in program.prompt_text
     assert '"$defs"' not in program.prompt_text

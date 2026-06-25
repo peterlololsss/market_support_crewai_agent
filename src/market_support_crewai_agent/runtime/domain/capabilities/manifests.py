@@ -264,7 +264,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use only when user wording leaves the requested artifact type or "
-            "material-pack option ambiguous. Prefer no side effect unless the user "
+            "material-pack option ambiguous. Prefer no outbound action unless the user "
             "clearly asks to send."
         ),
         agent_guidance="Ask one concise clarification and do not propose actions.",
@@ -373,59 +373,6 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         examples_negative=["user asks for help"],
     ),
     CapabilityManifest(
-        id="material_pack.product_list",
-        version="2026-06-16.1",
-        display_name="Material pack product list",
-        description="Answer which products are present in an official material pack.",
-        capability_type="answer",
-        domain_entities=["channel", "material_pack_option", "product", "artifact"],
-        required_inputs=["request.dist_channel_name"],
-        optional_inputs=[
-            "available_artifacts material_pack.options",
-        ],
-        required_artifacts=["material_pack"],
-        allowed_artifacts=["material_pack"],
-        forbidden_artifacts=["weekly_report", "monthly_report"],
-        required_tools=["adapter_material_pack_content.products"],
-        output_schema=_REPLY_OUTPUT_SCHEMA,
-        evidence_contract=EvidenceContract(
-            required_fact_types=["material_pack_product_list"],
-            allowed_source_types=["adapter_material_pack_content"],
-            forbidden_source_types=["adapter_report_scope", "document_mcp"],
-            required_artifact_types=["material_pack"],
-            allowed_artifact_types=["material_pack"],
-            min_facts=1,
-            notes=(
-                "Report scope, document context, and conversation history cannot "
-                "substitute for material-pack product-list evidence."
-            ),
-        ),
-        abstention_policy=AbstentionPolicy(
-            guidance=(
-                "If material-pack product-list evidence is absent, return an "
-                "unable-to-answer response instead of answering from reports."
-            )
-        ),
-        planner_guidance=(
-            "Use when the user asks what products are inside a material pack. "
-            "Do not satisfy this capability from weekly or monthly report evidence."
-        ),
-        agent_guidance=(
-            "Compose only from material-pack product-list evidence. Abstain when "
-            "the material-pack content artifact was not fetched."
-        ),
-        verifier_checks=_STANDARD_VERIFIER_CHECKS,
-        examples_positive=[
-            "What products are in the material pack?",
-            "Which products does this one-pager include?",
-        ],
-        examples_negative=[
-            "Send me the material pack.",
-            "Which products are in the weekly report?",
-        ],
-        runtime_capability="material_pack",
-    ),
-    CapabilityManifest(
         id="material_pack.open_calendar",
         version="2026-06-16.1",
         display_name="Material pack open calendar",
@@ -518,7 +465,10 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "a weekly report only when the user explicitly mentions the weekly "
             "report/report scope. Do not use for general distributed-products or "
             "available-products-list requests; those belong to material_pack.send "
-            "when allowed. Do not use for strategy/company scale, capacity, "
+            "when allowed. For report product-list or shorthand product-presence "
+            "questions, set evidence_query exactly to report_scope_products so "
+            "the bounded report product list is fetched. Do not use for "
+            "strategy/company scale, capacity, "
             "headcount, founding date, holdings profile, factors, product intro, "
             "or other evergreen document facts unless the user explicitly asks "
             "about a weekly report."
@@ -581,7 +531,10 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "a monthly report only when the user explicitly mentions the monthly "
             "report/report scope. Do not use for general distributed-products or "
             "available-products-list requests; those belong to material_pack.send "
-            "when allowed. Do not use for strategy/company scale, capacity, "
+            "when allowed. For report product-list or shorthand product-presence "
+            "questions, set evidence_query exactly to report_scope_products so "
+            "the bounded report product list is fetched. Do not use for "
+            "strategy/company scale, capacity, "
             "headcount, founding date, holdings profile, factors, product intro, "
             "or other evergreen document facts unless the user explicitly asks "
             "about a monthly report."

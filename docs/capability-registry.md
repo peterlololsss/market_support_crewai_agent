@@ -75,7 +75,6 @@ general.abstention
 general.refusal
 general.smalltalk
 general.no_reply
-material_pack.product_list
 material_pack.open_calendar
 weekly_report.product_performance
 monthly_report.product_performance

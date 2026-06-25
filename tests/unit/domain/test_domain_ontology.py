@@ -34,23 +34,6 @@ def make_request(**overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def material_product_fact(*products: str, strategy: str | None = None) -> EvidenceFact:
-    metadata = {
-        "status": "resolved",
-        "products": [{"product_name": product} for product in products],
-    }
-    if strategy:
-        metadata["strategy"] = strategy
-    return EvidenceFact(
-        fact_type="material_pack_product_list",
-        value=True,
-        source_type="adapter_material_pack_content",
-        source_id="material_pack",
-        resolve_type="material_pack",
-        metadata=metadata,
-    )
-
-
 def report_products_fact(resolve_type: str, *products: str) -> EvidenceFact:
     return EvidenceFact(
         fact_type="report_scope_products",
@@ -118,18 +101,6 @@ def test_domain_context_tracks_material_pack_options_as_metadata_and_explicit_ar
     assert domain_context.strategies == ()
     assert domain_context.metadata["material_pack_options"] == ("策略A", "策略B")
 
-    _, resolved_context = compile_plan(
-        request,
-        material_answer_payload(),
-        [material_product_fact("Product B", strategy="策略A")],
-    )
-
-    explicit_material_artifacts = [
-        artifact
-        for artifact in resolved_context.artifacts_by_type("material_pack")
-        if artifact.source_type != "adapter_channel_payload"
-    ]
-    assert len(explicit_material_artifacts) == 1
 
 
 def test_non_bank_single_material_pack_option_is_not_a_strategy_entity():
@@ -145,51 +116,12 @@ def test_non_bank_single_material_pack_option_is_not_a_strategy_entity():
     assert domain_context.metadata["material_pack_options"] == ("策略A",)
 
 
-def test_weekly_report_product_evidence_cannot_answer_material_pack_product_question():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["策略A"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    weekly_fact = report_products_fact("weekly_report", "Product A")
-    plan, _ = compile_plan(request, material_answer_payload())
-
-    directive = DecisionEngine().decide(
-        plan,
-        derive_business_facts([weekly_fact], request),
-        [weekly_fact],
-        request,
-        compile_policy(request),
-    )
-
-    assert evidence_facts_for_plan(plan, [weekly_fact]) == []
-    assert directive.mode == "unable"
-    assert directive.reply_kind == "unable_to_answer"
-
-
-def test_material_pack_product_answer_uses_material_pack_only_not_weekly_report():
-    request = make_request(available_artifacts=[{"type": "material_pack", "options": ["策略A"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
-    material_fact = material_product_fact("Product B", strategy="策略A")
-    weekly_fact = report_products_fact("weekly_report", "Product A")
-    plan, _ = compile_plan(request, material_answer_payload(), [material_fact, weekly_fact])
-
-    directive = DecisionEngine().decide(
-        plan,
-        derive_business_facts([material_fact, weekly_fact], request),
-        [material_fact, weekly_fact],
-        request,
-        compile_policy(request),
-    )
-
-    selected = evidence_facts_for_plan(plan, [material_fact, weekly_fact])
-    assert selected == [material_fact]
-    assert directive.mode == "knowledge_answer"
-    assert "Product B" in directive.text
-    assert "Product A" not in directive.text
-
-
 def test_monthly_report_performance_uses_monthly_report_not_material_pack_evidence():
     request = make_request(
         message="月报里Product A表现怎么样",
         available_artifacts=[{"type": "material_pack", "options": ["策略A"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
     )
-    material_fact = material_product_fact("Product B", strategy="策略A")
+    material_fact = EvidenceFact(fact_type="document_context", value=True, source_type="document_mcp", source_id="doc", artifact_type="document_context")
     monthly_fact = report_products_fact("monthly_report", "Product A")
     plan, _ = compile_plan(request, monthly_answer_payload(), [material_fact, monthly_fact])
 
@@ -227,5 +159,5 @@ def test_unknown_channel_kind_preserves_unknown_and_material_pack_options_metada
     assert domain_context.channel.kind == "unknown"
     assert domain_context.strategies == ()
     assert domain_context.metadata["material_pack_options"] == ("策略A", "策略B")
-    assert plan.response_mode == "knowledge_answer"
+    assert plan.response_mode == "unable"
     assert plan.ambiguity_slots == []

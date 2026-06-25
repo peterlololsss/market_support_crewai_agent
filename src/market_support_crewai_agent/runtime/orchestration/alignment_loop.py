@@ -19,7 +19,6 @@ async def ensure_aligned_response(
     runtime: Any,
     *,
     request,
-    canonical_context,
     domain_context,
     policy,
     model_family,
@@ -41,8 +40,7 @@ async def ensure_aligned_response(
         try:
             verdict = await runtime._verify_reply_alignment(
                 request=request,
-                canonical_context=canonical_context,
-                policy=policy,
+                    policy=policy,
                 model_family=model_family,
                 intent_gate=intent_gate,
                 history=history,
@@ -108,8 +106,7 @@ async def ensure_aligned_response(
                 with trace_span("alignment.remediate.replan"):
                     candidate = await runtime._build_candidate_response(
                         request=request,
-                        canonical_context=canonical_context,
-                        domain_context=domain_context,
+                                    domain_context=domain_context,
                         policy=policy,
                         model_family=model_family,
                         intent_gate=intent_gate,
@@ -159,8 +156,7 @@ async def ensure_aligned_response(
             with trace_span("alignment.remediate.refetch_report_scope"):
                 candidate = await runtime._build_candidate_from_plan(
                     request=request,
-                    canonical_context=canonical_context,
-                    domain_context=candidate.domain_context,
+                            domain_context=candidate.domain_context,
                     policy=policy,
                     model_family=model_family,
                     intent_gate=intent_gate,
@@ -195,8 +191,7 @@ async def ensure_aligned_response(
             with trace_span("alignment.remediate.refetch_document_context"):
                 candidate = await runtime._build_candidate_from_plan(
                     request=request,
-                    canonical_context=canonical_context,
-                    domain_context=candidate.domain_context,
+                            domain_context=candidate.domain_context,
                     policy=policy,
                     model_family=model_family,
                     intent_gate=intent_gate,
@@ -230,8 +225,7 @@ async def ensure_aligned_response(
             with trace_span("alignment.remediate.recompose"):
                 response, composer_output = await runtime._compose_or_render_response(
                     request=request,
-                    canonical_context=canonical_context,
-                    domain_context=candidate.domain_context,
+                            domain_context=candidate.domain_context,
                     policy=policy,
                     model_family=model_family,
                     intent_gate=intent_gate,
@@ -297,8 +291,7 @@ async def ensure_aligned_response(
                 with trace_span("alignment.remediate.return_clarification"):
                     response, composer_output = await runtime._compose_or_render_response(
                         request=request,
-                        canonical_context=canonical_context,
-                        domain_context=candidate.domain_context,
+                                    domain_context=candidate.domain_context,
                         policy=policy,
                         model_family=model_family,
                         intent_gate=intent_gate,

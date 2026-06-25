@@ -19,7 +19,7 @@ from market_support_crewai_agent.runtime.domain.capabilities import (
     read_capabilities_for_artifact,
     resolvable_fact_type_for_resolve,
     resolve_type_for_action,
-    side_effect_action_types,
+    outbound_action_types,
 )
 from market_support_crewai_agent.runtime.evidence import evidence_facts_from_preflight
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
@@ -77,12 +77,12 @@ def resolved_item(resolve_type: str, resolve_ref: str) -> AdapterPreflightItem:
     )
 
 
-def test_every_side_effect_action_can_reverse_lookup_resolve_type():
-    for action_type in side_effect_action_types():
+def test_every_outbound_action_can_reverse_lookup_resolve_type():
+    for action_type in outbound_action_types():
         capability = capability_by_action_type(action_type)
 
         assert capability is not None
-        assert capability.side_effect_action_type == action_type
+        assert capability.outbound_action_type == action_type
         assert capability.resolve_type is not None
         assert resolve_type_for_action(action_type) == capability.resolve_type
         assert capability_by_resolve_type(capability.resolve_type) == capability
@@ -100,9 +100,9 @@ def test_every_adapter_resolve_can_reverse_lookup_fact_type():
 
 def test_registry_has_no_duplicate_action_resolve_or_fact():
     action_types = [
-        item.side_effect_action_type
+        item.outbound_action_type
         for item in CAPABILITY_REGISTRY
-        if item.side_effect_action_type is not None
+        if item.outbound_action_type is not None
     ]
     resolve_types = [
         item.resolve_type for item in CAPABILITY_REGISTRY if item.resolve_type is not None
@@ -126,17 +126,17 @@ def test_registry_declares_capability_contract_mappings_without_prompt_coupling(
     document = capability_by_name("document_context")
 
     assert material.resolve_type == "material_pack"
-    assert material.side_effect_action_type == "send_material_pack"
+    assert material.outbound_action_type == "send_material_pack"
     assert material.read_capability == "resolve_material_pack"
     assert material.supports_material_pack_option is True
     assert weekly.resolve_type == "weekly_report"
-    assert weekly.side_effect_action_type == "send_weekly_report"
+    assert weekly.outbound_action_type == "send_weekly_report"
     assert weekly.is_report is True
     assert monthly.resolve_type == "monthly_report"
-    assert monthly.side_effect_action_type == "send_monthly_report"
+    assert monthly.outbound_action_type == "send_monthly_report"
     assert monthly.is_report is True
     assert sales.resolve_type == "sales_mention"
-    assert sales.side_effect_action_type is None
+    assert sales.outbound_action_type is None
     assert document.read_capability == "query_internal_company_info"
     assert document.resolve_type is None
     for capability in (material, weekly, monthly, sales, document):
@@ -149,7 +149,7 @@ def test_policy_uses_registry_outputs():
 
     assert policy.allowed_adapter_resolves == adapter_resolve_types()
     assert policy.allowed_read_capabilities == read_capabilities()
-    assert "send_material_pack" in policy.allowed_side_effect_actions
+    assert "send_material_pack" in policy.allowed_outbound_actions
     assert "material_pack" in policy.allowed_capabilities
     assert resolve_type_for_action("send_material_pack") == "material_pack"
 

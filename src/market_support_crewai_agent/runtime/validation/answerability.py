@@ -7,7 +7,6 @@ from pydantic import Field
 from market_support_crewai_agent.runtime.domain.capabilities import (
     CAPABILITY_MANIFEST_REGISTRY,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
 from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
 from market_support_crewai_agent.runtime.domain.planning.clarification import (
@@ -70,7 +69,6 @@ class AnswerabilityGate:
         self,
         *,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         domain_context: DomainContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
@@ -97,7 +95,6 @@ class AnswerabilityGate:
         missing_runtime_inputs = _missing_runtime_inputs(
             required_runtime_inputs,
             request=request,
-            canonical_context=canonical_context,
             plan=plan,
         )
         required_artifacts = list(manifest.required_artifacts)
@@ -178,12 +175,10 @@ def _missing_runtime_inputs(
     required_inputs: list[str],
     *,
     request: ReplyRequest,
-    canonical_context: CanonicalContext,
     plan: ExecutionPlan,
 ) -> list[str]:
     runtime_inputs = {
         "request": request,
-        "canonical_context": canonical_context,
         "plan": plan,
     }
     return [
@@ -297,8 +292,6 @@ def _contract_disallowed_reason(manifest, fact: EvidenceFact) -> str:
 
 def _missing_artifact_reason(manifest, missing_artifacts: list[str]) -> str:
     label = _artifact_label(missing_artifacts[0] if missing_artifacts else "")
-    if manifest.id == "material_pack.product_list":
-        return "老师，材料包里的产品范围我这边暂时无法确认。"
     if label:
         return f"老师，这个问题需要以{label}里的准确信息为准，我这边暂时无法确认。"
     return "老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。"

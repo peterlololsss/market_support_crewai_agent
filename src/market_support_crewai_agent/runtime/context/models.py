@@ -154,7 +154,6 @@ class RuntimeAppState:
     stage: str
     request_metadata: dict[str, Any]
     current_user_message: str
-    canonical_context: dict[str, Any]
     domain_context: dict[str, Any]
     policy: dict[str, Any]
     current_goal: str | None = None

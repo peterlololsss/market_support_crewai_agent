@@ -18,7 +18,6 @@ from market_support_crewai_agent.runtime.domain.business_facts import (
 from market_support_crewai_agent.runtime.domain.capabilities import (
     ordered_resolve_types,
 )
-from market_support_crewai_agent.runtime.domain.canonicalization import CanonicalContext
 from market_support_crewai_agent.runtime.domain.ontology import (
     DomainContext,
     DomainContextBuilder,
@@ -64,8 +63,7 @@ class EvidenceExecutor:
     """Runs deterministic evidence wrappers after plan validation.
 
     This boundary owns adapter resolve/preflight and feature-flag-controlled document MCP
-    evidence. Wrappers run after policy and canonical entity validation, not as
-    free-form CrewAI tools.
+    evidence. Wrappers run after policy validation, not as free-form CrewAI tools.
     """
 
     def __init__(
@@ -93,7 +91,6 @@ class EvidenceExecutor:
     async def execute(
         self,
         request: ReplyRequest,
-        canonical_context: CanonicalContext,
         plan: ExecutionPlan,
         policy: PolicyManifest,
         action_history: list[ActionLedgerRecord] | None = None,
@@ -126,7 +123,6 @@ class EvidenceExecutor:
         with trace_span("evidence.adapter_preflight"):
             preflight = await self.preflight_service.collect(
                 request,
-                canonical_context=canonical_context,
                 resolve_types=resolve_types,
                 resolve_material_pack_options=_resolve_material_pack_options_for_plan(plan),
             )
@@ -136,7 +132,6 @@ class EvidenceExecutor:
             evidence_facts.extend(
                 await self.document_evidence_service.collect(
                     request,
-                    canonical_context,
                     plan,
                     policy,
                 )
@@ -145,7 +140,6 @@ class EvidenceExecutor:
             evidence_facts.extend(
                 await self.report_scope_service.collect(
                     request,
-                    canonical_context,
                     plan,
                     policy,
                     preflight,
@@ -155,7 +149,6 @@ class EvidenceExecutor:
             evidence_facts.extend(
                 await self.approved_knowledge_service.collect(
                     request,
-                    canonical_context,
                     plan,
                     policy,
                 )

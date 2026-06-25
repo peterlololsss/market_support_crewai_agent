@@ -17,7 +17,6 @@ PromptStage = Literal[
     "smalltalk_composer",
     "alignment_verifier",
     "document_product_selector",
-    "report_scope_selector",
     "approved_knowledge_selector",
     "image_alignment_verifier",
     "canonicalization",

@@ -15,14 +15,13 @@ treated "some knowledge evidence exists" as enough to compose.
 The current architecture prevents that by making answerability source-specific:
 
 ```text
-材料包 product question -> material_pack.product_list -> material_pack evidence only
 周报 performance question -> weekly_report.product_performance -> weekly_report evidence only
 月报 performance question -> monthly_report.product_performance -> monthly_report evidence only
 ```
 
-Weekly/monthly reports cannot satisfy `material_pack` evidence unless the
-selected `CapabilityManifest.evidence_contract` explicitly allows that fallback.
-The built-in material-pack manifests do not allow it.
+Material-pack product-list answers are not exposed because the adapter does not
+provide a material-pack content query contract. Material-pack requests use
+`material_pack.send` when the user needs the artifact.
 
 ## Current Runtime
 
@@ -30,7 +29,6 @@ The built-in material-pack manifests do not allow it.
 ReplyRequest
 -> ConversationStore.get_recent + ActionLedger.recent_executed_for_conversation
 -> DomainContextBuilder
--> canonicalize_request
 -> compile_policy
 -> ContextProjectionManager.project_for_stage
 -> Planner LLM emits PlanSpec
@@ -91,10 +89,7 @@ fragments, orchestration branches, or verifier-specific functions.
 ArtifactScope(channel, strategy, product, time_range)
 ```
 
-`canonicalize_request` projects adapter-provided material-pack scope labels into
-prompt-visible context. It does not infer product or strategy entities from
-user text; the planner selects capability units, and evidence/validators decide
-whether enough structured scope exists.
+Material-pack routing options come from `PolicyManifest.material_pack_options`, derived directly from adapter-provided `available_artifacts`. The runtime does not infer product or strategy entities from user text; the planner selects capability units, and evidence/validators decide whether enough structured scope exists.
 
 ## PlanSpec
 
@@ -135,8 +130,6 @@ provenance_required
 
 Examples:
 
-- `material_pack.product_list` requires `material_pack_product_list` from
-  `adapter_material_pack_content` and forbids `adapter_report_scope`.
 - `weekly_report.product_performance` uses `weekly_report` report evidence.
 - `monthly_report.product_performance` uses `monthly_report` report evidence.
 - History evidence is rejected unless `allow_history=true` and scope/provenance
@@ -181,7 +174,7 @@ stable -> domain -> runtime -> task -> ephemeral
 
 - `stable`: role, concise WeCom style, structured-output discipline.
 - `domain`: capability cards, domain model, policy allowlists.
-- `runtime`: current request, DomainContext, CanonicalContext, evidence facts,
+- `runtime`: current request, DomainContext, PolicyManifest, evidence facts,
   BusinessFacts, guardrails, answerability.
 - `task`: current stage schema and instruction.
 - `ephemeral`: retry/alignment state for the current attempt only.

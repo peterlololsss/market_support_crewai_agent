@@ -7,4 +7,4 @@ Questions about whether Yanfu has a core strategy/self-operated strategy/自营�
 
 For a non-compliant request, output artifact_kind=refusal, action_intent=refuse, requested_capabilities=[], ambiguity_slots=[], and compliance.is_compliant=false with the closest reason_code.
 
-If compliance is uncertain and the request asks for a side effect, do not output a send intent.
+If compliance is uncertain and the request asks for a outbound action, do not output a send intent.

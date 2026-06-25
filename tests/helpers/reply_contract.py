@@ -153,11 +153,10 @@ class ResolvedWeeklyPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_material_pack_options
+        del request, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
@@ -174,11 +173,10 @@ class ResolvedMonthlyPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_material_pack_options
+        del request, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
@@ -195,11 +193,10 @@ class ResolvedWeeklyMonthlyPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_material_pack_options
+        del request, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot(
             items=[
                 resolved_item(
@@ -225,11 +222,10 @@ class CapturingResolvedWeeklyPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types
+        del request, resolve_types
         self.resolve_material_pack_options = resolve_material_pack_options or {}
         return AdapterPreflightSnapshot(
             items=[
@@ -250,11 +246,10 @@ class CapturingResolvedMaterialPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types
+        del request, resolve_types
         self.resolve_material_pack_options = resolve_material_pack_options or {}
         material_pack_option = self.resolve_material_pack_options.get("material_pack")
         return AdapterPreflightSnapshot(
@@ -272,11 +267,10 @@ class MissingWeeklyWithSalesPreflight:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_material_pack_options
+        del request, resolve_types, resolve_material_pack_options
         missing = {
             "contract_version": "adapter-resolve",
             "resolve_type": "weekly_report",
@@ -304,11 +298,10 @@ class EmptyPreflightService:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
-        del request, canonical_context, resolve_types, resolve_material_pack_options
+        del request, resolve_types, resolve_material_pack_options
         return AdapterPreflightSnapshot.empty()
 
 
@@ -319,7 +312,6 @@ class CapturingEmptyPreflightService:
     async def collect(
         self,
         request,
-        canonical_context=None,
         resolve_types=None,
         resolve_material_pack_options=None,
     ):
@@ -331,5 +323,5 @@ class CapturingEmptyPreflightService:
                 ),
             }
         )
-        del request, canonical_context
+        del request
         return AdapterPreflightSnapshot.empty()

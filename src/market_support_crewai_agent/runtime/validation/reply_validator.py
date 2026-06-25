@@ -355,7 +355,7 @@ def _validate_actions(
 
     for action in response.actions:
         action_type = getattr(action, "type", "")
-        if action_type not in policy.allowed_side_effect_actions:
+        if action_type not in policy.allowed_outbound_actions:
             issues.append(
                 ValidationIssue(
                     code="action_type_not_allowed",
@@ -393,14 +393,14 @@ def _validate_actions(
         issues.append(
             ValidationIssue(
                 code="outbound_action_reply_text_not_empty",
-                message="side-effect action reply.text must be empty unless supplied by the directive",
+                message="outbound action reply.text must be empty unless supplied by the directive",
             )
         )
     if response.actions and response.reply.mentions:
         issues.append(
             ValidationIssue(
                 code="outbound_action_reply_mentions_not_empty",
-                message="side-effect action responses must leave reply.mentions empty",
+                message="outbound action responses must leave reply.mentions empty",
             )
         )
     return issues
@@ -429,7 +429,7 @@ def _validate_action_resolve(action, business_facts: BusinessFacts) -> list[Vali
         return [
             ValidationIssue(
                 code="action_missing_resolve_ref",
-                message="side-effect action must include resolve_ref",
+                message="outbound action must include resolve_ref",
                 severity="fatal",
                 metadata={"action_type": action_type, "resolve_type": resolve_type},
             )
@@ -488,7 +488,7 @@ def _validate_knowledge_grounding(
                 policy_id="reply-validation-inline",
                 allowed_reply_modes=frozenset(),
                 allowed_capabilities=frozenset(),
-                allowed_side_effect_actions=frozenset(),
+                allowed_outbound_actions=frozenset(),
                 allowed_read_capabilities=frozenset(),
                 allowed_adapter_resolves=frozenset(),
             ),
