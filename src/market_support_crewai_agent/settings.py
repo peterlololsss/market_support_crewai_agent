@@ -54,6 +54,18 @@ class Settings(BaseModel):
     reply_alignment_max_evidence_refetches: int = Field(default=1, ge=0)
     reply_alignment_max_recomposes: int = Field(default=1, ge=0)
     reply_alignment_max_total_remediations: int = Field(default=2, ge=0)
+    llm_health_enabled: bool = False
+    llm_health_check_interval_seconds: float = Field(default=300.0, gt=0)
+    llm_health_failure_interval_seconds: float = Field(default=60.0, gt=0)
+    llm_health_daily_report_time: str = "09:00"
+    llm_health_timezone: str = "Asia/Shanghai"
+    llm_health_warning_cooldown_seconds: float = Field(default=900.0, gt=0)
+    llm_health_probe_retry_attempts: int = Field(default=1, ge=0)
+    llm_health_probe_retry_base_seconds: float = Field(default=1.0, ge=0)
+    llm_health_probe_timeout_seconds: float = Field(default=20.0, gt=0)
+    feishu_app_id: str | None = None
+    feishu_app_secret: str | None = None
+    feishu_chat_id: str | None = None
     agent_context_recent_turns_verbatim_count: int = Field(default=4, ge=0)
     agent_context_max_history_message_chars_inline: int = Field(default=1200, gt=0)
     agent_context_max_evidence_chars_inline: int = Field(default=6000, gt=0)
@@ -163,6 +175,34 @@ def get_settings() -> Settings:
         reply_alignment_max_total_remediations=_non_negative_int_env(
             "MARKET_AGENT_REPLY_ALIGNMENT_MAX_TOTAL_REMEDIATIONS", 2
         ),
+        llm_health_enabled=_bool_env("MARKET_AGENT_LLM_HEALTH_ENABLED", False),
+        llm_health_check_interval_seconds=_float_env(
+            "MARKET_AGENT_LLM_HEALTH_CHECK_INTERVAL_SECONDS", 300.0
+        ),
+        llm_health_failure_interval_seconds=_float_env(
+            "MARKET_AGENT_LLM_HEALTH_FAILURE_INTERVAL_SECONDS", 60.0
+        ),
+        llm_health_daily_report_time=os.getenv(
+            "MARKET_AGENT_LLM_HEALTH_DAILY_REPORT_TIME", "09:00"
+        ),
+        llm_health_timezone=os.getenv(
+            "MARKET_AGENT_LLM_HEALTH_TIMEZONE", "Asia/Shanghai"
+        ),
+        llm_health_warning_cooldown_seconds=_float_env(
+            "MARKET_AGENT_LLM_HEALTH_WARNING_COOLDOWN_SECONDS", 900.0
+        ),
+        llm_health_probe_retry_attempts=_non_negative_int_env(
+            "MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_ATTEMPTS", 1
+        ),
+        llm_health_probe_retry_base_seconds=_non_negative_float_env(
+            "MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_BASE_SECONDS", 1.0
+        ),
+        llm_health_probe_timeout_seconds=_float_env(
+            "MARKET_AGENT_LLM_HEALTH_PROBE_TIMEOUT_SECONDS", 20.0
+        ),
+        feishu_app_id=os.getenv("MARKET_AGENT_FEISHU_APP_ID") or None,
+        feishu_app_secret=os.getenv("MARKET_AGENT_FEISHU_APP_SECRET") or None,
+        feishu_chat_id=os.getenv("MARKET_AGENT_FEISHU_CHAT_ID") or None,
         agent_context_recent_turns_verbatim_count=_non_negative_int_env(
             "AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT", 4
         ),
