@@ -65,6 +65,8 @@ async def run_crewai_kickoff(
         latency_ms,
         mode="gemini_structured" if gemini_structured else "crewai",
     )
+    if getattr(result, "pydantic", None) is not None:
+        _record_llm_success(agent, prompt_program.profile.stage)
     return result, _compact_crewai_execution(prompt_program, result, latency_ms)
 
 
@@ -373,3 +375,14 @@ def _pydantic_type_name(value) -> str:
     if value is None:
         return ""
     return value.__class__.__name__
+
+
+def _record_llm_success(agent, stage: str) -> None:
+    try:
+        from market_support_crewai_agent.health.llm_health import (
+            record_llm_success_for_agent,
+        )
+
+        record_llm_success_for_agent(agent, stage)
+    except Exception:
+        logger.debug("LLM health success hook failed", exc_info=True)

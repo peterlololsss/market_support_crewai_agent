@@ -594,6 +594,11 @@ class CrewAIReplyRuntime:
                 )
         if plan is None:
             trace_event("planner.invalid_plan_spec", error=error_summary, retry=True)
+            _record_llm_failure(
+                active_planner_agent,
+                active_planner_program.profile.stage,
+                f"invalid PlanSpec contract after retry: {error_summary}",
+            )
             raise AgentRuntimeError(
                 "CrewAI planner returned an invalid PlanSpec contract: "
                 f"{error_summary}"
@@ -896,6 +901,11 @@ class CrewAIReplyRuntime:
                 else coerce_agent_response(result)
             )
         if response is None:
+            _record_llm_failure(
+                composer_agent,
+                composer_stage,
+                "invalid ReplyResponse contract",
+            )
             raise AgentRuntimeError("CrewAI composer returned an invalid ReplyResponse contract")
         if directive.mode == "action" and directive.action_intents:
             reply_text = remove_pre_execution_send_claims(response.reply.text)
@@ -1103,6 +1113,7 @@ class CrewAIReplyRuntime:
                 )
         )
         prompt_programs.append(verifier_program)
+        verifier_agent = None
         try:
             with trace_span("alignment.build_agent", attempt=attempt):
                 verifier_agent = self._build_alignment_verifier_agent()
@@ -1113,13 +1124,27 @@ class CrewAIReplyRuntime:
             )
             llm_executions.append(verifier_execution)
         except asyncio.TimeoutError as exc:
+            if verifier_agent is not None:
+                _record_llm_failure(verifier_agent, "alignment_verifier", "timeout")
             raise AgentRuntimeError("CrewAI alignment verifier timed out") from exc
         except Exception as exc:
+            if verifier_agent is not None:
+                _record_llm_failure(
+                    verifier_agent,
+                    "alignment_verifier",
+                    safe_short_text(exc) or "alignment verifier failed",
+                )
             raise AgentRuntimeError("CrewAI alignment verifier failed") from exc
 
         with trace_span("alignment.coerce_verdict", attempt=attempt):
             verdict = coerce_alignment_verdict(result)
         if verdict is None:
+            if verifier_agent is not None:
+                _record_llm_failure(
+                    verifier_agent,
+                    "alignment_verifier",
+                    "invalid ReplyAlignmentVerdict contract",
+                )
             raise AgentRuntimeError(
                 "CrewAI alignment verifier returned an invalid ReplyAlignmentVerdict contract"
             )
@@ -1296,16 +1321,31 @@ async def _run_planner_kickoff_with_retry(
         executions.append(execution)
         return result
 
-    result = await run_with_retry(
-        call,
-        policy=RetryPolicy(
-            retry_attempts=retry_attempts,
-            base_delay_seconds=base_delay_seconds,
-        ),
-        should_retry_result=_planner_result_retry_reason,
-        should_retry_exception=lambda exc: safe_short_text(exc) or "planner_call_failed",
-        on_retry=_trace_planner_retry,
-    )
+    try:
+        result = await run_with_retry(
+            call,
+            policy=RetryPolicy(
+                retry_attempts=retry_attempts,
+                base_delay_seconds=base_delay_seconds,
+            ),
+            should_retry_result=_planner_result_retry_reason,
+            should_retry_exception=lambda exc: safe_short_text(exc) or "planner_call_failed",
+            on_retry=_trace_planner_retry,
+        )
+    except Exception as exc:
+        _record_llm_failure(
+            planner_agent,
+            planner_program.profile.stage,
+            safe_short_text(exc) or "planner_call_failed",
+        )
+        raise
+    final_reason = _planner_result_retry_reason(result)
+    if final_reason:
+        _record_llm_failure(
+            planner_agent,
+            planner_program.profile.stage,
+            f"{final_reason}_after_retry",
+        )
     return result, executions
 
 
@@ -1359,15 +1399,23 @@ async def _run_composer_kickoff_with_retry(
         executions.append(execution)
         return result
 
-    result = await run_with_retry(
-        call,
-        policy=RetryPolicy(
-            retry_attempts=retry_attempts,
-            base_delay_seconds=base_delay_seconds,
-        ),
-        should_retry_exception=_composer_exception_retry_reason,
-        on_retry=_trace_composer_retry,
-    )
+    try:
+        result = await run_with_retry(
+            call,
+            policy=RetryPolicy(
+                retry_attempts=retry_attempts,
+                base_delay_seconds=base_delay_seconds,
+            ),
+            should_retry_exception=_composer_exception_retry_reason,
+            on_retry=_trace_composer_retry,
+        )
+    except Exception as exc:
+        _record_llm_failure(
+            composer_agent,
+            composer_program.profile.stage,
+            safe_short_text(exc) or "composer_call_failed",
+        )
+        raise
     return result, executions
 
 
@@ -1447,6 +1495,17 @@ def _reply_validation_error_summary(validation) -> str:
         detail = ",".join(str(value) for value in detail_values if value) or issue.message
         parts.append(f"{issue.code}({detail})")
     return "; ".join(dict.fromkeys(parts)) or "unknown"
+
+
+def _record_llm_failure(agent, stage: str, reason: str) -> None:
+    try:
+        from market_support_crewai_agent.health.llm_health import (
+            record_llm_failure_for_agent,
+        )
+
+        record_llm_failure_for_agent(agent, stage, reason)
+    except Exception:
+        logger.debug("LLM health failure hook failed", exc_info=True)
 
 
 def _guardrail_decisions_from_directive(
