@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from hmac import compare_digest
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -8,6 +9,10 @@ from market_support_crewai_agent.server.logging_config import configure_app_logg
 
 configure_app_logging()
 
+from market_support_crewai_agent.health.llm_health import (
+    start_llm_health_monitor,
+    stop_llm_health_monitor,
+)
 from market_support_crewai_agent.runtime.state.action_ledger import get_action_ledger
 from market_support_crewai_agent.runtime.validation.reply_validator import ReplyContractError
 from market_support_crewai_agent.runtime.validation.request_input_guard import (
@@ -28,10 +33,20 @@ from market_support_crewai_agent.schemas import (
 from market_support_crewai_agent.settings import get_settings
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    start_llm_health_monitor(get_settings())
+    try:
+        yield
+    finally:
+        await stop_llm_health_monitor()
+
+
 app = FastAPI(
     title="market-support-crewai-agent",
     version="0.1.0",
     description="External agent-brain API for typed reply and action decisions.",
+    lifespan=lifespan,
 )
 
 
