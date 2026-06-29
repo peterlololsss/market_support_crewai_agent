@@ -106,7 +106,7 @@ uv run python scripts/eval_reply_compliance.py
 ```
 
 Run a real adapter-feedback ledger check. It first verifies that a “just sent” follow-up without executed feedback
-does not invent a version, then posts an executed weekly-report feedback event and verifies the follow-up is grounded
+does not invent a report period, then posts an executed weekly-report feedback event and verifies the follow-up is grounded
 by that ledger entry rather than another send action.
 
 ```bash

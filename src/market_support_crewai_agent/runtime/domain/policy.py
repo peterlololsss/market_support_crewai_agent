@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import get_args
+from typing import Any, get_args
 
 from market_support_crewai_agent.runtime.state.action_ledger import ActionLedgerRecord
 from market_support_crewai_agent.runtime.domain.capabilities import (
@@ -15,7 +15,6 @@ from market_support_crewai_agent.schemas import (
     AdapterResolveType,
     AvailableArtifact,
     ChannelType,
-    MaterialType,
     ReplyRequest,
     OutboundActionType,
 )
@@ -30,9 +29,7 @@ _DEFAULT_REPLY_MODES: frozenset[ResponseMode] = frozenset(
 @dataclass(frozen=True)
 class LedgerSummary:
     recent_executed_count: int = 0
-    recent_material_types: tuple[MaterialType, ...] = ()
-    recent_material_pack_options: tuple[str, ...] = ()
-    recent_versions: tuple[str, ...] = ()
+    recent_artifacts: tuple[dict[str, Any], ...] = ()
 
     @property
     def has_recent_executed_actions(self) -> bool:
@@ -42,9 +39,7 @@ class LedgerSummary:
         return {
             "has_recent_executed_actions": self.has_recent_executed_actions,
             "recent_executed_count": self.recent_executed_count,
-            "recent_material_types": list(self.recent_material_types),
-            "recent_material_pack_options": list(self.recent_material_pack_options),
-            "recent_versions": list(self.recent_versions),
+            "recent_artifacts": list(self.recent_artifacts),
         }
 
 
@@ -150,29 +145,28 @@ def ledger_summary_from_action_history(
     ]
     return LedgerSummary(
         recent_executed_count=len(executed),
-        recent_material_types=tuple(
-            _ordered_unique(
-                execution.material_type
-                for execution in executed
-                if execution.material_type is not None
-            )
-        ),
-        recent_material_pack_options=tuple(
-            _ordered_unique(
-                execution.material_pack_option.strip()
-                for execution in executed
-                if execution.material_pack_option
-                and execution.material_pack_option.strip()
-            )
-        ),
-        recent_versions=tuple(
-            _ordered_unique(
-                execution.version.strip()
-                for execution in executed
-                if execution.version and execution.version.strip()
-            )
+        recent_artifacts=tuple(
+            artifact
+            for artifact in (_ledger_artifact_summary(execution.artifact) for execution in executed)
+            if artifact
         ),
     )
+
+
+def _ledger_artifact_summary(artifact) -> dict[str, Any]:
+    if artifact is None:
+        return {}
+    summary: dict[str, Any] = {"type": artifact.type}
+    option = getattr(artifact, "option", None)
+    if option:
+        summary["option"] = option
+    period = getattr(artifact, "period", None)
+    if period:
+        summary["period"] = period
+    report_date = getattr(artifact, "report_date", None)
+    if report_date:
+        summary["report_date"] = report_date
+    return summary
 
 
 def _doc_mcp_allowed_for_request(

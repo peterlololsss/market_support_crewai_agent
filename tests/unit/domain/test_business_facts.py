@@ -146,18 +146,25 @@ def test_business_facts_include_only_adapter_executed_action_history():
                         "action_type": "send_weekly_report",
                         "status": "failed",
                         "action_id": "act-failed",
-                        "resolve_ref": "weekly:failed-ref",
-                        "material_type": "weekly",
-                        "material_id": "weekly:failed",
+                        "artifact": {
+                            "type": "weekly_report",
+                            "resolve_ref": "weekly:failed-ref",
+                            "artifact_ref": "weekly:failed",
+                            "period": "20260522",
+                            "report_date": "2026-05-22",
+                        },
                     },
                     {
                         "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-weekly",
+                        "artifact": {
+                            "type": "weekly_report",
                             "resolve_ref": "weekly:resolve-ref",
-                            "material_type": "weekly",
-                            "material_id": "weekly:opaque",
-                            "version": "20260529",
+                            "artifact_ref": "weekly:opaque",
+                            "period": "20260529",
+                            "report_date": "2026-05-29",
+                        },
                     },
                 ],
             }
@@ -175,11 +182,12 @@ def test_business_facts_include_only_adapter_executed_action_history():
     assert len(business_facts.recent_executed_actions) == 1
     executed = business_facts.recent_executed_actions[0]
     assert executed.action_id == "act-weekly"
-    assert executed.material_type == "weekly"
-    assert executed.material_pack_option is None
-    assert executed.version == "20260529"
-    assert executed.resolve_ref == "weekly:resolve-ref"
-    assert executed.resolve_ref_available is True
-    assert executed.material_ref_available is True
+    assert executed.artifact == {
+        "type": "weekly_report",
+        "period": "20260529",
+        "report_date": "2026-05-29",
+        "resolve_ref_available": True,
+        "artifact_ref_available": True,
+    }
     assert "weekly:resolve-ref" not in str(business_facts.to_prompt_dict())
     assert "act-failed" not in str(business_facts.to_prompt_dict())
