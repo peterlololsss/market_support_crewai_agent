@@ -155,19 +155,25 @@ def test_compile_policy_includes_adapter_safe_ledger_summary():
                         "action_type": "send_monthly_report",
                         "status": "failed",
                         "action_id": "act-failed",
-                        "resolve_ref": "monthly:resolve-ref",
-                        "material_type": "monthly",
-                        "material_id": "monthly:opaque",
-                        "version": "202605",
+                        "artifact": {
+                            "type": "monthly_report",
+                            "resolve_ref": "monthly:resolve-ref",
+                            "artifact_ref": "monthly:opaque",
+                            "period": "202605",
+                            "report_date": "2026-05",
+                        },
                     },
                     {
                         "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-weekly",
-                        "resolve_ref": "weekly:resolve-ref",
-                        "material_type": "weekly",
-                        "material_id": "weekly:opaque",
-                        "version": "20260529",
+                        "artifact": {
+                            "type": "weekly_report",
+                            "resolve_ref": "weekly:resolve-ref",
+                            "artifact_ref": "weekly:opaque",
+                            "period": "20260529",
+                            "report_date": "2026-05-29",
+                        },
                     },
                 ],
             }
@@ -181,7 +187,7 @@ def test_compile_policy_includes_adapter_safe_ledger_summary():
 
     assert policy.ledger_summary.has_recent_executed_actions is True
     assert policy.ledger_summary.recent_executed_count == 1
-    assert policy.ledger_summary.recent_material_types == ("weekly",)
-    assert policy.ledger_summary.recent_material_pack_options == ()
-    assert policy.ledger_summary.recent_versions == ("20260529",)
+    assert policy.ledger_summary.recent_artifacts == (
+        {"type": "weekly_report", "period": "20260529", "report_date": "2026-05-29"},
+    )
     assert "opaque" not in str(policy.ledger_summary.to_prompt_dict())

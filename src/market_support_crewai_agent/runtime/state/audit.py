@@ -434,10 +434,7 @@ def _compact_action_record(record: ActionLedgerRecord) -> dict:
         "action_id": execution.action_id,
         "action_type": execution.action_type,
         "status": execution.status,
-        "resolve_ref_available": bool(execution.resolve_ref),
-        "material_type": execution.material_type,
-        "material_pack_option": execution.material_pack_option,
-        "version": execution.version,
+        "artifact": _compact_execution_artifact(execution.artifact),
         "received_at": record.received_at.isoformat(),
         "source_metadata": SourceMetadata(
             source_id=record.response_id or record.context_id or execution.action_id,
@@ -549,12 +546,33 @@ def _preflight_item(
 
 def _compact_evidence_fact(fact: EvidenceFact) -> dict:
     metadata = dict(fact.metadata)
+    if "artifact" in metadata:
+        metadata["artifact"] = _compact_execution_artifact(metadata.get("artifact"))
     if "resolve_ref" in metadata:
         metadata["resolve_ref_available"] = bool(metadata.pop("resolve_ref"))
     metadata = {
         key: _compact_large_audit_value(value)
         for key, value in metadata.items()
     }
+
+
+def _compact_execution_artifact(artifact) -> dict | None:
+    if artifact is None:
+        return None
+    payload = (
+        artifact.model_dump(mode="json", exclude_none=True)
+        if hasattr(artifact, "model_dump")
+        else dict(artifact)
+        if isinstance(artifact, dict)
+        else {}
+    )
+    if not payload:
+        return None
+    if "resolve_ref" in payload:
+        payload["resolve_ref_available"] = bool(payload.pop("resolve_ref"))
+    if "artifact_ref" in payload:
+        payload["artifact_ref_available"] = bool(payload.pop("artifact_ref"))
+    return payload
     return {
         "evidence_id": ":".join(
             item

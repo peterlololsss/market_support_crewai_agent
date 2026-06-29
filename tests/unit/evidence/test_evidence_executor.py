@@ -287,11 +287,14 @@ def test_evidence_executor_merges_recent_executed_action_facts():
                     {
                         "action_type": "send_weekly_report",
                         "status": "executed",
-                            "action_id": "act-previous-weekly",
+                        "action_id": "act-previous-weekly",
+                        "artifact": {
+                            "type": "weekly_report",
                             "resolve_ref": "weekly:ref",
-                            "material_type": "weekly",
-                            "material_id": "weekly:opaque",
-                        "version": "20260529",
+                            "artifact_ref": "weekly:opaque",
+                            "period": "20260529",
+                            "report_date": "2026-05-29",
+                        },
                     }
                 ],
             }
@@ -319,4 +322,7 @@ def test_evidence_executor_merges_recent_executed_action_facts():
     assert result.business_facts.recent_executed_actions[0].action_id == (
         "act-previous-weekly"
     )
-    assert result.business_facts.recent_executed_actions[0].material_type == "weekly"
+    assert (
+        result.business_facts.recent_executed_actions[0].artifact["type"]
+        == "weekly_report"
+    )

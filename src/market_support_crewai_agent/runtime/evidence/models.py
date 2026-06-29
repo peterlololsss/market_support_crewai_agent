@@ -217,6 +217,11 @@ def evidence_facts_from_action_history(
         execution = record.execution
         if execution.status != "executed":
             continue
+        artifact = (
+            execution.artifact.model_dump(mode="json", exclude_none=True)
+            if execution.artifact is not None
+            else None
+        )
         facts.append(
             _fact(
                 fact_type="recent_executed_action",
@@ -228,12 +233,7 @@ def evidence_facts_from_action_history(
                     "response_id": record.response_id,
                     "action_id": execution.action_id,
                     "action_type": execution.action_type,
-                    "resolve_ref": execution.resolve_ref,
-                    "resolve_ref_available": bool(execution.resolve_ref),
-                    "material_type": execution.material_type,
-                    "material_pack_option": execution.material_pack_option,
-                    "version": execution.version,
-                    "material_ref_available": bool(execution.material_id),
+                    "artifact": artifact,
                     "received_at": record.received_at.isoformat(),
                 },
                 artifact_type="history",

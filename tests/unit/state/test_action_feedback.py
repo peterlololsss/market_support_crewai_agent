@@ -35,10 +35,13 @@ def make_feedback(**overrides):
                 "action_type": "send_weekly_report",
                 "status": "executed",
                 "action_id": "act-1",
-                "resolve_ref": "weekly:resolve-ref",
-                "material_type": "weekly",
-                "material_id": "weekly:opaque-ref",
-                "version": "20260529",
+                "artifact": {
+                    "type": "weekly_report",
+                    "resolve_ref": "weekly:resolve-ref",
+                    "artifact_ref": "weekly:opaque-ref",
+                    "period": "20260529",
+                    "report_date": "2026-05-29",
+                },
                 "adapter_result": {"ok": True},
             }
         ],
@@ -61,7 +64,7 @@ def test_action_feedback_route_records_execution_status():
     assert records[0].response_id == "resp-1"
     assert records[0].execution.action_id == "act-1"
     assert records[0].execution.status == "executed"
-    assert records[0].execution.material_type == "weekly"
+    assert records[0].execution.artifact.type == "weekly_report"
 
 
 def test_action_feedback_requires_api_key_when_configured(monkeypatch):
@@ -172,9 +175,39 @@ def test_action_feedback_rejects_unknown_action_type():
     assert get_action_ledger().count() == 0
 
 
-def test_action_feedback_rejects_raw_material_id_locator():
+def test_action_feedback_rejects_raw_artifact_ref_locator():
     payload = make_feedback()
-    payload["executions"][0]["material_id"] = "https://example.invalid/weekly"
+    payload["executions"][0]["artifact"]["artifact_ref"] = "https://example.invalid/weekly"
+
+    response = client.post("/actions/feedback", json=payload)
+
+    assert response.status_code == 422
+    assert get_action_ledger().count() == 0
+
+
+def test_action_feedback_rejects_flat_artifact_fields():
+    payload = make_feedback()
+    payload["executions"][0]["material_type"] = "weekly"
+
+    response = client.post("/actions/feedback", json=payload)
+
+    assert response.status_code == 422
+    assert get_action_ledger().count() == 0
+
+
+def test_action_feedback_requires_artifact_for_send_actions():
+    payload = make_feedback()
+    payload["executions"][0].pop("artifact")
+
+    response = client.post("/actions/feedback", json=payload)
+
+    assert response.status_code == 422
+    assert get_action_ledger().count() == 0
+
+
+def test_action_feedback_rejects_wrong_artifact_for_action_type():
+    payload = make_feedback()
+    payload["executions"][0]["artifact"] = {"type": "material_pack"}
 
     response = client.post("/actions/feedback", json=payload)
 

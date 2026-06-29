@@ -2003,9 +2003,12 @@ def test_adapter_execution_history_is_in_planner_prompt():
                         "action_type": "send_weekly_report",
                         "status": "executed",
                         "action_id": "act-1",
-                        "resolve_ref": "weekly:resolve-ref",
-                        "material_type": "weekly",
-                        "version": "20260529",
+                        "artifact": {
+                            "type": "weekly_report",
+                            "resolve_ref": "weekly:resolve-ref",
+                            "period": "20260529",
+                            "report_date": "2026-05-29",
+                        },
                         "adapter_result": {"ok": True, "private": "not prompted"},
                     }
                 ],
@@ -2028,7 +2031,7 @@ def test_adapter_execution_history_is_in_planner_prompt():
 
     assert '"ledger_summary"' in planner_prompts[0]
     assert '"has_recent_executed_actions": true' in planner_prompts[0]
-    assert '"weekly"' in planner_prompts[0]
+    assert '"weekly_report"' in planner_prompts[0]
     assert "weekly:resolve-ref" not in planner_prompts[0]
     assert "not prompted" not in planner_prompts[0]
 

@@ -78,13 +78,15 @@ missing_product_count
 report_sections
 ```
 
-Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `resolve_ref` and `material_id` are opaque adapter identifiers.
+Adapter public payloads are projections from adapter-owned records into typed DTOs. Public references such as `resolve_ref`
+and feedback `artifact.artifact_ref` are opaque adapter identifiers.
 
 `ReplyRequest.available_artifacts` and `AdapterResolveResult.available_artifacts` are the sole adapter-provided
 artifact-availability source. Each item uses `type=material_pack|weekly_report|monthly_report`; material-pack items may
-carry `options` when the adapter exposes explicit material-pack routing choices. Empty material-pack `options` means the
-channel has a single/current material pack and the harness should not ask the user to pick a strategy-like category
-before resolve. This is the common non-bank shape:
+carry `options` when the adapter exposes explicit material-pack routing choices. If explicit options are present and the
+user did not select one, the harness asks a `material_pack_option` clarification before sending. Empty material-pack
+`options` means the channel has a single/current material pack and the harness should not ask the user to pick a
+strategy-like category before resolve. This is the common non-bank shape:
 
 ```json
 {"available_artifacts": [{"type": "material_pack", "options": []}]}
@@ -172,7 +174,28 @@ mention_sales
 send_text
 ```
 
-`material_id` is an opaque adapter reference, and `adapter_result` carries sanitized execution metadata.
+Artifact execution metadata is nested under `artifact`; flat execution fields such as `resolve_ref`, `material_type`,
+`material_pack_option`, `material_id`, and `version` are not accepted.
+
+```json
+{
+  "action_type": "send_weekly_report",
+  "status": "executed",
+  "action_id": "act-1",
+  "artifact": {
+    "type": "weekly_report",
+    "resolve_ref": "weekly:adapter-confirmed-resolve-ref",
+    "artifact_ref": "weekly_report:opaque-artifact-ref",
+    "period": "20260529",
+    "report_date": "2026-05-29"
+  },
+  "adapter_result": {"ok": true}
+}
+```
+
+For material packs, `artifact.type=material_pack` and the selected material-pack routing value, when present, lives at
+`artifact.option`. `artifact.artifact_ref` is an opaque adapter reference, and `adapter_result` carries sanitized
+execution metadata.
 
 ## Metrics
 

@@ -437,24 +437,14 @@ def _reject_raw_locator_text(value: str | None, field_name: str) -> None:
         raise ValueError(f"{field_name} contains raw locator values")
 
 
-class ActionExecutionFeedback(StrictModel):
-    action_type: ActionExecutionType
-    status: ActionExecutionStatus
-    action_id: str | None = None
+class ActionFeedbackArtifactBase(StrictModel):
     resolve_ref: str | None = None
-    material_type: MaterialType | None = None
-    material_pack_option: str | None = None
-    material_id: str | None = None
-    version: str | None = None
-    adapter_result: dict[str, Any] = Field(default_factory=dict)
+    artifact_ref: str | None = None
 
-    @field_validator("material_id")
+    @field_validator("artifact_ref")
     @classmethod
-    def validate_opaque_material_id(cls, value: str | None) -> str | None:
-        if not value:
-            return value
-        if "://" in value or "/" in value or "\\" in value:
-            raise ValueError("material_id must be an opaque adapter reference")
+    def validate_opaque_artifact_ref(cls, value: str | None) -> str | None:
+        _reject_raw_locator_text(value, "artifact_ref")
         return value
 
     @field_validator("resolve_ref")
@@ -463,11 +453,63 @@ class ActionExecutionFeedback(StrictModel):
         _reject_raw_locator_text(value, "resolve_ref")
         return value
 
+
+class MaterialPackFeedbackArtifact(ActionFeedbackArtifactBase):
+    type: Literal["material_pack"]
+    option: str | None = None
+
+
+class WeeklyReportFeedbackArtifact(ActionFeedbackArtifactBase):
+    type: Literal["weekly_report"]
+    period: str | None = None
+    report_date: str | None = None
+
+
+class MonthlyReportFeedbackArtifact(ActionFeedbackArtifactBase):
+    type: Literal["monthly_report"]
+    period: str | None = None
+    report_date: str | None = None
+
+
+ActionFeedbackArtifact = Annotated[
+    Union[
+        MaterialPackFeedbackArtifact,
+        WeeklyReportFeedbackArtifact,
+        MonthlyReportFeedbackArtifact,
+    ],
+    Field(discriminator="type"),
+]
+
+
+class ActionExecutionFeedback(StrictModel):
+    action_type: ActionExecutionType
+    status: ActionExecutionStatus
+    action_id: str | None = None
+    artifact: ActionFeedbackArtifact | None = None
+    adapter_result: dict[str, Any] = Field(default_factory=dict)
+
     @field_validator("adapter_result")
     @classmethod
     def validate_adapter_result_is_sanitized(cls, value: dict[str, Any]) -> dict[str, Any]:
         _reject_sensitive_adapter_result(value)
         return value
+
+    @model_validator(mode="after")
+    def validate_artifact_matches_action(self):
+        expected = {
+            "send_material_pack": "material_pack",
+            "send_weekly_report": "weekly_report",
+            "send_monthly_report": "monthly_report",
+        }.get(self.action_type)
+        if expected is None:
+            if self.artifact is not None:
+                raise ValueError("non-artifact execution must not include artifact")
+            return self
+        if self.artifact is None:
+            raise ValueError(f"{self.action_type} feedback requires artifact")
+        if self.artifact.type != expected:
+            raise ValueError(f"{self.action_type} feedback artifact must be {expected}")
+        return self
 
 
 class ActionFeedbackRequest(StrictModel):

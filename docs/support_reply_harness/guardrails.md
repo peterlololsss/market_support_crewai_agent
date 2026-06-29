@@ -58,8 +58,8 @@ internal MCP availability
 Policy may use registry-backed hints to limit material-pack action candidates. Weekly and monthly report candidates are
 allowed to reach adapter preflight, then blocked or approved by deterministic report resolve facts.
 
-The ledger summary is adapter-safe policy metadata only: executed count, material types, strategies, and versions. Raw
-material refs, URLs, adapter results, and failed/skipped actions do not enter the policy prompt.
+The ledger summary is adapter-safe policy metadata only: executed count and nested artifact summaries. Raw artifact
+refs, URLs, adapter results, and failed/skipped actions do not enter the policy prompt.
 
 Outputs:
 

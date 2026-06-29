@@ -174,6 +174,7 @@ def _feedback_record_key(
     execution: ActionExecutionFeedback,
     index: int,
 ) -> tuple:
+    artifact = execution.artifact
     return (
         feedback.conversation_key,
         feedback.context_id or "",
@@ -181,8 +182,9 @@ def _feedback_record_key(
         execution.action_id or "index:{}".format(index),
         execution.action_type,
         execution.status,
-        execution.material_type or "",
-        execution.material_pack_option or "",
-        execution.material_id or "",
-        execution.version or "",
+        artifact.type if artifact is not None else "",
+        getattr(artifact, "option", "") or "",
+        getattr(artifact, "period", "") or "",
+        getattr(artifact, "report_date", "") or "",
+        artifact.artifact_ref if artifact is not None else "",
     )

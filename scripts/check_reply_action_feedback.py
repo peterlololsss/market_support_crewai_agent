@@ -23,7 +23,7 @@ def _load_dotenv(path: Path = Path(".env")) -> None:
             os.environ[key] = value
 
 
-def _feedback_payload(version: str, conversation_key: str) -> dict:
+def _feedback_payload(period: str, conversation_key: str) -> dict:
     return {
         "conversation_key": conversation_key,
         "group_id": "feedback-check-group",
@@ -35,10 +35,12 @@ def _feedback_payload(version: str, conversation_key: str) -> dict:
                 "action_type": "send_weekly_report",
                 "status": "executed",
                 "action_id": "send-weekly-1",
-                "resolve_ref": "weekly:feedback-check-ref",
-                "material_type": "weekly",
-                "material_id": "weekly:feedback-check-ref",
-                "version": version,
+                "artifact": {
+                    "type": "weekly_report",
+                    "resolve_ref": "weekly:feedback-check-ref",
+                    "artifact_ref": "weekly:feedback-check-ref",
+                    "period": period,
+                },
                 "adapter_result": {"ok": True},
             }
         ],
@@ -69,7 +71,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run a real /actions/feedback -> /reply ledger grounding check."
     )
-    parser.add_argument("--version", default="20260529")
+    parser.add_argument("--period", default="20260529")
     parser.add_argument("--message", default="刚才发的周报是哪一版？")
     args = parser.parse_args()
 
@@ -110,7 +112,7 @@ def main() -> None:
     no_feedback_text = str(no_feedback_reply.get("text") or "")
     no_feedback_passed = (
         no_feedback_response.status_code == 200
-        and args.version not in no_feedback_text
+        and args.period not in no_feedback_text
         and no_feedback_actions == []
     )
 
@@ -119,7 +121,7 @@ def main() -> None:
     )
     feedback_response = client.post(
         "/actions/feedback",
-        json=_feedback_payload(args.version, executed_conversation_key),
+        json=_feedback_payload(args.period, executed_conversation_key),
     )
     reply_response = client.post(
         "/reply",
@@ -141,7 +143,7 @@ def main() -> None:
         feedback_response.status_code == 200
         and feedback_response.json() == {"status": "accepted", "stored": 1}
         and reply_response.status_code == 200
-        and args.version in text
+        and args.period in text
         and actions == []
     )
     passed = no_feedback_passed and executed_passed
@@ -161,7 +163,7 @@ def main() -> None:
             "reply": reply,
             "actions": actions,
         },
-        "expected_version": args.version,
+        "expected_period": args.period,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     get_action_ledger().clear()
