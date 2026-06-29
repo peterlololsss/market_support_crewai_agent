@@ -192,7 +192,7 @@ def _report_period_answer(
 
 
 def _deterministic_clarification(plan: ExecutionPlan) -> bool:
-    return any(
+    return "material_pack_option" in set(plan.ambiguity_slots) or any(
         decision.reason_code == "material_pack_option_confirmation_required"
         for decision in plan.guardrail_decisions
     )

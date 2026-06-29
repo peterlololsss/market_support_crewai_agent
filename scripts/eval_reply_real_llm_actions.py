@@ -158,7 +158,7 @@ async def main() -> None:
             ),
         ),
         (
-            "bank_material_default_action",
+            "bank_material_ambiguous_clarification",
             _request("发一下材料包"),
         ),
         (
@@ -205,16 +205,17 @@ def _validate_results(results: list[dict]) -> list[dict]:
             }
         )
 
-    bank_material = by_name.get("bank_material_default_action", {})
+    bank_material = by_name.get("bank_material_ambiguous_clarification", {})
     bank_material_response = bank_material.get("response", {})
     if (
-        _action_types(bank_material_response) != ["send_material_pack"]
-        or bank_material_response.get("reply", {}).get("text") != ""
+        _action_types(bank_material_response) != []
+        or bank_material_response.get("reply", {}).get("kind") != "clarification"
+        or not bank_material_response.get("reply", {}).get("text")
     ):
         failures.append(
             {
-                "scenario": "bank_material_default_action",
-                "reason": "expected resolved bank material-pack request to send material_pack",
+                "scenario": "bank_material_ambiguous_clarification",
+                "reason": "expected unscoped bank material-pack request with explicit options to clarify",
                 "response": bank_material_response,
             }
         )
@@ -224,7 +225,7 @@ def _validate_results(results: list[dict]) -> list[dict]:
     material_actions = material_response.get("actions") or []
     if (
         _action_types(material_response) != ["send_material_pack"]
-        or material_actions[0].get("strategy") != "中证1000"
+        or material_actions[0].get("material_pack_option") != "中证1000"
         or material_response.get("reply", {}).get("text") != ""
     ):
         failures.append(
@@ -240,7 +241,7 @@ def _validate_results(results: list[dict]) -> list[dict]:
     one_pager_actions = one_pager_response.get("actions") or []
     if (
         _action_types(one_pager_response) != ["send_material_pack"]
-        or one_pager_actions[0].get("strategy") != "中证1000"
+        or one_pager_actions[0].get("material_pack_option") != "中证1000"
         or one_pager_response.get("reply", {}).get("text") != ""
     ):
         failures.append(
@@ -256,13 +257,12 @@ def _validate_results(results: list[dict]) -> list[dict]:
     weekly_metric_actions = weekly_metric_response.get("actions") or []
     if (
         _action_types(weekly_metric_response) != ["send_weekly_report"]
-        or weekly_metric_actions[0].get("strategy") != "中证500"
-        or "最新周报" not in weekly_metric_response.get("reply", {}).get("text", "")
+        or weekly_metric_actions[0].get("material_pack_option") is not None
     ):
         failures.append(
             {
                 "scenario": "semantic_weekly_metric_action",
-                "reason": "expected recent drawdown-recovery metric question to send weekly report for 中证500 with rationale text",
+                "reason": "expected recent drawdown-recovery metric question to send weekly report without report-scope selectors",
                 "response": weekly_metric_response,
             }
         )
@@ -281,13 +281,14 @@ def _validate_results(results: list[dict]) -> list[dict]:
     multi_artifact = by_name.get("multi_artifact_clarification", {})
     multi_artifact_response = multi_artifact.get("response", {})
     if (
-        multi_artifact_response.get("reply", {}).get("kind") != "clarification"
-        or multi_artifact_response.get("actions") != []
+        _action_types(multi_artifact_response) != []
+        or multi_artifact_response.get("reply", {}).get("kind") != "clarification"
+        or not multi_artifact_response.get("reply", {}).get("text")
     ):
         failures.append(
             {
                 "scenario": "multi_artifact_clarification",
-                "reason": "expected multi-artifact request to clarify with no actions",
+                "reason": "expected mixed material/report send with unselected material options to clarify",
                 "response": multi_artifact_response,
             }
         )
