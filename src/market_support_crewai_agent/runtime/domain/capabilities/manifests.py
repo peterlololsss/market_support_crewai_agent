@@ -96,9 +96,9 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "strategy catalog. If the user explicitly targets one material_pack.options "
             "value, copy that exact value into domain_scope.material_pack_option for adapter "
             "resolve. "
-            "Do not clarify only because material_pack.options has multiple values; an "
-            "unscoped material-pack send is valid and adapter resolve will return "
-            "resolved, ambiguous, or unavailable."
+            "If material_pack.options has explicit values and the user did not select "
+            "one, ask a material_pack_option clarification before sending. Empty "
+            "options means an unscoped material-pack send is valid."
         ),
         agent_guidance="Return only the typed send_material_pack action after adapter resolve evidence.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
@@ -150,7 +150,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         planner_guidance=(
             "Use when the user clearly asks to send the weekly report. Also use "
-            "for named public product/strategy performance or return follow-up, "
+            "for named public product/strategy performance, drawdown, or return follow-up, "
             "and when the user clearly asks to send or provide an official "
             "performance report/material and weekly_report is the closest "
             "supported action. "

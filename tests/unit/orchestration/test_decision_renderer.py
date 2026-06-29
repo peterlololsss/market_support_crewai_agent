@@ -154,6 +154,40 @@ def test_decision_uses_composer_for_ambiguous_action_clarification():
     assert directive.composer_stage == "knowledge_composer"
 
 
+def test_decision_renders_material_pack_option_clarification_without_composer():
+    request = make_request(
+        message="send material",
+        available_artifacts=[
+            {"type": "material_pack", "options": ["CSI500", "CSI1000"]},
+            {"type": "weekly_report"},
+        ],
+    )
+    policy = compile_policy(request)
+    plan = make_plan(
+        request,
+        artifact_kind="material_pack",
+        action_intent="none",
+        ambiguity_slots=["material_pack_option"],
+        requested_capabilities=[],
+    )
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts([], request),
+        [],
+        request,
+        policy,
+    )
+    response = render_directive(directive, plan, derive_business_facts([], request), [])
+
+    assert directive.mode == "clarification"
+    assert directive.requires_knowledge_composer is False
+    assert directive.composer_stage is None
+    assert "CSI500" in response.reply.text
+    assert "CSI1000" in response.reply.text
+    assert response.actions == []
+
+
 def test_decision_treats_adapter_ambiguous_without_candidates_as_unavailable():
     request = make_request(message="发一下材料", available_artifacts=[{"type": "material_pack", "options": ["中证1000指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     policy = compile_policy(request)
