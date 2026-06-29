@@ -126,3 +126,51 @@ src/market_support_crewai_agent/runtime/state/                conversation store
 ```
 
 When a task is complete, summarize contract impact, validator impact, tests run, and remaining decisions.
+
+## Linux Podman deployment
+
+Use the same deployment shape as the standalone market report service: build a self-contained container and keep secrets in a host `.env` file, never in the image.
+
+Default Linux paths:
+
+```text
+Service root: /data/xiaoyan/market_support_crewai_agent
+Service source for Podman build: /data/xiaoyan/market_support_crewai_agent/app
+Runtime env file: /data/xiaoyan/market_support_crewai_agent/.env
+Runtime/log root: /data/xiaoyan/market_support_crewai_agent/runtime
+```
+
+Podman naming and ports:
+
+```text
+Image: market-support-crewai-agent:latest
+Container: market-support-crewai-agent
+Internal app port: 8000
+Preferred host port: 23003
+Fallback host port: 23004 only if 23003 is unavailable during deployment
+```
+
+Production connectivity defaults:
+
+```text
+MARKET_AGENT_ADAPTER_BASE_URL=http://192.168.209.33:8011
+MARKET_AGENT_DOC_MCP_BASE_URL=http://192.168.209.195:23000
+MARKET_AGENT_PLANNER_LLM_BASE_URL=http://192.168.209.195:3000/gemini
+```
+
+Before deploying, verify the chosen host port is free on `192.168.209.195` and verify the remote host can reach the adapter, Document MCP, and planner LLM proxy. The Windows adapter must listen on a LAN address, not only `127.0.0.1`, when the agent runs in remote Podman.
+
+Deployment shape:
+
+```bash
+cd /data/xiaoyan/market_support_crewai_agent/app
+podman build -t market-support-crewai-agent:latest -f Containerfile .
+podman run -d \
+  --name market-support-crewai-agent \
+  --restart unless-stopped \
+  --env-file /data/xiaoyan/market_support_crewai_agent/.env \
+  -p 23003:8000 \
+  market-support-crewai-agent:latest
+```
+
+Smoke checks must use `/health` and safe `/reply` requests that do not trigger send-intent wording. Do not call real WeCom send execution as a deployment test.
