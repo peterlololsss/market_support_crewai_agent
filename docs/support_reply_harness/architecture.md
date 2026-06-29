@@ -349,9 +349,10 @@ If adapter-provided report-scope evidence is unavailable, the reply should use c
 
 Weekly and monthly report actions send the whole adapter-resolved report. They do not carry `report_scope`, `strategy`, or `material_pack_option`. Send actions always include adapter-safe `resolve_ref`; report actions also include `period` and `report_date` when the adapter supplied them. Questions about report contents use report-scope evidence and a knowledge answer instead of scoped send actions.
 
-A material pack may be default-scoped or split across adapter-owned material-pack options. The harness proposes a typed
-material-pack send for clear send requests, and the adapter resolve result decides whether the request is resolved,
-ambiguous, or unavailable. If adapter resolve returns ambiguous candidates, the harness asks for clarification.
+A material pack may be default-scoped or split across adapter-owned material-pack options. For explicit options, the
+harness asks the user to pick one before sending unless the current request already selected an exact option. Empty
+options mean the harness may propose an unscoped material-pack send, and adapter resolve still decides whether the
+request is resolved, ambiguous, or unavailable.
 
 The adapter is the source of truth for channel-scoped sendability and fetching. The harness waits for adapter resolve/preflight feedback before composing a final reply/action.
 
