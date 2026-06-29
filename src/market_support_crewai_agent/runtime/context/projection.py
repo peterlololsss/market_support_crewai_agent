@@ -868,10 +868,7 @@ def _compact_action_record(record: ActionLedgerRecord) -> dict[str, Any]:
         "action_id": execution.action_id,
         "action_type": execution.action_type,
         "status": execution.status,
-        "resolve_ref_available": bool(execution.resolve_ref),
-        "material_type": execution.material_type,
-        "material_pack_option": execution.material_pack_option,
-        "version": execution.version,
+        "artifact": _compact_execution_artifact(execution.artifact),
         "received_at": record.received_at.isoformat(),
         "source_metadata": SourceMetadata(
             source_id=_action_source_id(record),
@@ -991,6 +988,8 @@ def _compact_preflight(preflight: AdapterPreflightSnapshot) -> list[dict[str, An
 
 def _compact_evidence_fact(fact: EvidenceFact, include_content: bool) -> dict[str, Any]:
     metadata = dict(fact.metadata)
+    if "artifact" in metadata:
+        metadata["artifact"] = _compact_execution_artifact(metadata.get("artifact"))
     if "resolve_ref" in metadata:
         metadata["resolve_ref_available"] = bool(metadata.pop("resolve_ref"))
     if not include_content:
@@ -1001,6 +1000,7 @@ def _compact_evidence_fact(fact: EvidenceFact, include_content: bool) -> dict[st
             in {
                 "status",
                 "reason_code",
+                "artifact",
                 "material_pack_option",
                 "period",
                 "report_date",
@@ -1024,6 +1024,8 @@ def _compact_evidence_fact(fact: EvidenceFact, include_content: bool) -> dict[st
 
 def _compact_evidence_inventory(fact: EvidenceFact) -> dict[str, Any]:
     metadata = dict(fact.metadata)
+    if "artifact" in metadata:
+        metadata["artifact"] = _compact_execution_artifact(metadata.get("artifact"))
     resolve_ref = metadata.pop("resolve_ref", None)
     return {
         "evidence_id": evidence_id(fact),
@@ -1040,6 +1042,7 @@ def _compact_evidence_inventory(fact: EvidenceFact) -> dict[str, Any]:
             in {
                 "status",
                 "reason_code",
+                "artifact",
                 "material_pack_option",
                 "period",
                 "report_date",
@@ -1077,6 +1080,25 @@ def _message_source_id(message: ConversationMessage) -> str:
 
 def _action_source_id(record: ActionLedgerRecord) -> str:
     return record.response_id or record.context_id or record.execution.action_id or "action-ledger"
+
+
+def _compact_execution_artifact(artifact: Any) -> dict[str, Any] | None:
+    if artifact is None:
+        return None
+    payload = (
+        artifact.model_dump(mode="json", exclude_none=True)
+        if hasattr(artifact, "model_dump")
+        else dict(artifact)
+        if isinstance(artifact, dict)
+        else {}
+    )
+    if not payload:
+        return None
+    if "resolve_ref" in payload:
+        payload["resolve_ref_available"] = bool(payload.pop("resolve_ref"))
+    if "artifact_ref" in payload:
+        payload["artifact_ref_available"] = bool(payload.pop("artifact_ref"))
+    return payload
 
 
 def _context_only_source_ids(blocks: list[ContextBlock]) -> list[str]:

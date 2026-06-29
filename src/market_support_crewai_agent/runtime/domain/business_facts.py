@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from market_support_crewai_agent.runtime.domain.capabilities import (
     capability_by_business_state_field,
@@ -47,15 +47,10 @@ class ReportState(ResolvableState):
 @dataclass(frozen=True)
 class ExecutedActionState:
     action_type: str = ""
-    resolve_ref: str | None = None
-    resolve_ref_available: bool = False
-    material_type: str | None = None
-    material_pack_option: str | None = None
-    version: str | None = None
+    artifact: dict[str, Any] = field(default_factory=dict)
     action_id: str | None = None
     response_id: str | None = None
     context_id: str | None = None
-    material_ref_available: bool = False
     received_at: str = ""
 
 
@@ -160,17 +155,10 @@ def _derive_recent_executed_actions(
         actions.append(
             ExecutedActionState(
                 action_type=str(metadata.get("action_type") or ""),
-                resolve_ref=_optional_str(metadata.get("resolve_ref")),
-                resolve_ref_available=bool(metadata.get("resolve_ref_available")),
-                material_type=_optional_str(metadata.get("material_type")),
-                material_pack_option=_optional_str(
-                    metadata.get("material_pack_option")
-                ),
-                version=_optional_str(metadata.get("version")),
+                artifact=_compact_executed_artifact(metadata.get("artifact")),
                 action_id=_optional_str(metadata.get("action_id")),
                 response_id=_optional_str(metadata.get("response_id")),
                 context_id=_optional_str(metadata.get("context_id")),
-                material_ref_available=bool(metadata.get("material_ref_available")),
                 received_at=str(metadata.get("received_at") or ""),
             )
         )
@@ -302,6 +290,21 @@ def _optional_int(value: object) -> int | None:
     return parsed if parsed >= 0 else None
 
 
+def _compact_executed_artifact(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = {
+        key: value.get(key)
+        for key in ("type", "option", "period", "report_date")
+        if value.get(key) is not None
+    }
+    if "resolve_ref" in value:
+        payload["resolve_ref_available"] = bool(value.get("resolve_ref"))
+    if "artifact_ref" in value:
+        payload["artifact_ref_available"] = bool(value.get("artifact_ref"))
+    return payload
+
+
 def _state_dict(state: ResolvableState) -> dict:
     payload = {
         "status": state.status,
@@ -333,13 +336,9 @@ def _state_dict(state: ResolvableState) -> dict:
 def _executed_action_dict(action: ExecutedActionState) -> dict:
     return {
         "action_type": action.action_type,
-        "resolve_ref_available": action.resolve_ref_available,
-        "material_type": action.material_type,
-        "material_pack_option": action.material_pack_option,
-        "version": action.version,
+        "artifact": action.artifact,
         "action_id": action.action_id,
         "response_id": action.response_id,
         "context_id": action.context_id,
-        "material_ref_available": action.material_ref_available,
         "received_at": action.received_at,
     }
