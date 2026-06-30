@@ -281,14 +281,14 @@ def _validate_results(results: list[dict]) -> list[dict]:
     multi_artifact = by_name.get("multi_artifact_clarification", {})
     multi_artifact_response = multi_artifact.get("response", {})
     if (
-        _action_types(multi_artifact_response) != []
+        _action_types(multi_artifact_response) != ["send_weekly_report"]
         or multi_artifact_response.get("reply", {}).get("kind") != "clarification"
         or not multi_artifact_response.get("reply", {}).get("text")
     ):
         failures.append(
             {
                 "scenario": "multi_artifact_clarification",
-                "reason": "expected mixed material/report send with unselected material options to clarify",
+                "reason": "expected weekly send plus material-pack option clarification",
                 "response": multi_artifact_response,
             }
         )

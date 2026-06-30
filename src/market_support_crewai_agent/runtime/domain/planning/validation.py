@@ -183,20 +183,20 @@ def validate_execution_plan(
         )
 
     if plan.ambiguity_slots:
-        if plan.response_mode != "clarification":
+        if plan.response_mode not in {"clarification", "action"}:
             issues.append(
                 PlanValidationIssue(
                     code="ambiguous_plan_not_clarification",
-                    message="plans with ambiguity slots must use clarification mode",
+                    message="plans with ambiguity slots must use clarification mode unless independent actions remain",
                     severity="fatal",
                     metadata={"ambiguity_slots": list(plan.ambiguity_slots)},
                 )
             )
-        if plan.action_intents:
+        if plan.action_intents and not _action_compatible_ambiguity(plan):
             issues.append(
                 PlanValidationIssue(
                     code="ambiguous_plan_has_actions",
-                    message="ambiguous plans must not propose outbound actions",
+                    message="ambiguous plans must not propose actions for the ambiguous slot",
                     severity="fatal",
                     metadata={"ambiguity_slots": list(plan.ambiguity_slots)},
                 )
@@ -216,6 +216,12 @@ def validate_execution_plan(
         )
 
     return PlanValidationResult(valid=not issues, issues=tuple(issues))
+
+
+def _action_compatible_ambiguity(plan: ExecutionPlan) -> bool:
+    return set(plan.ambiguity_slots) <= {"material_pack_option"} and all(
+        action.action_type != "send_material_pack" for action in plan.action_intents
+    )
 
 
 def _validate_material_pack_scope(
