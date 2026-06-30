@@ -188,6 +188,48 @@ def test_decision_renders_material_pack_option_clarification_without_composer():
     assert response.actions == []
 
 
+def test_decision_sends_independent_report_while_clarifying_material_option():
+    request = make_request(
+        message="材料和周报都给我",
+        available_artifacts=[
+            {"type": "material_pack", "options": ["中证500", "中证1000"]},
+            {"type": "weekly_report"},
+        ],
+    )
+    policy = compile_policy(request)
+    plan = make_plan(
+        request,
+        plan_units=[
+            {"artifact_kind": "weekly_report", "action_intent": "send"},
+            {
+                "artifact_kind": "unclear",
+                "action_intent": "none",
+                "ambiguity_slots": ["material_pack_option"],
+                "requested_capabilities": [],
+            },
+        ],
+    )
+    facts = [
+        resolved_fact(
+            "weekly_report",
+            "weekly:ref",
+            period="20260612",
+            report_date="2026-06-12",
+        )
+    ]
+    business_facts = derive_business_facts(facts, request)
+
+    directive = DecisionEngine().decide(plan, business_facts, facts, request, policy)
+    response = render_directive(directive, plan, business_facts, facts)
+
+    assert directive.mode == "action"
+    assert response.reply.kind == "clarification"
+    assert "中证500" in response.reply.text
+    assert "中证1000" in response.reply.text
+    assert [action.type for action in response.actions] == ["send_weekly_report"]
+    assert validate_reply(response, directive, plan, business_facts, facts, policy).valid
+
+
 def test_decision_treats_adapter_ambiguous_without_candidates_as_unavailable():
     request = make_request(message="发一下材料", available_artifacts=[{"type": "material_pack", "options": ["中证1000指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     policy = compile_policy(request)

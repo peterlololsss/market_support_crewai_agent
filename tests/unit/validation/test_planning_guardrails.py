@@ -33,6 +33,38 @@ def test_compile_plan_spec_builds_weekly_report_action():
     assert validate_execution_plan(plan, policy).valid
 
 
+def test_compile_plan_spec_allows_independent_action_with_material_option_clarification():
+    request = make_request(
+        available_artifacts=[
+            {"type": "material_pack", "options": ["中证500", "中证1000"]},
+            {"type": "weekly_report"},
+        ]
+    )
+    policy = compile_policy(request)
+
+    plan = compile_plan_spec(
+        make_plan_spec(
+            request,
+            plan_units=[
+                {"artifact_kind": "weekly_report", "action_intent": "send"},
+                {
+                    "artifact_kind": "unclear",
+                    "action_intent": "none",
+                    "ambiguity_slots": ["material_pack_option"],
+                    "requested_capabilities": [],
+                },
+            ],
+        ),
+        request,
+        policy,
+    )
+
+    assert plan.response_mode == "action"
+    assert plan.ambiguity_slots == ["material_pack_option"]
+    assert [action.action_type for action in plan.action_intents] == ["send_weekly_report"]
+    assert validate_execution_plan(plan, policy).valid
+
+
 def test_compile_plan_spec_does_not_scope_report_send_by_material_pack_option():
     request = make_request(available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
     policy = compile_policy(request)

@@ -50,7 +50,7 @@ Planner ordering:
 3. Split the current message into atomic answer/send/handoff/refusal/clarification intents.
 4. Create one plan_units item per atomic intent, then fill each unit's domain_scope, answerability_policy, steps, ambiguity slots, and risk flags.
 
-Blocked compliance: use refusal/refuse and no capabilities. material_pack.options are routing choices, not a strategy catalog. If explicit material-pack options exist and the user did not select one, use ambiguity slot material_pack_option. Multiple sendable artifact types: output multiple send units only when each send is scoped or unambiguous.
+Blocked compliance: use refusal/refuse and no capabilities. material_pack.options are routing choices, not a strategy catalog. If explicit material-pack options exist and the user did not select one, use ambiguity slot material_pack_option. Every clarification PlanSpec must include ambiguity_slots. In mixed requests, keep independent unambiguous send units; clarify only the ambiguous unit.
 </prompt_fragment>
 </prompt_layer>
 

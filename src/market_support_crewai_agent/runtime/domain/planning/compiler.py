@@ -127,12 +127,12 @@ def compile_plan_spec(
 
 def _response_mode_for_plan_spec(units: list[PlanUnit]) -> ResponseMode:
     policies = {unit.answerability_policy for unit in units}
-    if "clarify" in policies:
-        return "clarification"
     if "refuse" in policies:
         return "refusal"
     if "send" in policies:
         return "action"
+    if "clarify" in policies:
+        return "clarification"
     if "answer" in policies:
         return "knowledge_answer"
     if "handoff" in policies:

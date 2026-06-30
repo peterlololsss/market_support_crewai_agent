@@ -70,7 +70,9 @@ class DecisionEngine:
                 reason_code=plan.compliance.reason_code,
             )
 
-        if plan.response_mode == "clarification" or plan.ambiguity_slots:
+        if plan.response_mode == "clarification" or (
+            plan.ambiguity_slots and not plan.action_intents
+        ):
             deterministic_clarification = _deterministic_clarification(plan)
             return _directive(
                 mode="clarification",
@@ -323,6 +325,15 @@ def _action_directive(
             text=abstention_response_text(),
             action_intents=plan.action_intents,
             reason_code="action_ready_answer_evidence_missing",
+        )
+
+    if plan.ambiguity_slots:
+        return _directive(
+            mode="action",
+            reply_kind="clarification",
+            text=_clarification_text(plan, business_facts, request),
+            action_intents=plan.action_intents,
+            reason_code="action_ready_with_clarification",
         )
 
     return _directive(
