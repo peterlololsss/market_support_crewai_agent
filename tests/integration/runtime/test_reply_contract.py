@@ -247,7 +247,7 @@ def test_runtime_times_out_slow_crewai_planner_before_composer_runs():
     runtime._build_agent = lambda *_args, **_kwargs: ComposerShouldNotRun()  # type: ignore[method-assign]
 
     try:
-        asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
+        asyncio.run(runtime.reply(ReplyRequestBuilder("周报请求").payload()))
     except AgentRuntimeError as exc:
         error = exc
     else:
@@ -277,7 +277,7 @@ def test_runtime_retries_invalid_planner_contract_with_feedback():
     planner = RetryPlannerAgent()
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报请求").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(planner.prompts) == 2
@@ -312,7 +312,7 @@ def test_runtime_retries_empty_planner_output_before_contract_feedback():
     planner = EmptyThenValidPlanner()
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报请求").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(planner.prompts) == 3
@@ -358,7 +358,7 @@ def test_runtime_falls_back_to_default_planner_after_empty_gemini_output():
     runtime._build_planner_agent = lambda: gemini  # type: ignore[method-assign]
     runtime._build_planner_fallback_agent = lambda: fallback  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报请求").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(gemini.prompts) == 2
@@ -386,7 +386,7 @@ def test_runtime_accepts_missing_mechanical_evidence_contract_ref():
     planner = MissingRefPlannerAgent()
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报请求").payload()))
 
     assert response.actions[0].type == "send_weekly_report"
     assert len(planner.prompts) == 1
@@ -412,7 +412,7 @@ def test_runtime_invalid_planner_contract_error_includes_field_feedback():
     runtime._build_planner_agent = lambda: planner  # type: ignore[method-assign]
 
     try:
-        asyncio.run(runtime.reply(ReplyRequestBuilder("周报").payload()))
+        asyncio.run(runtime.reply(ReplyRequestBuilder("周报请求").payload()))
     except AgentRuntimeError as exc:
         error = exc
     else:

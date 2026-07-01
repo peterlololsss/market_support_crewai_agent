@@ -65,16 +65,27 @@ _SUFFIX = r"(?:给我)?"
 _TRAILING_PUNCTUATION = " ,，.。!！?？~～;；"
 
 
-def _pattern_for_aliases(aliases: tuple[str, ...]) -> str:
+def _pattern_for_aliases(
+    aliases: tuple[str, ...],
+    *,
+    bare_aliases: tuple[str, ...] = (),
+) -> str:
     artifact = "(?:" + "|".join(aliases) + ")"
-    return (
-        r"^"
-        + _COMMAND_PREFIX
+    command = (
+        _COMMAND_PREFIX
         + _SEND_VERB
         + _FILLER
         + artifact
         + _FILLER
         + _SUFFIX
+    )
+    bare = "|(?:" + "|".join(bare_aliases) + ")" if bare_aliases else ""
+    return (
+        r"^"
+        + "(?:"
+        + command
+        + bare
+        + ")"
         + r"$"
     )
 
@@ -93,7 +104,8 @@ _ARTIFACTS: tuple[tuple[_ArtifactCommand, re.Pattern[str]], ...] = (
                 (
                     r"周报",
                     r"周度报告",
-                )
+                ),
+                bare_aliases=(r"周报",),
             ),
             flags=re.IGNORECASE,
         ),
@@ -111,7 +123,8 @@ _ARTIFACTS: tuple[tuple[_ArtifactCommand, re.Pattern[str]], ...] = (
                 (
                     r"月报",
                     r"月度报告",
-                )
+                ),
+                bare_aliases=(r"月报",),
             ),
             flags=re.IGNORECASE,
         ),
@@ -134,7 +147,8 @@ _ARTIFACTS: tuple[tuple[_ArtifactCommand, re.Pattern[str]], ...] = (
                     r"一页通",
                     r"开放日历",
                     r"ppt",
-                )
+                ),
+                bare_aliases=(r"材料包", r"一页通", r"开放日历"),
             ),
             flags=re.IGNORECASE,
         ),
