@@ -67,6 +67,7 @@ def test_matches_material_pack_aliases_without_options():
         "发材料包",
         "来个推介材料",
         "发一页通",
+        "来个开放日历",
         "发PPT",
     ):
         result = _match(message)

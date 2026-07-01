@@ -83,7 +83,7 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             guidance="If the material pack cannot be resolved, abstain or hand off instead of inventing a send."
         ),
         planner_guidance=(
-            "Use when the user clearly asks to send a material pack or one-pager. "
+            "Use when the user clearly asks to send a material pack, one-pager, or open calendar. "
             "Also use for general product availability, distributed-products, "
             "available-products-list, or broad 'what products do you have' "
             "requests when the user does not explicitly ask about products inside "
