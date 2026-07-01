@@ -132,6 +132,7 @@ _ARTIFACTS: tuple[tuple[_ArtifactCommand, re.Pattern[str]], ...] = (
                     r"产品材料",
                     r"路演材料",
                     r"一页通",
+                    r"开放日历",
                     r"ppt",
                 )
             ),
