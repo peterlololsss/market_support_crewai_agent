@@ -77,6 +77,22 @@ def test_matches_material_pack_aliases_without_options():
         assert result.plan.action_intents[0].action_type == "send_material_pack"
 
 
+def test_matches_exact_bare_artifact_names_only():
+    cases = {
+        "周报": "send_weekly_report",
+        "月报": "send_monthly_report",
+        "材料包": "send_material_pack",
+        "一页通": "send_material_pack",
+        "开放日历": "send_material_pack",
+    }
+    for message, action_type in cases.items():
+        result = _match(message)
+
+        assert result.status == "direct_action"
+        assert result.plan is not None
+        assert result.plan.action_intents[0].action_type == action_type
+
+
 def test_material_pack_with_options_requires_confirmation():
     result = _match(
         "发材料包",
@@ -102,12 +118,17 @@ def test_material_pack_with_options_requires_confirmation():
 def test_rejects_questions_mixed_commands_and_scoped_wording():
     for message in (
         "周报里有什么",
+        "周报请求",
+        "月报看看",
         "可以发周报吗",
         "发周报和月报",
         "发1000指增周报",
         "发最新净值",
         "介绍一下材料包",
         "发中证1000材料包",
+        "开放日历看看",
+        "材料包里有什么",
+        "一页通介绍一下",
     ):
         assert _match(message).status == "no_match"
 
