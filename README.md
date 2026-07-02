@@ -26,6 +26,39 @@ set +a
 uv run uvicorn market_support_crewai_agent.server.main:app --reload
 ```
 
+## Deploy from this machine
+
+在当前 Windows 开发机仓库根目录执行。脚本会把当前源码通过 SSH 上传到 `192.168.209.195`，再在远端用 Podman 部署。固定使用 `23003:8000`，不做备用端口切换；如果 23003 被占用，脚本会直接失败。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy_remote_podman.ps1
+```
+
+默认路径和服务名：
+
+```text
+Source:    /data/xiaoyan/market_support_crewai_agent/app
+Env file:  /data/xiaoyan/market_support_crewai_agent/.env
+Runtime:   /data/xiaoyan/market_support_crewai_agent/runtime
+Image:     market-support-crewai-agent:latest
+Container: market-support-crewai-agent
+Port:      23003 -> 8000
+```
+
+远端 `.env` 必须已存在于 `/data/xiaoyan/market_support_crewai_agent/.env`。脚本会先检查 adapter、Document MCP、planner LLM proxy 连通性，再构建镜像、替换同名容器，并只执行 `/health` 和不含发送意图的安全 `/reply` smoke。
+
+如果 SSH 用户不是默认的 `xiaoyan`，用：
+
+```powershell
+$env:REMOTE="your-user@192.168.209.195"; powershell -ExecutionPolicy Bypass -File .\scripts\deploy_remote_podman.ps1
+```
+
+如果在 Git Bash 里操作，也可以用：
+
+```bash
+bash scripts/deploy_remote_podman.sh
+```
+
 ## Reply checks and evals
 
 Run the Python test suite:
