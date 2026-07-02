@@ -72,8 +72,9 @@ _SEVERITY_RANK: dict[ValidationSeverity, int] = {
     "fatal": 3,
 }
 _RAW_LOCATOR_TOKENS = (
-    "://",
     "file:",
+    "mcp://",
+    "wecom-adapter:",
     "/users/",
     "/home/",
     "\\users\\",
