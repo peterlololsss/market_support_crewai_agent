@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Mapping
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from market_support_crewai_agent.runtime.context.models import (
@@ -14,6 +15,7 @@ from market_support_crewai_agent.runtime.context.models import (
     LargeResultPreview,
     ModelVisibleContext,
     ProjectionDecision,
+    RuntimeClock,
     RuntimeAppState,
     stable_json,
 )
@@ -65,6 +67,7 @@ _LARGE_FIELD_NAMES = {"text", "content", "body", "document_text", "stdout", "std
 # (bounded upstream by the Document MCP per-document cap), rather than incidental
 # evidence that can be previewed.
 _ANSWER_EVIDENCE_FACT_TYPES = frozenset({"document_context"})
+_SHANGHAI_TZ = timezone(timedelta(hours=8), "Asia/Shanghai")
 
 
 class ContextProjectionManager:
@@ -77,10 +80,23 @@ class ContextProjectionManager:
         self.policy = policy or ContextProjectionPolicy()
         self.payload_store = payload_store or ContextPayloadStore()
         self.pressure_estimator = pressure_estimator or ContextPressureEstimator()
+        self._now_factory: Callable[[], datetime] | None = None
 
     @classmethod
     def from_settings(cls, settings: object | None = None) -> "ContextProjectionManager":
-        return cls(policy=ContextProjectionPolicy.from_settings(settings))
+        manager = cls(policy=ContextProjectionPolicy.from_settings(settings))
+        manager._now_factory = _shanghai_now
+        return manager
+
+    @classmethod
+    def with_runtime_clock(
+        cls,
+        now_factory: Callable[[], datetime],
+        policy: ContextProjectionPolicy | None = None,
+    ) -> "ContextProjectionManager":
+        manager = cls(policy=policy)
+        manager._now_factory = now_factory
+        return manager
 
     def project_for_planner(self, **kwargs: Any) -> ModelVisibleContext:
         return self.project_for_stage(stage="planner_intent", **kwargs)
@@ -129,6 +145,7 @@ class ContextProjectionManager:
             current_user_message=request.message,
             domain_context=_compact_domain_context(domain_context),
             policy=_compact_policy(policy),
+            runtime_clock=_runtime_clock(self._now_factory),
             intent_gate=_model_dump(intent_gate),
             execution_plan=_model_dump(execution_plan),
             plan_validation=_compact_plan_validation(plan_validation),
@@ -719,6 +736,32 @@ def _rename(payload: dict[str, Any], old: str, new: str) -> None:
         payload[new] = payload.pop(old)
 
 
+def _shanghai_now() -> datetime:
+    return datetime.now(_SHANGHAI_TZ)
+
+
+def _runtime_clock(now_factory: Callable[[], datetime] | None) -> RuntimeClock | None:
+    if now_factory is None:
+        return None
+    now = now_factory()
+    if now.tzinfo is None:
+        local_now = now.replace(tzinfo=_SHANGHAI_TZ)
+    else:
+        local_now = now.astimezone(_SHANGHAI_TZ)
+    current_year = local_now.year
+    return RuntimeClock(
+        current_date=local_now.date().isoformat(),
+        current_datetime=local_now.isoformat(timespec="seconds"),
+        timezone="Asia/Shanghai",
+        current_year=str(current_year),
+        relative_years={
+            "今年": str(current_year),
+            "去年": str(current_year - 1),
+            "前年": str(current_year - 2),
+        },
+    )
+
+
 def _compact_domain_context(domain_context: DomainContext | None) -> dict[str, Any]:
     if domain_context is None:
         return {}
@@ -908,8 +951,9 @@ def _compact_planner_capabilities(request: ReplyRequest, policy: PolicyManifest)
     }
 
 
-def _planner_capability_guidance_line(card: dict[str, object]) -> str:
-    evidence = card.get("evidence") if isinstance(card.get("evidence"), dict) else {}
+def _planner_capability_guidance_line(card: Mapping[str, object]) -> str:
+    raw_evidence = card.get("evidence")
+    evidence: Mapping[str, object] = raw_evidence if isinstance(raw_evidence, dict) else {}
     return (
         "{id}|t={type}|rt={runtime}|req={required_artifacts}|forbid={forbidden_artifacts}|"
         "need={required_facts}|any={any_of_facts}|no_src={forbidden_sources}|"
@@ -918,11 +962,11 @@ def _planner_capability_guidance_line(card: dict[str, object]) -> str:
         id=card.get("id"),
         type=card.get("capability_type"),
         runtime=card.get("runtime_capability"),
-        required_artifacts=",".join(card.get("required_artifacts", [])),
-        forbidden_artifacts=",".join(card.get("forbidden_artifacts", [])),
-        required_facts=",".join(evidence.get("required_fact_types", [])),
-        any_of_facts=",".join(evidence.get("any_of_fact_types", [])),
-        forbidden_sources=",".join(evidence.get("forbidden_source_types", [])),
+        required_artifacts=",".join(_string_values(card.get("required_artifacts"))),
+        forbidden_artifacts=",".join(_string_values(card.get("forbidden_artifacts"))),
+        required_facts=",".join(_string_values(evidence.get("required_fact_types"))),
+        any_of_facts=",".join(_string_values(evidence.get("any_of_fact_types"))),
+        forbidden_sources=",".join(_string_values(evidence.get("forbidden_source_types"))),
         guidance=_clip(card.get("planner_guidance"), 220),
         positive=_clip(_first_value(card.get("examples_positive", [])), 80),
         negative=_clip(_first_value(card.get("examples_negative", [])), 80),
@@ -1006,7 +1050,7 @@ def _compact_evidence_fact(fact: EvidenceFact, include_content: bool) -> dict[st
                 "report_date",
             }
         }
-    payload = {
+    payload: dict[str, Any] = {
         "evidence_id": evidence_id(fact),
         "fact_type": fact.fact_type,
         "source_type": fact.source_type,
@@ -1154,6 +1198,12 @@ def _first_value(value: object) -> str:
     if not isinstance(value, (list, tuple)) or not value:
         return ""
     return str(value[0])
+
+
+def _string_values(value: object) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _clip(value: object, limit: int) -> str:

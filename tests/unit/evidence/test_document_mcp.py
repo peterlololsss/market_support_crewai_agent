@@ -355,7 +355,7 @@ def test_document_mcp_client_uses_llm_document_id_selection_for_latest_scale():
 
     assert selector.calls[0]["evidence_query"] == "最新规模情况"
     assert selector.calls[0]["products"][0]["id"] == "衍复万得小市值指数增强策略"
-    assert client.requested_document_ids == [("衍复公司介绍(简介)",)]
+    assert client.requested_document_ids == [("衍复公司介绍(简介)", "衍复万得小市值指数增强策略")]
     assert [chunk.document_id for chunk in chunks] == ["衍复公司介绍(简介)"]
     assert "2026年一季度末规模" in chunks[0].text
 
@@ -403,6 +403,34 @@ def test_document_mcp_client_validates_llm_selected_ids_before_fetch():
 
     assert client.requested_document_ids == [("company",)]
     assert [chunk.document_id for chunk in chunks] == ["company"]
+
+
+def test_document_mcp_client_fills_remaining_context_after_selection():
+    request = make_request(message="最新规模情况")
+    selector = FakeProductSelector(
+        DocumentProductSelection(
+            document_ids=("strategy",),
+            confidence="high",
+        )
+    )
+    client = FakeMcpClient(
+        products=[
+            {"id": "company", "category": "公司介绍"},
+            {"id": "faq", "category": "常见问答"},
+            {"id": "strategy", "category": "指数增强策略"},
+        ],
+        documents=[
+            {"id": "company", "title": "Company", "content": "公司介绍"},
+            {"id": "faq", "title": "FAQ", "content": "常见问答"},
+            {"id": "strategy", "title": "Strategy", "content": "策略规模"},
+        ],
+        selector=selector,
+    )
+
+    chunks = asyncio.run(client.fetch_context_async(request, max_documents=3))
+
+    assert client.requested_document_ids == [("strategy", "faq", "company")]
+    assert [chunk.document_id for chunk in chunks] == ["company", "faq", "strategy"]
 
 
 def test_document_mcp_client_reads_all_context_when_selector_declines():

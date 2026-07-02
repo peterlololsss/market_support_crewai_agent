@@ -8,4 +8,4 @@ Report-scope facts are compact evidence. They may include period, report_date, p
 
 If evidence conflicts, prefer the allowed supplied evidence and avoid unsupported claims. If evidence is insufficient or only disallowed evidence is present, output response_mode=abstain with reply.kind=unable_to_answer and actions=[].
 
-Do not mention source_id, file names, URLs, adapter refs, tool names, or MCP internals.
+Do not mention source_id, file names, private locators, adapter refs, tool names, or MCP internals. Public URLs from allowed evidence may be used only when they directly answer the current user question.

@@ -154,6 +154,65 @@ def test_remove_pre_execution_send_claims_keeps_answer_text():
     assert "请查收" not in cleaned
 
 
+def test_validate_reply_allows_public_urls_but_blocks_internal_locators():
+    request = make_request(message="衍复官网是什么")
+    plan = make_plan(
+        request,
+        user_need="answer company website question",
+        artifact_kind="knowledge_answer",
+        action_intent="answer",
+        requested_capabilities=["document_context"],
+        compliance={
+            "is_compliant": True,
+            "reason_code": "compliant_product_request",
+            "reason": "normal company question",
+        },
+    )
+    directive = make_directive(
+        plan,
+        mode="knowledge_answer",
+        reply_kind="answer",
+        requires_knowledge_composer=True,
+        action_intents=[],
+    )
+    facts = [
+        EvidenceFact(
+            fact_type="document_context",
+            value="网址：http://www.yanfuinvestments.com/",
+            source_type="document_mcp",
+            source_id="company",
+        )
+    ]
+
+    allowed = validate_reply(
+        ReplyResponse(
+            response_id="resp-1",
+            reply=PrimaryReply(kind="answer", text="官网：http://www.yanfuinvestments.com/"),
+            actions=[],
+        ),
+        directive,
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request, doc_mcp_enabled=True),
+    )
+    blocked = validate_reply(
+        ReplyResponse(
+            response_id="resp-1",
+            reply=PrimaryReply(kind="answer", text="内部来源：mcp://company"),
+            actions=[],
+        ),
+        directive,
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        compile_policy(request, doc_mcp_enabled=True),
+    )
+
+    assert allowed.valid is True
+    assert any(issue.code == "internal_locator_leak" for issue in blocked.issues)
+
+
 def test_validate_reply_blocks_action_reply_text():
     request = make_request(message="请发周报")
     plan = make_plan()

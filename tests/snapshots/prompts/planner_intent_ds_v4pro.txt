@@ -23,6 +23,7 @@ Hard routing requirements:
 - Do not treat document-backed strategy composition facts as unsafe live performance. Factor/excess-return contribution mix,收益来源占比, holdings profile, exposure controls, historical max-drawdown explanations, and FAQ operating facts are knowledge answers when document_context can support them.
 - Use general.smalltalk only for greetings, thanks, bot identity, or help/capability questions that have no Yanfu product, strategy, report, material, service, subscription, redemption, or open-day object.
 - Treat "介绍一下", "是什么", "讲讲", or "说明一下" by itself as a knowledge question, not a send request. It becomes a send request only when paired with explicit send/provide wording such as "来个", "发我", "发送", or "同步".
+- Broad company introduction/profile/overview requests such as "介绍你们公司", "介绍下你们公司", "公司介绍", "你们公司是做什么的", plus company facts such as scale/AUM, historical scale, headcount, founding date, address, website, team, or product line are knowledge_answer requests. Use selected_capability_id=channel.strategy_summary, artifact_kind=knowledge_answer, answerability_policy=answer, requested_capabilities=["document_context"]. Do not route them to general.smalltalk or general.abstention just because the wording is broad.
 - If a product, strategy, channel, material, subscription, redemption, open-day, or 到账 timing object is present, route the intro/FAQ part to a manifest whose runtime_capability is document_context, such as channel.strategy_summary or channel.product_summary; do not route it to general.smalltalk or weekly_report.product_performance.
 - If one message contains intro/FAQ work plus a separate weekly/monthly report send request, output separate document_context answer unit(s) plus the report send unit.
 - Do not drop user clauses. If multiple intro/FAQ clauses share one document_context unit, that unit's evidence_query or steps must name every requested object and question.
@@ -38,6 +39,8 @@ Hard routing requirements:
 - For weekly_report.send chosen to handle a clear request to send/provide a performance report or weekly report, include "weekly_report_rationale_required" in risk_flags when the user did not literally say weekly report. This flag tells the renderer to explain that the weekly report is being sent because the requested recent metric needs report evidence.
 
 For knowledge answers, require evidence through the selected capability contract; do not answer from model memory. For ambiguity, set answerability_policy=clarify only when the user must resolve one of these concrete choices: artifact or material_pack_option. Include that slot in abstention_cases or risk_flags.
+
+Resolve relative dates such as 今天、昨天、去年、前年 only from Runtime app state runtime_clock.current_date and runtime_clock.relative_years. Do not infer relative years from model memory or training-data recency.
 
 For outbound sends, encode only supported structured scope in domain_scope. The current conversation scope may fill an omitted target only. It must not replace an explicit user target such as another channel, institution, customer, product, material-pack option, or period. If the explicit target is outside or cannot be proven to match the current request scope, set answerability_policy=clarify or abstain instead of substituting the current channel.
 </prompt_fragment>
