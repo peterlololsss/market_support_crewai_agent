@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from market_support_crewai_agent.runtime.context import projection as projection_module
 from market_support_crewai_agent.runtime.context.models import ContextProjectionPolicy, prompt_json
 from market_support_crewai_agent.runtime.context.payload_store import ContextPayloadStore
 from market_support_crewai_agent.runtime.context.projection import ContextProjectionManager
-from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.domain.ontology import ArtifactScope, DomainContextBuilder
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.llm.prompting.context import PromptAssemblyContext, render_prompt_context_layers
 from market_support_crewai_agent.runtime.llm.prompting.router import route_intent
 from market_support_crewai_agent.runtime.state.conversation_store import ConversationMessage
-from market_support_crewai_agent.runtime.validation.answerability import AnswerabilityGate
 from tests.helpers.planning import compile_test_plan, make_request
 
 
@@ -190,3 +188,43 @@ def test_prompt_renderer_uses_model_visible_context_boundary():
     assert layers["runtime"].count("Runtime Capability & Evidence Boundary JSON:") == 1
     assert projection.projection_id in layers["runtime"]
     assert layers["task"] == "Current user message:\ncurrent task"
+
+
+def test_projection_includes_runtime_clock_for_relative_dates():
+    request = make_request(message="去年3季度的策略规模是多少？")
+    policy = compile_policy(request)
+    manager = ContextProjectionManager.with_runtime_clock(
+        lambda: datetime(2026, 7, 2, 9, 30, tzinfo=timezone.utc)
+    )
+
+    projection = manager.project_for_stage(
+        stage="planner_intent",
+        request=request,
+        policy=policy,
+    )
+
+    app_state = next(block.payload for block in projection.blocks if block.block_type == "app_state")
+    runtime_clock = app_state["runtime_clock"]
+    assert runtime_clock["current_date"] == "2026-07-02"
+    assert runtime_clock["relative_years"]["去年"] == "2025"
+
+
+def test_projection_from_settings_enables_runtime_clock(monkeypatch):
+    monkeypatch.setattr(
+        projection_module,
+        "_shanghai_now",
+        lambda: datetime(2026, 7, 2, 9, 30, tzinfo=timezone.utc),
+    )
+    request = make_request(message="去年4季度末的策略规模是多少？")
+    policy = compile_policy(request)
+
+    projection = ContextProjectionManager.from_settings().project_for_stage(
+        stage="planner_intent",
+        request=request,
+        policy=policy,
+    )
+
+    app_state = next(block.payload for block in projection.blocks if block.block_type == "app_state")
+    runtime_clock = app_state["runtime_clock"]
+    assert runtime_clock["current_date"] == "2026-07-02"
+    assert runtime_clock["relative_years"]["去年"] == "2025"

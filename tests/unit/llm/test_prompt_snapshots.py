@@ -9,6 +9,7 @@ from market_support_crewai_agent.runtime.llm.prompting.assembler import (
     assembleGuardrailPrompt,
 )
 from market_support_crewai_agent.runtime.llm.prompting.context import PromptAssemblyContext
+from market_support_crewai_agent.runtime.llm.prompting.profiles import PromptStage
 from market_support_crewai_agent.runtime.llm.prompting.router import (
     route_intent,
     select_prompt_program,
@@ -52,12 +53,12 @@ def make_request(message: str = "发一下中证1000材料", **overrides) -> Rep
 def make_context(
     message: str = "发一下中证1000材料",
     *,
-    stage: str = "planner_intent",
+    stage: PromptStage = "planner_intent",
 ) -> PromptAssemblyContext:
     request = make_request(message)
     policy = compile_policy(request, doc_mcp_enabled=True)
     return PromptAssemblyContext(
-        stage=stage,  # type: ignore[arg-type]
+        stage=stage,
         model_family="ds_v4pro",
         request=request,
         policy=policy,
@@ -94,6 +95,18 @@ def test_knowledge_composer_prompt_snapshot():
     )
 
     assert_snapshot("knowledge_composer_boundary.txt", program.prompt_text)
+
+
+def test_prompt_rules_route_company_intro_and_allow_public_urls():
+    planner_program = select_prompt_program(make_context("介绍下你们公司"))
+    composer_program = select_prompt_program(make_context(stage="knowledge_composer"))
+
+    assert "介绍你们公司" in planner_program.prompt_text
+    assert "company introduction" in planner_program.prompt_text
+    assert "runtime_clock.relative_years" in planner_program.prompt_text
+    assert "runtime_clock.relative_years" in composer_program.prompt_text
+    assert "Public http(s) URLs from allowed evidence may be preserved" in composer_program.prompt_text
+    assert "Do not output raw URLs" not in composer_program.prompt_text
 
 
 def test_alignment_verifier_prompt_snapshot():

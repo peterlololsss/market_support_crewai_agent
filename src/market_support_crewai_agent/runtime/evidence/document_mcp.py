@@ -255,13 +255,23 @@ class DocumentMcpClient:
             products,
             max_documents=max_documents,
         )
-        if not document_ids:
-            # When selection is unsure, fall back to bounded baseline/broad evidence.
-            document_ids = _fallback_document_ids(
-                products,
-                self.baseline_categories,
-                max_documents=max_documents,
-            )
+        fallback_ids = _fallback_document_ids(
+            products,
+            self.baseline_categories,
+            max_documents=max_documents,
+        )
+        if document_ids:
+            seen = set(document_ids)
+            # ponytail: broad context for eval-sized corpora; replace with chunk facts when corpus grows.
+            for fallback_id in fallback_ids:
+                if fallback_id in seen:
+                    continue
+                document_ids.append(fallback_id)
+                seen.add(fallback_id)
+                if len(document_ids) >= max_documents:
+                    break
+        else:
+            document_ids = fallback_ids
         if not document_ids:
             return []
 

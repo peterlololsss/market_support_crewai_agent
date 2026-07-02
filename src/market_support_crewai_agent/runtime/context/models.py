@@ -54,6 +54,18 @@ class CompactedSpanSummary:
 
 
 @dataclass(frozen=True)
+class RuntimeClock:
+    current_date: str
+    current_datetime: str
+    timezone: str
+    current_year: str
+    relative_years: dict[str, str]
+
+    def to_prompt_dict(self) -> dict[str, Any]:
+        return _drop_empty(_json_safe(self))
+
+
+@dataclass(frozen=True)
 class ContextBlock:
     block_id: str
     block_type: ContextBlockType
@@ -156,6 +168,7 @@ class RuntimeAppState:
     current_user_message: str
     domain_context: dict[str, Any]
     policy: dict[str, Any]
+    runtime_clock: RuntimeClock | None = None
     current_goal: str | None = None
     intent_gate: dict[str, Any] | None = None
     execution_plan: dict[str, Any] | None = None
