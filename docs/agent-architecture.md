@@ -1,6 +1,6 @@
 # Agent Architecture
 
-Last updated: 2026-06-17.
+Last updated: 2026-07-07.
 
 This service is a deterministic support-reply harness around bounded LLM stages.
 The LLM proposes intent and wording. The harness owns source scope, evidence,
@@ -30,9 +30,11 @@ ReplyRequest
 -> ConversationStore.get_recent + ActionLedger.recent_executed_for_conversation
 -> DomainContextBuilder
 -> compile_policy
--> ContextProjectionManager.project_for_stage
--> Planner LLM emits PlanSpec
--> compile_plan_spec -> ExecutionPlan
+-> input_policy.match for deterministic request-policy handoff rules
+-> direct_send.match for narrow closed-set send commands when input policy does not match
+-> ContextProjectionManager.project_for_stage when planner is needed
+-> Planner LLM emits PlanSpec when no deterministic plan exists
+-> compile_plan_spec -> ExecutionPlan, or use deterministic ExecutionPlan
 -> validate_execution_plan
 -> EvidenceExecutor
 -> EvidenceFact + BusinessFacts
@@ -49,6 +51,22 @@ ReplyRequest
 Only `ReplyResponse { reply, actions }` crosses the public `/reply` boundary.
 The adapter still has final authority to execute `send_material_pack`,
 `send_weekly_report`, and `send_monthly_report`.
+
+## Input Policy And Direct Send
+
+Before the planner runs, the runtime tries two deterministic plan sources:
+
+```text
+input_policy.match      request-policy handoff rules such as restricted-topic escalation
+direct_send.match       exact closed-set artifact send commands
+```
+
+`input_policy` owns deterministic policy outcomes that should not become a new one-off guardrail class. Matched rules
+produce a policy-scoped `ExecutionPlan` and carry generic handoff metadata on `GuardrailDecision`; `DecisionEngine`
+renders the handoff without topic-specific branches.
+
+`direct_send` is only a closed-set action accelerator for explicit material-pack, weekly-report, and monthly-report
+send commands. It is not a product, strategy, document, or report-scope selector.
 
 ## Capability Registry
 
@@ -217,6 +235,7 @@ When moving old behavior into the new architecture:
 
 ```text
 prompt rule -> CapabilityManifest or EvidenceContract
+request-policy handoff -> input_policy rule row + generic handoff metadata
 keyword selector -> DomainContext entity or closed-set selector
 custom verifier branch -> generic verifier primitive
 LLM fact inference -> EvidenceFact / BusinessFacts

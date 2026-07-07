@@ -20,6 +20,55 @@ stable -> domain -> runtime -> task -> ephemeral
 
 Stable prompt content must not be mutated mid-request. Production runtime differences enter through `ModelVisibleContext` on `PromptAssemblyContext`; selector/guardrail prompts use their explicit JSON payloads.
 
+## Section And Role Responsibilities
+
+Planner prompts are intentionally split across multiple sections. Each section has
+one job, so future fixes go to the right source instead of stuffing eval examples
+into active instructions.
+
+```text
+base.planner_intent
+  Planner identity, PlanSpec-only output boundary, source-of-truth hierarchy,
+  request splitting, and deterministic harness ownership.
+
+planner.intent_taxonomy
+  Durable semantic categories only: send request, current metric/report evidence,
+  evergreen document FAQ, report-scope question, material-pack collateral,
+  handoff, clarification, refusal/abstention, smalltalk/no-reply.
+
+CapabilityManifest in runtime/domain/capabilities/manifests.py
+  Capability contract source: capability id, artifact/tool boundaries,
+  EvidenceContract, abstention policy, verifier checks, and compact
+  planner_guidance. This is where capability-specific selection boundaries live.
+
+Capability registry JSON in Runtime Capability & Evidence Boundary JSON
+  Runtime projection of manifest-derived capability contracts. It is the selectable
+  allowlist for the current request and must omit examples_positive,
+  examples_negative, and eval-question text.
+
+ContextProjectionManager / ModelVisibleContext
+  Runtime state projection: request metadata, policy allowlists, ledger/history
+  context, runtime clock, guardrail decisions, evidence facts, business facts,
+  and pressure decisions. It should expose facts and contracts, not new rules.
+
+output.plan_spec_schema
+  Output schema and field-level PlanSpec constraints. It should not carry
+  domain routing examples.
+
+compliance.reason_codes
+  Allowed compliance reason-code vocabulary. It explains labels, not final
+  legality; deterministic validators still enforce action legality.
+
+composer and verifier fragments
+  Composer fragments format grounded replies from BusinessFacts/evidence.
+  Verifier fragments inspect an already proposed reply/action. They do not add
+  planner routing policy.
+```
+
+Anti-overfitting rule: real Xiaoyan question-set strings belong in eval fixtures,
+golden cases, or regression tests. Active prompt fragments and projected manifest
+contracts should describe target behavior by category and schema.
+
 ## Failure Mode Covered By Prompts
 
 The original architecture bug was source drift: a `材料包` product question could
