@@ -1,0 +1,17 @@
+{
+  "prompt_chars": 47045,
+  "fragment_ids": [
+    "base.planner_intent",
+    "model.ds_v4pro.structured",
+    "planner.intent_taxonomy",
+    "output.plan_spec_schema",
+    "compliance.reason_codes"
+  ],
+  "fixture_hit_count": 0,
+  "fixture_hits": [],
+  "has_capability_contracts": true,
+  "has_capability_cards": false,
+  "has_pos_neg_pipe": false,
+  "has_projected_examples": false,
+  "has_section_roles": true
+}

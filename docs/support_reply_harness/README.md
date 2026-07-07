@@ -1,6 +1,6 @@
 # Support Reply Harness Docs
 
-Last updated: 2026-06-17.
+Last updated: 2026-07-07.
 
 This directory is the active design source for the evidence-grounded support reply harness in `market-support-crewai-agent`.
 
@@ -10,7 +10,8 @@ This directory is the active design source for the evidence-grounded support rep
 - Public endpoint: `POST /reply`.
 - Public response boundary: `ReplyResponse` with `reply` plus typed outbound action proposals.
 - Execution owner: existing WeCom adapter.
-- Current runtime file: `src/market_support_crewai_agent/runtime/orchestration/reply_agent.py`.
+- Current runtime entrypoint: `src/market_support_crewai_agent/runtime/orchestration/runtime.py`.
+- Candidate-plan routing: `src/market_support_crewai_agent/runtime/orchestration/workflow.py`.
 - Public contracts: `src/market_support_crewai_agent/schemas.py`.
 - Conversation store: `src/market_support_crewai_agent/runtime/state/conversation_store.py`.
 - Runtime trace: `src/market_support_crewai_agent/runtime/state/runtime_trace.py`.
@@ -21,6 +22,9 @@ This directory is the active design source for the evidence-grounded support rep
 Build a Support Reply Harness: a deterministic evidence and control layer around LLM composition.
 
 The LLM handles language interpretation and concise composition. The harness handles identity, permission, canonicalization, evidence, business facts, outbound action validation, audit, and evals.
+
+The first plan source is deterministic: input-policy handoff rules and narrow direct-send commands can construct an
+`ExecutionPlan` before the planner. The planner remains the semantic fallback for open-ended requests.
 
 ## Reading guide
 
@@ -50,6 +54,7 @@ reference/agent_prompt_hygiene.md    agent prompt/context hygiene
 - Outbound actions are execution proposals for the adapter.
 - Customer-visible sales mentions live in `reply.mentions`.
 - MCP calls go through fixed wrappers.
+- Request-policy handoffs live in the input-policy rule table, not one guardrail class per topic.
 - Report scope claims come from adapter scope evidence.
 - “Just sent” references resolve through the action ledger.
 - Final outbound actions execute after deterministic runtime validation and adapter validation.

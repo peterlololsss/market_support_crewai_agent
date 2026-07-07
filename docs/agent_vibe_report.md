@@ -1,6 +1,6 @@
 # 当前 Agent Vibe 报告
 
-生成日期：2026-07-02
+生成日期：2026-07-07
 
 这份报告讲的是当前仓库里的真实实现，不是理想设计稿。它覆盖 `POST /reply` 从收到 WeCom adapter 请求，到 LLM 规划、证据执行、业务事实派生、回复/动作生成、校验、审计、保存历史的完整链路。
 
@@ -14,36 +14,39 @@ flowchart TD
     B --> C[输入 guardrail]
     C --> D[运行时状态加载]
     D --> E[DomainContext + PolicyManifest]
-    E --> F{是否窄范围直接发送命令?}
-    F -- 是 --> G[直接生成 ExecutionPlan]
-    F -- 否 --> H[Planner LLM 输出 PlanSpec]
-    H --> I[PlanSpec 编译成 ExecutionPlan]
-    G --> J[ExecutionPlan 验证]
-    I --> J
-    J --> K[EvidenceExecutor 执行确定性证据]
-    K --> L[EvidenceFact 列表]
-    L --> M[BusinessFacts 派生]
-    M --> N[AnswerabilityGate + DecisionEngine]
-    N --> O{需要 composer LLM?}
-    O -- 否 --> P[deterministic renderer]
-    O -- 是 --> Q[Reply Composer LLM]
-    P --> R[ReplyResponse]
-    Q --> R
-    R --> S[output guard + reply/action validator]
-    S --> T{alignment verifier enabled?}
-    T -- 是 --> U[alignment loop 可重规划/重取证/重写]
-    U --> S
-    T -- 否 --> V[审计 + 保存会话]
-    S -- valid --> V
-    V --> W[返回 ReplyResponse 给 adapter]
-    W --> X[adapter 自己验证、授权、执行真实发送]
+    E --> F{input policy 命中?}
+    F -- 是 --> G[政策型 handoff ExecutionPlan]
+    F -- 否 --> H{是否窄范围直接发送命令?}
+    H -- 是 --> I[直接生成 action/clarification ExecutionPlan]
+    H -- 否 --> J[Planner LLM 输出 PlanSpec]
+    J --> K[PlanSpec 编译成 ExecutionPlan]
+    G --> L[ExecutionPlan 验证]
+    I --> L
+    K --> L
+    L --> M[EvidenceExecutor 执行确定性证据]
+    M --> N[EvidenceFact 列表]
+    N --> O[BusinessFacts 派生]
+    O --> P[AnswerabilityGate + DecisionEngine]
+    P --> Q{需要 composer LLM?}
+    Q -- 否 --> R[deterministic renderer]
+    Q -- 是 --> S[Reply Composer LLM]
+    R --> T[ReplyResponse]
+    S --> T
+    T --> U[output guard + reply/action validator]
+    U --> V{alignment verifier enabled?}
+    V -- 是 --> W[alignment loop 可重规划/重取证/重写]
+    W --> U
+    V -- 否 --> X[审计 + 保存会话]
+    U -- valid --> X
+    X --> Y[返回 ReplyResponse 给 adapter]
+    Y --> Z[adapter 自己验证、授权、执行真实发送]
 ```
 
 ### 关键气质
 
 - **LLM 是提案者，不是执行者**：planner 只交 `PlanSpec`，composer 只交 `ComposerReplyOutput`/`ReplyResponse`，不能直接调用 adapter。
 - **adapter 是事实和执行边界**：能不能发、发什么、销售 mention 对象、报告周期，优先来自 adapter resolve/preflight。
-- **state 是一串 typed 派生物**：`ReplyRequest -> DomainContext/PolicyManifest -> ExecutionPlan -> EvidenceFact -> BusinessFacts -> ResponseDirective -> ReplyResponse`。
+- **state 是一串 typed 派生物**：`ReplyRequest -> DomainContext/PolicyManifest -> input_policy/direct_send/PlanSpec -> ExecutionPlan -> EvidenceFact -> BusinessFacts -> ResponseDirective -> ReplyResponse`。
 - **动作只是 proposal**：`send_weekly_report` 这种 action 带 `resolve_ref` 回 adapter，adapter 最终验证并执行。
 - **证据优先级很强**：计划、历史、LLM 解释都不能压过 adapter/evidence fact。
 
@@ -102,7 +105,7 @@ send_monthly_report
 
 ## 3. 主流程：`CrewAIReplyRuntime.reply`
 
-真实主编排在 `src/market_support_crewai_agent/runtime/orchestration/reply_agent.py`。
+真实主编排在 `src/market_support_crewai_agent/runtime/orchestration/runtime.py`。
 
 ```mermaid
 sequenceDiagram
@@ -111,6 +114,7 @@ sequenceDiagram
     participant Store as ConversationStore
     participant Ledger as ActionLedger
     participant Policy as PolicyCompiler
+    participant Router as Workflow/InputPolicy/DirectSend
     participant Planner as Planner LLM
     participant Evidence as EvidenceExecutor
     participant Decision as DecisionEngine
@@ -123,9 +127,17 @@ sequenceDiagram
     Runtime->>Store: get_recent(conversation_key)
     Runtime->>Ledger: recent_executed_for_conversation()
     Runtime->>Policy: compile_policy(request, ledger_summary)
-    Runtime->>Planner: PlanSpec, unless direct-send matched
-    Planner-->>Runtime: structured PlanSpec
-    Runtime->>Runtime: compile PlanSpec -> ExecutionPlan
+    Runtime->>Router: match_input_policy(request, policy)
+    alt input-policy matched
+        Router-->>Runtime: handoff ExecutionPlan
+    else direct-send matched
+        Runtime->>Router: match_direct_send_command(request, policy)
+        Router-->>Runtime: action/clarification ExecutionPlan
+    else planner needed
+        Runtime->>Planner: projected context + PlanSpec schema
+        Planner-->>Runtime: structured PlanSpec
+        Runtime->>Runtime: compile PlanSpec -> ExecutionPlan
+    end
     Runtime->>Validator: validate_execution_plan(plan, policy)
     Runtime->>Evidence: execute(request, plan, policy, action_history)
     Evidence-->>Runtime: preflight + evidence_facts + business_facts + domain_context
@@ -496,7 +508,15 @@ answerability=answer -> answer_capabilities + adapter/document/report evidence
 answerability=handoff -> sales_mention resolve
 ```
 
-## 8. Direct Send：少量确定性捷径
+## 8. Input Policy + Direct Send：两个确定性入口
+
+`src/market_support_crewai_agent/runtime/domain/planning/input_policy.py` 先跑。
+
+它处理“必须在 planner 之前确定结果”的请求政策规则：规则是数据行，不是每个话题一个新 guardrail 类。命中后构造
+`response_mode=handoff` 的 `ExecutionPlan`，并把 handoff 文案、兜底文案、原因写进
+`GuardrailDecision.metadata`，后面由 `DecisionEngine` 的通用 handoff 路径渲染。
+
+这层不能做产品、策略、文档、报告范围选择；它只用于闭集政策触发和 policy-allowlist 内的 handoff 能力。
 
 `src/market_support_crewai_agent/runtime/domain/planning/direct_send.py` 里有一个窄范围直接发送匹配。
 
@@ -1250,16 +1270,17 @@ AuditTrace(
 
 ```mermaid
 flowchart TD
-    A[message=请发一下周报] --> B[direct_send.match]
-    B --> C[ExecutionPlan response_mode=action]
-    C --> D[validate_execution_plan]
-    D --> E[adapter resolve weekly_report + sales_mention]
-    E --> F[weekly_report_resolvable=true, resolve_ref, period, report_date]
-    F --> G[BusinessFacts.weekly_report.status=available]
-    G --> H[DecisionEngine action_ready]
-    H --> I[render SendWeeklyReportAction]
-    I --> J[validate action resolve_ref matches evidence]
-    J --> K[ReplyResponse actions=[send_weekly_report]]
+    A[message=请发一下周报] --> B[input_policy.match no_match]
+    B --> C[direct_send.match]
+    C --> D[ExecutionPlan response_mode=action]
+    D --> E[validate_execution_plan]
+    E --> F[adapter resolve weekly_report + sales_mention]
+    F --> G[weekly_report_resolvable=true, resolve_ref, period, report_date]
+    G --> H[BusinessFacts.weekly_report.status=available]
+    H --> I[DecisionEngine action_ready]
+    I --> J[render SendWeeklyReportAction]
+    J --> K[validate action resolve_ref matches evidence]
+    K --> L[ReplyResponse actions=[send_weekly_report]]
 ```
 
 返回不是“我已经发了”。返回的是 typed action proposal。adapter 执行后再通过 `/actions/feedback` 回写。
@@ -1543,19 +1564,22 @@ flowchart TD
 ```text
 1. src/market_support_crewai_agent/server/main.py
 2. src/market_support_crewai_agent/schemas.py
-3. src/market_support_crewai_agent/runtime/orchestration/reply_agent.py
-4. src/market_support_crewai_agent/runtime/domain/policy.py
-5. src/market_support_crewai_agent/runtime/domain/capabilities/__init__.py
-6. src/market_support_crewai_agent/runtime/domain/capabilities/manifests.py
-7. src/market_support_crewai_agent/runtime/domain/plan_spec.py
-8. src/market_support_crewai_agent/runtime/domain/planning/compiler.py
-9. src/market_support_crewai_agent/runtime/domain/planning/validation.py
-10. src/market_support_crewai_agent/runtime/evidence/executor.py
-11. src/market_support_crewai_agent/runtime/domain/business_facts.py
-12. src/market_support_crewai_agent/runtime/orchestration/decision.py
-13. src/market_support_crewai_agent/runtime/orchestration/response_renderer.py
-14. src/market_support_crewai_agent/runtime/validation/reply_validator.py
-15. src/market_support_crewai_agent/runtime/state/audit.py
+3. src/market_support_crewai_agent/runtime/orchestration/runtime.py
+4. src/market_support_crewai_agent/runtime/orchestration/workflow.py
+5. src/market_support_crewai_agent/runtime/domain/planning/input_policy.py
+6. src/market_support_crewai_agent/runtime/domain/planning/direct_send.py
+7. src/market_support_crewai_agent/runtime/domain/policy.py
+8. src/market_support_crewai_agent/runtime/domain/capabilities/__init__.py
+9. src/market_support_crewai_agent/runtime/domain/capabilities/manifests.py
+10. src/market_support_crewai_agent/runtime/domain/plan_spec.py
+11. src/market_support_crewai_agent/runtime/domain/planning/compiler.py
+12. src/market_support_crewai_agent/runtime/domain/planning/validation.py
+13. src/market_support_crewai_agent/runtime/evidence/executor.py
+14. src/market_support_crewai_agent/runtime/domain/business_facts.py
+15. src/market_support_crewai_agent/runtime/orchestration/decision.py
+16. src/market_support_crewai_agent/runtime/orchestration/response_renderer.py
+17. src/market_support_crewai_agent/runtime/validation/reply_validator.py
+18. src/market_support_crewai_agent/runtime/state/audit.py
 ```
 
 看完这条线，你会理解这个 agent 的主性格：**模型负责中文理解，harness 负责把理解压进可验证的结构；所有能造成真实外部影响的事情，都必须先被 adapter/evidence/policy/validator 同意。**

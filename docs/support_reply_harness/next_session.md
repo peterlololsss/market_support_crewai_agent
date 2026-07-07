@@ -1,6 +1,6 @@
 # Next Coding Session Handoff
 
-Last updated: 2026-06-17.
+Last updated: 2026-07-07.
 
 This file is the practical starting point for the next coding agent session.
 
@@ -9,8 +9,10 @@ This file is the practical starting point for the next coding agent session.
 The harness now has the first production-shaped runtime path:
 
 ```text
-Planner LLM -> PlanSpec -> validated ExecutionPlan -> EvidenceExecutor -> EvidenceFacts
--> BusinessFacts -> ResponseDirective -> deterministic renderer or knowledge composer
+ReplyRequest -> DomainContext/PolicyManifest
+-> input_policy/direct_send deterministic ExecutionPlan or Planner LLM -> PlanSpec -> validated ExecutionPlan
+-> EvidenceExecutor -> EvidenceFacts -> BusinessFacts
+-> ResponseDirective -> deterministic renderer or knowledge composer
 -> reply/action postcondition validator -> error-on-invalid
 ```
 
@@ -34,6 +36,8 @@ adapter execution feedback ledger
 audit trace with compact CrewAI stage usage metadata
 runtime trace spans/events in audit and optional live logs
 ContextProjectionManager and ModelVisibleContext before planner/composer/verifier prompts
+input-policy handoff before direct-send/planner routing
+shared compact message normalization for input-policy and direct-send matching
 configurable input message length guardrail
 CrewAI planner/composer timeout budget
 configurable CrewAI retry budget
@@ -88,6 +92,7 @@ The bootstrap path is complete. New work should be a small extension to one of t
 
 ```text
 CapabilityManifest / EvidenceContract
+input_policy rule table for deterministic request-policy handoff
 PolicyManifest / PlanSpec compiler
 EvidenceExecutor wrapper
 BusinessFacts derivation

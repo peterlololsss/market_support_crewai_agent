@@ -1,0 +1,354 @@
+{
+  "version": 1,
+  "createdAt": "2026-07-07T07:28:01.180Z",
+  "updatedAt": "2026-07-07T07:28:01.180Z",
+  "briefPath": ".omo/ulw-loop/019f3b4c-a97a-7182-9874-9fb439352538/brief.md",
+  "goalsPath": ".omo/ulw-loop/019f3b4c-a97a-7182-9874-9fb439352538/goals.json",
+  "ledgerPath": ".omo/ulw-loop/019f3b4c-a97a-7182-9874-9fb439352538/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-c1-red-green-focused-regression-test",
+      "title": "C1 RED/GREEN: focused regression tests fail before prompt change and...",
+      "objective": "C1 RED/GREEN: focused regression tests fail before prompt change and pass after for #34/#68/#85/#91 plus report-action positives.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: C1 RED/GREEN: focused regression tests fail before prompt change and pass aft...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 1.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: C1 RED/GREEN: focused regression tests fail before prompt change and pass aft....",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: C1 RED/GREEN: focused regression tests fail before prompt change and pass aft....",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G002-c2-real-surface-live-xiaoyan-questio",
+      "title": "C2 Real surface: live xiaoyan question-set or focused TestClient eval...",
+      "objective": "C2 Real surface: live xiaoyan question-set or focused TestClient eval shows #34/#68/#85/#91 route to knowledge_answer/document evidence where supported, and #15/#19/#39/#54/#103 still send weekly report.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: C2 Real surface: live xiaoyan question-set or focused TestClient eval shows #...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 2.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: C2 Real surface: live xiaoyan question-set or focused TestClient eval shows #....",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: C2 Real surface: live xiaoyan question-set or focused TestClient eval shows #....",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G003-c3-risk-check-no-material-monthly-se",
+      "title": "C3 Risk check: no material/monthly send regressions; prompt snapshots...",
+      "objective": "C3 Risk check: no material/monthly send regressions; prompt snapshots updated intentionally; no new untracked debug artifacts.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: C3 Risk check: no material/monthly send regressions; prompt snapshots updated...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 3.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: C3 Risk check: no material/monthly send regressions; prompt snapshots updated....",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: C3 Risk check: no material/monthly send regressions; prompt snapshots updated....",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G004-h1-overbroad-weekly-report-prompt-to",
+      "title": "H1 overbroad weekly_report prompt tokens route any \"超额/表现/回撤\" questio...",
+      "objective": "H1 overbroad weekly_report prompt tokens route any \"超额/表现/回撤\" question to weekly_report.send; evidence: planner prompt + traces; fix: priority/exclusions.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: H1 overbroad weekly_report prompt tokens route any \"超额/表现/回撤\" question to wee...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 4.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: H1 overbroad weekly_report prompt tokens route any \"超额/表现/回撤\" question to wee....",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: H1 overbroad weekly_report prompt tokens route any \"超额/表现/回撤\" question to wee....",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G005-h2-input-policy-hard-blocks-t0-befor",
+      "title": "H2 input_policy hard-blocks T0 before MCP; evidence: input_policy rul...",
+      "objective": "H2 input_policy hard-blocks T0 before MCP; evidence: input_policy rule; fix: remove/narrow T0 hard handoff.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: H2 input_policy hard-blocks T0 before MCP; evidence: input_policy rule; fix:...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 5.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: H2 input_policy hard-blocks T0 before MCP; evidence: input_policy rule; fix:....",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: H2 input_policy hard-blocks T0 before MCP; evidence: input_policy rule; fix:....",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G006-h3-lexical-anchor-routes-fee-meaning",
+      "title": "H3 \"周报\" lexical anchor routes fee/meaning FAQ to report-scope instead...",
+      "objective": "H3 \"周报\" lexical anchor routes fee/meaning FAQ to report-scope instead of document_context; evidence: trace/report-scope not_found; fix: clarify weekly report as current valuation-table artifact only, not every mention of 周报.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: H3 \"周报\" lexical anchor routes fee/meaning FAQ to report-scope instead of docu...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 6.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: H3 \"周报\" lexical anchor routes fee/meaning FAQ to report-scope instead of docu....",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: H3 \"周报\" lexical anchor routes fee/meaning FAQ to report-scope instead of docu....",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G007-h4-action-reply-rationale-flag-varia",
+      "title": "H4 action reply rationale flag variability causes empty vs explanator...",
+      "objective": "H4 action reply rationale flag variability causes empty vs explanatory text; evidence: risk flags; fix only if tests show user-facing need.",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: H4 action reply rationale flag variability causes empty vs explanatory text;...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 7.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: H4 action reply rationale flag variability causes empty vs explanatory text;....",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: H4 action reply rationale flag variability causes empty vs explanatory text;....",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G008-omo-ulw-loop-bootstrap-notepad-md-th",
+      "title": ".omo/ulw-loop/bootstrap-notepad.md (this file)",
+      "objective": ".omo/ulw-loop/bootstrap-notepad.md (this file)",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: .omo/ulw-loop/bootstrap-notepad.md (this file)",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 8.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: .omo/ulw-loop/bootstrap-notepad.md (this file).",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: .omo/ulw-loop/bootstrap-notepad.md (this file).",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    },
+    {
+      "id": "G009-debug-journal-md-debug-ledger-git-ex",
+      "title": ".debug-journal.md (debug ledger, git-excluded)",
+      "objective": ".debug-journal.md (debug ledger, git-excluded)",
+      "status": "pending",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: .debug-journal.md (debug ledger, git-excluded)",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 9.",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C002",
+          "scenario": "edge case (boundary/empty/malformed)",
+          "userModel": "edge",
+          "expectedEvidence": "Replace via revise_criterion with boundary or malformed-input proof for: .debug-journal.md (debug ledger, git-excluded).",
+          "essential": true,
+          "capturedEvidence": null,
+          "status": "pending"
+        },
+        {
+          "id": "C003",
+          "scenario": "regression: adjacent surface still works",
+          "userModel": "regression",
+          "expectedEvidence": "Replace via revise_criterion with regression proof for neighboring behavior after: .debug-journal.md (debug ledger, git-excluded).",
+          "essential": false,
+          "capturedEvidence": null,
+          "status": "pending"
+        }
+      ],
+      "attempt": 0,
+      "createdAt": "2026-07-07T07:28:01.180Z",
+      "updatedAt": "2026-07-07T07:28:01.180Z"
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/019f3b4c-a97a-7182-9874-9fb439352538/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/019f3b4c-a97a-7182-9874-9fb439352538/ledger.jsonl as the audit trail."
+}

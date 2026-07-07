@@ -1,6 +1,6 @@
 # Support Reply Harness Architecture
 
-Last updated: 2026-06-17.
+Last updated: 2026-07-07.
 
 ## Problem restatement
 
@@ -66,8 +66,10 @@ POST /reply
   -> Action ledger lookup
   -> Entity/canonicalization layer
   -> Policy compiler
-  -> Context projection for planner
-  -> LLM planner
+  -> Candidate plan selection
+      -> Input policy match for deterministic request-policy handoff rules
+      -> Direct-send match for narrow closed-set send commands
+      -> Context projection + LLM planner + PlanSpec compiler when no deterministic plan exists
   -> Plan validation
   -> Evidence executor
       -> Tool input validation
@@ -112,9 +114,21 @@ Request-scoped policy generated before planning.
 
 Contains allowed reply modes, allowed capabilities, allowed outbound actions, allowed adapter resolves, allowed read capabilities, adapter-safe ledger summary, evidence call limits, and error-on-invalid policy.
 
+### InputPolicyRule
+
+Harness-owned request-policy rule evaluated after `PolicyManifest` and before direct-send/planner routing.
+
+Input policy is for deterministic policy outcomes, not product, strategy, document, or report-scope selection. A matched rule may construct an `ExecutionPlan` only within the request-scoped policy allowlists. Handoff rules store user-visible handoff copy and fallback copy in `GuardrailDecision.metadata`; `DecisionEngine` renders them through the generic handoff path instead of a topic-specific branch.
+
+The current restricted-topic handoff rule lives in:
+
+```text
+src/market_support_crewai_agent/runtime/domain/planning/input_policy.py
+```
+
 ### ExecutionPlan
 
-Compiled deterministically from `PlanSpec`, policy, canonical context, and the capability registry. It describes user need, artifact kind, response mode, compliance, capabilities, adapter resolve specs, action intents, selected strategy, and the selected planner contract.
+Compiled deterministically from `PlanSpec`, policy, canonical context, and the capability registry, or constructed by a deterministic input-policy/direct-send path. It describes user need, artifact kind, response mode, compliance, capabilities, adapter resolve specs, action intents, selected strategy, and the selected planner contract.
 
 `ExecutionPlan` is not allowed to be a source of final business facts.
 
@@ -216,7 +230,7 @@ what the next planner, composer, or verifier is allowed to see.
 
 `ContextProjectionManager` builds that view from request metadata, recent
 history, action ledger summaries, `DomainContext`, `PolicyManifest`,
-`PolicyManifest`, plan/validation state, evidence, `BusinessFacts`,
+plan/validation state, evidence, `BusinessFacts`,
 `AnswerabilityAssessment`, guardrail decisions, candidate response, and
 alignment retry state.
 

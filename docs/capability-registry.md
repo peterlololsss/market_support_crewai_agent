@@ -38,11 +38,11 @@ required_tools        bounded wrappers or adapter commands required for evidence
 output_schema         compact JSON-schema-like shape for the output being checked
 evidence_contract     required evidence, source types, artifact types, scope matching, history/citation/provenance rules
 abstention_policy     when the agent must abstain instead of composing
-planner_guidance      compact planner-facing selection guidance
+planner_guidance      compact planner-facing selection guidance; category-level, not eval-question prose
 agent_guidance        bounded composer/agent guidance
 verifier_checks       generic verifier primitive names
-examples_positive     positive examples for the capability
-examples_negative     negative examples or source-boundary contrasts
+examples_positive     offline documentation or synthetic examples; not projected into planner prompts
+examples_negative     offline documentation or synthetic contrasts; not projected into planner prompts
 runtime_capability    current runtime capability name, when the manifest is gated by policy
 ```
 
@@ -83,7 +83,12 @@ channel.product_summary
 ```
 
 These are consumed through `CAPABILITY_MANIFEST_REGISTRY`. Planner prompt context
-uses `planner_capability_cards(...)`; verifier code can use
+uses `planner_capability_cards(...)` and `ContextProjectionManager` projects the
+result as compact `capability_contracts`. The projection includes id, type,
+runtime capability, required/forbidden artifacts, required tools,
+EvidenceContract fields, abstention guidance, verifier checks, and compact
+planner guidance. It intentionally omits `examples_positive`,
+`examples_negative`, and copied eval-question strings. Verifier code can use
 `verify_capability_contracts(...)`, `verifier_manifest_contracts(...)`, or
 `verify_plan_spec(...)` for the planner/verifier boundary.
 
@@ -109,7 +114,9 @@ and evidence count/type/provenance requirements.
    allowed/disallowed source types, artifact types, `required_scope_match`,
    `minimum_evidence_count`, `allow_history`, fallback, citation, and provenance rules.
 4. Choose only generic `verifier_checks`.
-5. Add tests that register the manifest in a local `CapabilityRegistry`, call
+5. Keep `planner_guidance` category-level. Do not add every failed eval as a new
+   sentence, and do not copy real eval questions into examples.
+6. Add tests that register the manifest in a local `CapabilityRegistry`, call
    `planner_capability_cards(...)`, and validate success/failure with
    `verify_capability_contracts(...)`.
 

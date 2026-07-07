@@ -1,6 +1,6 @@
 # Guardrail Design
 
-Last updated: 2026-06-17.
+Last updated: 2026-07-07.
 
 Guardrails are part of the runtime skeleton. They are not a final safety prompt.
 
@@ -10,7 +10,8 @@ Guardrails are part of the runtime skeleton. They are not a final safety prompt.
 Request
  -> Input Guardrail
  -> Policy Compiler
- -> Capability Planner
+ -> Input Policy Guardrail
+ -> Direct-send matcher or Capability Planner
  -> Plan Guardrail
  -> Evidence Executor
     -> Tool Input Guardrail
@@ -18,7 +19,8 @@ Request
     -> Document MCP, report-scope, or approved-knowledge wrapper when enabled
     -> Tool Output Guardrail
  -> EvidenceFacts / BusinessFacts
- -> Reply Composer
+ -> ResponseDirective decision
+ -> Deterministic renderer or Reply Composer
  -> Reply/Action Guardrail
  -> Adapter Guardrail
  -> Audit/Eval Log
@@ -104,6 +106,34 @@ allowed_adapter_resolves:
 ```
 
 The validator enforces evidence-backed wording, adapter-backed actions, and scope-specific claims.
+
+## Input policy guardrail
+
+Purpose:
+
+- handle deterministic request-policy outcomes before planner/direct-send routing;
+- keep policy rules as data in one rule table instead of one guardrail class per topic;
+- normalize only for closed-set policy triggers, not for product, strategy, document, or report-scope selection;
+- construct `ExecutionPlan` only within `PolicyManifest` allowed capabilities and adapter resolves;
+- pass handoff text through generic `GuardrailDecision.metadata` keys for the decision engine and renderer.
+
+Current runtime source:
+
+```text
+src/market_support_crewai_agent/runtime/domain/planning/input_policy.py
+```
+
+Handoff metadata keys:
+
+```text
+handoff_text
+handoff_unavailable_text
+handoff_reason
+```
+
+Input-policy handoff plans use `response_mode=handoff`, do not create outbound actions, and request
+`sales_mention` resolve only when the compiled policy allows it. If mention resolve is unavailable, the renderer uses
+the rule's unavailable-copy fallback instead of inventing a target.
 
 ## Compliance policy guardrail
 
@@ -258,6 +288,7 @@ action type is policy-allowed
 outbound actions match public schema
 ambiguous validated plans produce clarification/handoff and no outbound actions
 final outbound actions were proposed by the validated ExecutionPlan
+input-policy handoff plans produce no outbound actions
 report send candidates declare internal report_scope selector: channel_all or strategy
 strategy-scoped report candidates include a confirmed strategy
 audit trace records action preconditions without exposing raw adapter refs
