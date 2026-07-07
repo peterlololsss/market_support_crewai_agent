@@ -228,3 +228,26 @@ def test_projection_from_settings_enables_runtime_clock(monkeypatch):
     runtime_clock = app_state["runtime_clock"]
     assert runtime_clock["current_date"] == "2026-07-02"
     assert runtime_clock["relative_years"]["去年"] == "2025"
+
+def test_planner_projection_exposes_contracts_not_examples():
+    request = make_request(message="请按当前规则处理这个请求")
+    policy = compile_policy(request, doc_mcp_enabled=True)
+
+    projection = ContextProjectionManager().project_for_stage(
+        stage="planner_intent",
+        request=request,
+        policy=policy,
+    )
+    prompt = prompt_json(projection.to_prompt_runtime_payload())
+    app_state = next(block.payload for block in projection.blocks if block.block_type == "app_state")
+    capability_registry = app_state["Capability registry JSON"]
+
+    assert "capability_contracts" in capability_registry
+    assert capability_registry["capability_contracts"]
+    first_contract = capability_registry["capability_contracts"][0]
+    assert {"id", "type", "runtime_capability", "evidence", "planner_guidance"} <= set(first_contract)
+    assert "capability_cards" not in capability_registry
+    assert "examples_positive" not in prompt
+    assert "examples_negative" not in prompt
+    assert "|pos=" not in prompt
+    assert "|neg=" not in prompt
