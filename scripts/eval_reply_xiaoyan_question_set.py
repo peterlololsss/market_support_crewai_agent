@@ -83,7 +83,9 @@ class FakePreflightService:
                             "reason_code": "ok",
                             "candidates": _material_pack_options(request),
                             "channel_type": request.channel_type,
-                            "available_artifacts": _available_artifacts_payload(request),
+                            "available_artifacts": _available_artifacts_payload(
+                                request
+                            ),
                             "material_pack_option": material_pack_option,
                             "resolved_at": 1,
                             "resolve_ref": f"{resolve_type}:eval-ref",
@@ -310,7 +312,11 @@ def _write_markdown_report(
 def main() -> None:
     _load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-md", type=Path, help="Write a markdown report for manual quality review.")
+    parser.add_argument(
+        "--output-md",
+        type=Path,
+        help="Write a markdown report for manual quality review.",
+    )
     parser.add_argument("--label", choices=LABELS, help="Only run one label.")
     parser.add_argument("--ids", help="Comma-separated question ids to run.")
     parser.add_argument("--limit", type=int, help="Cap the number of questions.")
@@ -328,11 +334,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    from market_support_crewai_agent.server.main import app
-    if not args.live_adapter:
-        from market_support_crewai_agent.runtime.orchestration import reply_agent
+    from market_support_crewai_agent.server import main as server_main
 
-        reply_agent._DEFAULT_PREFLIGHT_SERVICE = FakePreflightService()
+    app = server_main.app
+    if not args.live_adapter:
+        original_build_reply = server_main.build_reply
+        fake_preflight = FakePreflightService()
+
+        async def fake_build_reply(request):
+            return await original_build_reply(request, preflight_service=fake_preflight)
+
+        server_main.build_reply = fake_build_reply
 
     items = _selected(args)
     parallel = _bounded_parallel(args.parallel)

@@ -13,19 +13,27 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightSnapshot,
 )
 from market_support_crewai_agent.runtime.state.audit import AuditStore
-from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
+from market_support_crewai_agent.runtime.state.conversation_store import (
+    ConversationStore,
+)
 from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
     ReplyAlignmentVerdict,
 )
-from market_support_crewai_agent.runtime.validation.reply_validator import ReplyContractError
-from market_support_crewai_agent.runtime.validation.request_input_guard import InputGuardrailError
-from market_support_crewai_agent.runtime.orchestration.reply_agent import (
+from market_support_crewai_agent.runtime.validation.reply_validator import (
+    ReplyContractError,
+)
+from market_support_crewai_agent.runtime.validation.request_input_guard import (
+    InputGuardrailError,
+)
+from market_support_crewai_agent.runtime.orchestration.runtime import (
     AgentRuntimeError,
     CrewAIReplyRuntime,
     build_reply,
 )
 from market_support_crewai_agent.runtime.llm.composer_output import ComposerReplyOutput
-from market_support_crewai_agent.runtime.orchestration.response_ids import ensure_response_ids
+from market_support_crewai_agent.runtime.orchestration.response_ids import (
+    ensure_response_ids,
+)
 from market_support_crewai_agent.schemas import (
     ActionFeedbackRequest,
     PrimaryReply,
@@ -43,7 +51,6 @@ from tests.helpers.reply_contract import (
     FakePlannerAgent,
     MissingWeeklyWithSalesPreflight,
     ResolvedMonthlyPreflight,
-    ResolvedWeeklyMonthlyPreflight,
     ResolvedWeeklyPreflight,
     _assistant_history_with_pending,
     install_fake_planner,
@@ -171,7 +178,9 @@ def test_reply_returns_runtime_response_without_business_rewrite(monkeypatch):
     async def fake_build_reply(request):
         return expected
 
-    monkeypatch.setattr("market_support_crewai_agent.server.main.build_reply", fake_build_reply)
+    monkeypatch.setattr(
+        "market_support_crewai_agent.server.main.build_reply", fake_build_reply
+    )
 
     response = client.post("/reply", json=make_payload("any message"))
 
@@ -203,7 +212,9 @@ def test_reply_route_rejects_message_over_configured_input_limit(monkeypatch):
     response = client.post("/reply", json=make_payload("abcdef"))
 
     assert response.status_code == 413
-    assert "message exceeds configured input guardrail limit" in response.json()["detail"]
+    assert (
+        "message exceeds configured input guardrail limit" in response.json()["detail"]
+    )
 
 
 def test_runtime_input_guardrail_runs_before_llm_configuration():
@@ -437,7 +448,9 @@ def test_reply_requires_api_key_when_configured(monkeypatch):
         )
 
     monkeypatch.setenv("MARKET_AGENT_API_KEY", "secret")
-    monkeypatch.setattr("market_support_crewai_agent.server.main.build_reply", fake_build_reply)
+    monkeypatch.setattr(
+        "market_support_crewai_agent.server.main.build_reply", fake_build_reply
+    )
 
     response = client.post("/reply", json=make_payload("any message"))
 
@@ -457,7 +470,9 @@ def test_reply_accepts_bearer_api_key_when_configured(monkeypatch):
         return expected
 
     monkeypatch.setenv("MARKET_AGENT_API_KEY", "secret")
-    monkeypatch.setattr("market_support_crewai_agent.server.main.build_reply", fake_build_reply)
+    monkeypatch.setattr(
+        "market_support_crewai_agent.server.main.build_reply", fake_build_reply
+    )
 
     response = client.post(
         "/reply",
@@ -473,7 +488,9 @@ def test_reply_returns_502_when_runtime_fails(monkeypatch):
     async def fake_build_reply(request):
         raise AgentRuntimeError("runtime failed")
 
-    monkeypatch.setattr("market_support_crewai_agent.server.main.build_reply", fake_build_reply)
+    monkeypatch.setattr(
+        "market_support_crewai_agent.server.main.build_reply", fake_build_reply
+    )
 
     response = client.post("/reply", json=make_payload("any message"))
 
@@ -485,7 +502,9 @@ def test_reply_returns_502_when_contract_validation_fails(monkeypatch):
     async def fake_build_reply(request):
         raise ReplyContractError("invalid reply")
 
-    monkeypatch.setattr("market_support_crewai_agent.server.main.build_reply", fake_build_reply)
+    monkeypatch.setattr(
+        "market_support_crewai_agent.server.main.build_reply", fake_build_reply
+    )
 
     response = client.post("/reply", json=make_payload("any message"))
 
@@ -605,7 +624,9 @@ def test_build_reply_uses_custom_settings_for_default_runtime_services(monkeypat
     monkeypatch.setattr(CrewAIReplyRuntime, "reply", fake_reply)
 
     response = asyncio.run(
-        build_reply(ReplyRequestBuilder("介绍一下中证1000").payload(), settings=settings)
+        build_reply(
+            ReplyRequestBuilder("介绍一下中证1000").payload(), settings=settings
+        )
     )
 
     assert response.response_id == "resp-ok"
@@ -651,9 +672,7 @@ def test_runtime_direct_weekly_command_bypasses_planner_and_composer():
     runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
     runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
 
-    response = asyncio.run(
-        runtime.reply(ReplyRequestBuilder("发周报").payload())
-    )
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("发周报").payload()))
 
     assert response.reply.kind == "answer"
     assert response.reply.text == ""
@@ -674,15 +693,15 @@ def test_runtime_direct_weekly_command_skips_alignment_verifier():
 
     class ShouldNotVerify:
         async def verify(self, **kwargs):
-            raise AssertionError("alignment verifier should not run for direct send commands")
+            raise AssertionError(
+                "alignment verifier should not run for direct send commands"
+            )
 
     runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
     runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
     runtime.alignment_verifier = ShouldNotVerify()
 
-    response = asyncio.run(
-        runtime.reply(ReplyRequestBuilder("发周报").payload())
-    )
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("发周报").payload()))
 
     assert response.reply.kind == "answer"
     assert response.actions[0].type == "send_weekly_report"
@@ -702,9 +721,7 @@ def test_runtime_direct_monthly_command_bypasses_planner_and_composer():
     runtime._build_planner_agent = lambda: ShouldNotRun()  # type: ignore[method-assign]
     runtime._build_agent = lambda *_args, **_kwargs: ShouldNotRun()  # type: ignore[method-assign]
 
-    response = asyncio.run(
-        runtime.reply(ReplyRequestBuilder("发月报").payload())
-    )
+    response = asyncio.run(runtime.reply(ReplyRequestBuilder("发月报").payload()))
 
     assert response.reply.kind == "answer"
     assert response.reply.text == ""
@@ -783,7 +800,9 @@ def test_runtime_direct_material_command_confirms_when_options_exist():
         )
     )
 
-    assert preflight.calls == [{"resolve_types": [], "resolve_material_pack_options": {}}]
+    assert preflight.calls == [
+        {"resolve_types": [], "resolve_material_pack_options": {}}
+    ]
     assert response.reply.kind == "clarification"
     assert "中证1000指增" in response.reply.text
     assert "中证A500指增" in response.reply.text
@@ -823,6 +842,7 @@ def test_runtime_clarifies_concrete_artifact_choice():
     assert composer_stages == ["knowledge_composer"]
     assert "artifact" in composer_prompts[0]
 
+
 def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
     runtime = CrewAIReplyRuntime(
         _test_settings(),
@@ -837,7 +857,14 @@ def test_runtime_allows_mixed_question_plus_unqualified_monthly_send():
                 make_payload(
                     "在各个策略上的规模是怎么分布呢  然后发我个月报",
                     dist_channel_name="浦发银行",
-                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增", "中证全指指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
+                    available_artifacts=[
+                        {
+                            "type": "material_pack",
+                            "options": ["中证1000指增", "中证A500指增", "中证全指指增"],
+                        },
+                        {"type": "weekly_report"},
+                        {"type": "monthly_report"},
+                    ],
                 )
             )
         )
@@ -875,7 +902,14 @@ def test_runtime_retries_report_query_clarification_as_invalid_plan():
             ReplyRequest.model_validate(
                 make_payload(
                     "[adapter_allowed_read_capabilities: query_internal_company_info]\n周报",
-                    available_artifacts=[{"type": "material_pack", "options": ["option-a", "option-b", "option-c"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
+                    available_artifacts=[
+                        {
+                            "type": "material_pack",
+                            "options": ["option-a", "option-b", "option-c"],
+                        },
+                        {"type": "weekly_report"},
+                        {"type": "monthly_report"},
+                    ],
                 )
             )
         )
@@ -885,6 +919,7 @@ def test_runtime_retries_report_query_clarification_as_invalid_plan():
     assert response.actions[0].type == "send_weekly_report"
     assert len(prompts) == 2
     assert "clarification_missing_supported_slot" in prompts[1]
+
 
 def test_runtime_uses_planner_resolved_followup_for_weekly_action():
     store = ConversationStore(max_messages=12)
@@ -917,7 +952,14 @@ def test_runtime_uses_planner_resolved_followup_for_weekly_action():
             ReplyRequest.model_validate(
                 make_payload(
                     "中证1000的",
-                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增", "中证全指指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
+                    available_artifacts=[
+                        {
+                            "type": "material_pack",
+                            "options": ["中证1000指增", "中证A500指增", "中证全指指增"],
+                        },
+                        {"type": "weekly_report"},
+                        {"type": "monthly_report"},
+                    ],
                 )
             )
         )
@@ -959,7 +1001,14 @@ def test_planner_prompt_includes_pending_clarification_context():
             ReplyRequest.model_validate(
                 make_payload(
                     "中证1000的",
-                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
+                    available_artifacts=[
+                        {
+                            "type": "material_pack",
+                            "options": ["中证1000指增", "中证A500指增"],
+                        },
+                        {"type": "weekly_report"},
+                        {"type": "monthly_report"},
+                    ],
                 )
             )
         )
@@ -1015,7 +1064,14 @@ def test_ambiguous_action_candidates_are_structured_for_composer():
             ReplyRequest.model_validate(
                 make_payload(
                     "发一下材料",
-                    available_artifacts=[{"type": "material_pack", "options": ["中证1000指增", "中证A500指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
+                    available_artifacts=[
+                        {
+                            "type": "material_pack",
+                            "options": ["中证1000指增", "中证A500指增"],
+                        },
+                        {"type": "weekly_report"},
+                        {"type": "monthly_report"},
+                    ],
                 )
             )
         )
@@ -1055,7 +1111,7 @@ def test_runtime_records_audit_before_raising_reply_validation_error(monkeypatch
         )
 
     monkeypatch.setattr(
-        "market_support_crewai_agent.runtime.orchestration.reply_agent.render_directive",
+        "market_support_crewai_agent.runtime.orchestration.composer.render_directive",
         bad_render_directive,
     )
 
@@ -1085,6 +1141,7 @@ def test_runtime_hands_off_missing_action_when_sales_resolves():
 
     assert response.reply.kind == "human_handoff"
     assert response.reply.mentions[0].type == "sales"
+    assert response.reply.mentions[0].reason is None
     assert response.actions == []
 
 
@@ -1125,7 +1182,9 @@ def test_runtime_uses_composer_only_for_knowledge_answer():
 
     class FakeEvidenceExecutor:
         async def execute(self, request, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import (
+                derive_business_facts,
+            )
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
             facts = [
@@ -1188,7 +1247,9 @@ def test_alignment_verifier_blocks_wrong_outbound_action():
 
     runtime.alignment_verifier = WrongActionVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload()))
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload())
+    )
 
     assert response.reply.kind == "unable_to_answer"
     assert response.actions == []
@@ -1215,7 +1276,9 @@ def test_alignment_verifier_allows_valid_action_response():
 
     runtime.alignment_verifier = PassingVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("想确认一下周报能不能发我").payload()))
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("想确认一下周报能不能发我").payload())
+    )
 
     assert verifier_calls == ["想确认一下周报能不能发我"]
     assert response.reply.text == ""
@@ -1288,7 +1351,9 @@ def test_alignment_verifier_replan_path_includes_feedback():
 
     class FakeEvidenceExecutor:
         async def execute(self, request, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import (
+                derive_business_facts,
+            )
             from market_support_crewai_agent.runtime.evidence import (
                 EvidenceFact,
                 evidence_facts_from_preflight,
@@ -1348,7 +1413,9 @@ def test_alignment_verifier_replan_path_includes_feedback():
                     remediation="replan",
                     planner_feedback="This is a report-format knowledge question.",
                 )
-            return ReplyAlignmentVerdict(aligned=True, safe_to_return=True, confidence=0.9)
+            return ReplyAlignmentVerdict(
+                aligned=True, safe_to_return=True, confidence=0.9
+            )
 
     verifier = ReplanThenPassVerifier()
     runtime._build_planner_agent = lambda: SequentialPlanner()  # type: ignore[method-assign]
@@ -1356,7 +1423,9 @@ def test_alignment_verifier_replan_path_includes_feedback():
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
     runtime.alignment_verifier = verifier
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload()))
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload())
+    )
 
     assert response.actions == []
     assert response.reply.text == "月报不展示年化收益率。"
@@ -1424,7 +1493,9 @@ def test_alignment_verifier_refetches_document_context_with_refined_query():
 
     class RefetchEvidenceExecutor:
         async def execute(self, request, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import (
+                derive_business_facts,
+            )
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
             del policy, action_history
@@ -1474,14 +1545,18 @@ def test_alignment_verifier_refetches_document_context_with_refined_query():
                     remediation="refetch_document_context",
                     refined_evidence_query="月报 年化收益率 展示规则",
                 )
-            return ReplyAlignmentVerdict(aligned=True, safe_to_return=True, confidence=0.9)
+            return ReplyAlignmentVerdict(
+                aligned=True, safe_to_return=True, confidence=0.9
+            )
 
     verifier = RefetchThenPassVerifier()
     runtime.evidence_executor = RefetchEvidenceExecutor()
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
     runtime.alignment_verifier = verifier
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload()))
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("月报里为什么没有年化收益率").payload())
+    )
 
     assert queries == ["年化收益率", "月报 年化收益率 展示规则"]
     assert response.reply.text == "月报采用区间收益展示，不展示年化收益率。"
@@ -1509,7 +1584,9 @@ def test_alignment_verifier_refetches_report_scope_products_from_typed_refetch()
 
     class ReportScopeEvidenceExecutor:
         async def execute(self, request, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import (
+                derive_business_facts,
+            )
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
             del policy, action_history
@@ -1587,7 +1664,9 @@ def test_alignment_verifier_refetches_report_scope_products_from_typed_refetch()
                 else "weekly report product scope unavailable"
             )
             return SimpleNamespace(
-                pydantic=ReplyResponse(reply=PrimaryReply(kind="answer", text=text), actions=[]),
+                pydantic=ReplyResponse(
+                    reply=PrimaryReply(kind="answer", text=text), actions=[]
+                ),
                 raw="",
             )
 
@@ -1605,14 +1684,18 @@ def test_alignment_verifier_refetches_report_scope_products_from_typed_refetch()
                     remediation="refetch_report_scope",
                     refined_evidence_query="report_scope_products",
                 )
-            return ReplyAlignmentVerdict(aligned=True, safe_to_return=True, confidence=0.9)
+            return ReplyAlignmentVerdict(
+                aligned=True, safe_to_return=True, confidence=0.9
+            )
 
     verifier = TypedRefetchThenPassVerifier()
     runtime.evidence_executor = ReportScopeEvidenceExecutor()
     runtime._build_agent = lambda *_args, **_kwargs: FakeComposer()  # type: ignore[method-assign]
     runtime.alignment_verifier = verifier
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("周报里有哪些产品？").payload()))
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("周报里有哪些产品？").payload())
+    )
 
     assert queries == [None, "report_scope_products"]
     assert response.reply.text == "weekly report products: Product1, Product2"
@@ -1650,7 +1733,9 @@ def test_alignment_verifier_failure_does_not_return_action():
 
     runtime.alignment_verifier = FailingVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("想确认一下周报能不能发我").payload()))
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("想确认一下周报能不能发我").payload())
+    )
 
     assert response.reply.kind == "unable_to_answer"
     assert response.actions == []
@@ -1685,10 +1770,15 @@ def test_alignment_verifier_failure_preserves_non_compliant_refusal_text():
 
     runtime.alignment_verifier = FailingVerifier()
 
-    response = asyncio.run(runtime.reply(ReplyRequestBuilder("加你微信了，通过一下").payload()))
+    response = asyncio.run(
+        runtime.reply(ReplyRequestBuilder("加你微信了，通过一下").payload())
+    )
 
     assert response.reply.kind == "unable_to_answer"
-    assert response.reply.text == "老师请问具体是什么产品需求？业务问题请在当前群内沟通，便于留痕和统一回复。"
+    assert (
+        response.reply.text
+        == "老师请问具体是什么产品需求？业务问题请在当前群内沟通，便于留痕和统一回复。"
+    )
     assert response.actions == []
 
 
@@ -1734,7 +1824,9 @@ def test_alignment_verifier_recompose_once():
 
     class FakeEvidenceExecutor:
         async def execute(self, request, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import (
+                derive_business_facts,
+            )
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
             del plan, policy, action_history
@@ -1767,7 +1859,9 @@ def test_alignment_verifier_recompose_once():
                     remediation="recompose",
                     composer_feedback="answer the company introduction question",
                 )
-            return ReplyAlignmentVerdict(aligned=True, safe_to_return=True, confidence=0.9)
+            return ReplyAlignmentVerdict(
+                aligned=True, safe_to_return=True, confidence=0.9
+            )
 
     verifier = RecomposeThenValidVerifier()
     runtime.evidence_executor = FakeEvidenceExecutor()
@@ -1780,7 +1874,6 @@ def test_alignment_verifier_recompose_once():
     assert len(composer_calls) == 2
     assert verifier.calls == 2
     assert "Previous alignment verdict JSON" in composer_calls[1]
-
 
 
 def test_runtime_uses_smalltalk_composer_for_triggered_greeting():
@@ -1819,7 +1912,9 @@ def test_runtime_uses_smalltalk_composer_for_triggered_greeting():
             )
 
     runtime._build_agent = (  # type: ignore[method-assign]
-        lambda stage="knowledge_composer": stages.append(stage) or FakeSmalltalkComposer()
+        lambda stage="knowledge_composer": (
+            stages.append(stage) or FakeSmalltalkComposer()
+        )
     )
 
     response = asyncio.run(runtime.reply(ReplyRequestBuilder("hi").payload()))
@@ -1831,6 +1926,7 @@ def test_runtime_uses_smalltalk_composer_for_triggered_greeting():
     assert prompts
     assert "base.smalltalk_composer" in prompts[0]
     assert '"actions": []' in prompts[0]
+
 
 def test_runtime_skips_knowledge_composer_without_document_evidence():
     runtime = CrewAIReplyRuntime(
@@ -1860,7 +1956,9 @@ def test_runtime_skips_knowledge_composer_without_document_evidence():
 
     class EmptyEvidenceExecutor:
         async def execute(self, request, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import (
+                derive_business_facts,
+            )
 
             return SimpleNamespace(
                 preflight=AdapterPreflightSnapshot.empty(),
@@ -1905,7 +2003,9 @@ def test_runtime_raises_when_composer_returns_invalid_reply_contract():
 
     class FakeEvidenceExecutor:
         async def execute(self, request, plan, policy, action_history=None):
-            from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
+            from market_support_crewai_agent.runtime.domain.business_facts import (
+                derive_business_facts,
+            )
             from market_support_crewai_agent.runtime.evidence import EvidenceFact
 
             facts = [

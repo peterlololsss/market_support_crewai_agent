@@ -8,11 +8,15 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightSnapshot,
 )
 from market_support_crewai_agent.runtime.state.audit import AuditStore
-from market_support_crewai_agent.runtime.domain.business_facts import derive_business_facts
-from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
+from market_support_crewai_agent.runtime.domain.business_facts import (
+    derive_business_facts,
+)
+from market_support_crewai_agent.runtime.state.conversation_store import (
+    ConversationStore,
+)
 from market_support_crewai_agent.runtime.evidence import EvidenceFact
 from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
-from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
+from market_support_crewai_agent.runtime.orchestration.runtime import CrewAIReplyRuntime
 from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
     ReplyAlignmentVerdict,
 )
@@ -26,7 +30,9 @@ from market_support_crewai_agent.settings import Settings
 from tests.helpers.planning import make_plan_spec
 
 
-def make_request(message: str = "请发一下周报", **overrides) -> ReplyRequest:
+def make_request(
+    message: str = "麻烦看下最近周报的发送安排", **overrides
+) -> ReplyRequest:
     payload = {
         "context_id": "msg-1",
         "conversation_key": "wecom:group-1:sender-1",
