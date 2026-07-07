@@ -493,7 +493,81 @@ def test_decision_hands_off_unavailable_action_when_sales_resolves():
     assert directive.mode == "handoff"
     assert directive.reply_kind == "human_handoff"
     assert directive.mentions[0].type == "sales"
+    assert directive.mentions[0].reason is None
     assert directive.action_intents == []
+
+
+def test_decision_uses_public_chinese_reason_for_generic_handoff():
+    request = make_request(message="叫你们领导出来")
+    plan = make_plan(
+        request,
+        user_need="handoff to human support",
+        artifact_kind="human_support",
+        action_intent="handoff",
+        compliance={
+            "is_compliant": True,
+            "reason_code": "customer_service_request",
+            "reason": "human support request",
+        },
+    )
+    policy = compile_policy(request)
+    facts = [resolved_fact("sales_mention", "sales:ref")]
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        request,
+        policy,
+    )
+    response = render_directive(
+        directive,
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+    )
+
+    assert response.reply.kind == "human_handoff"
+    assert response.reply.text == "这个问题我帮你请销售/支持同事确认。"
+    assert response.reply.mentions[0].reason is None
+    assert "reason" not in response.model_dump_json(exclude_none=True)
+    assert "intent requires human handoff" not in response.model_dump_json()
+
+
+def test_decision_uses_sales_teacher_text_when_handoff_target_missing():
+    request = make_request(message="叫你们领导出来")
+    plan = make_plan(
+        request,
+        user_need="handoff to human support",
+        artifact_kind="human_support",
+        action_intent="handoff",
+        compliance={
+            "is_compliant": True,
+            "reason_code": "customer_service_request",
+            "reason": "human support request",
+        },
+    )
+    policy = compile_policy(request)
+    facts = []
+
+    directive = DecisionEngine().decide(
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+        request,
+        policy,
+    )
+    response = render_directive(
+        directive,
+        plan,
+        derive_business_facts(facts, request),
+        facts,
+    )
+
+    assert response.reply.kind == "unable_to_answer"
+    assert response.reply.text == "这个问题需要老师您向群内请销售/支持同事确认哦。"
+    assert response.reply.mentions == []
+    assert response.actions == []
 
 
 def test_decision_uses_llm_composer_for_smalltalk_without_actions():
