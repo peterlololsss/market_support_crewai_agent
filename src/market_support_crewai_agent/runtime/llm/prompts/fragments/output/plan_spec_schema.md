@@ -46,6 +46,7 @@ PlanSpec compact schema:
 Rules:
 - Output one plan_units item per atomic user intent. Each unit selects exactly one selected_capability_id from Capability registry JSON and copies its artifact/tool/source boundaries into the matching unit fields.
 - Sends: answerability_policy=send and selected_capability_id should be an action capability whose manifest matches the requested artifact/action. Multiple requested send artifacts require multiple send units.
+- Known artifact words such as 材料包/一页通/开放日历, 周报, and 月报 may appear even when the matching send capability is absent. They still define user intent, but absent capabilities are not selectable. Use an allowed abstention or handoff unit with no actions when the user asks for a send that current policy does not allow.
 - Knowledge answers: answerability_policy=answer and selected_capability_id should be an answer or summary capability whose manifest evidence contract can support the requested answer.
 - For report product-list or shorthand product-presence answers, set step.evidence_query to exactly "report_scope_products". Use arbitrary text evidence_query only for precise adapter report-scope match queries.
 - Mixed answer plus send requests require both an answer unit and a send unit.

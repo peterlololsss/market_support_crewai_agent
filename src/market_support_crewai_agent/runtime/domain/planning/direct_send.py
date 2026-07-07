@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
+from market_support_crewai_agent.runtime.domain.planning.message_normalization import (
+    normalize_compact_message,
+)
 from market_support_crewai_agent.runtime.domain.planning.models import (
     ActionIntentSpec,
     AdapterResolveSpec,
@@ -22,7 +24,7 @@ DirectSendStatus = Literal[
 ]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DirectSendCommandResult:
     status: DirectSendStatus
     plan: ExecutionPlan | None = None
@@ -38,7 +40,7 @@ class DirectSendCommandResult:
         return self.status == "needs_material_pack_option"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ArtifactCommand:
     artifact_kind: Literal["material_pack", "weekly_report", "monthly_report"]
     capability: Literal["material_pack", "weekly_report", "monthly_report"]
@@ -62,9 +64,6 @@ _FILLER = (
     r"一版|版))*"
 )
 _SUFFIX = r"(?:给我)?"
-_TRAILING_PUNCTUATION = " ,，.。!！?？~～;；"
-
-
 def _pattern_for_aliases(
     aliases: tuple[str, ...],
     *,
@@ -162,7 +161,7 @@ def match_direct_send_command(
 ) -> DirectSendCommandResult:
     """Match only narrow, closed-set send commands before the LLM planner."""
 
-    normalized = _normalize_message(request.message)
+    normalized = normalize_compact_message(request.message)
     if not normalized:
         return DirectSendCommandResult(status="no_match", reason_code="empty_message")
 
@@ -192,12 +191,6 @@ def match_direct_send_command(
         reason_code="direct_send_command_matched",
         pattern_id=pattern_id,
     )
-
-
-def _normalize_message(message: str) -> str:
-    normalized = unicodedata.normalize("NFKC", str(message or ""))
-    normalized = re.sub(r"\s+", "", normalized)
-    return normalized.strip(_TRAILING_PUNCTUATION)
 
 
 def _match_direct_artifact(normalized_message: str) -> _ArtifactCommand | None:

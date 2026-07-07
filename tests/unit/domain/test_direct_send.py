@@ -31,7 +31,11 @@ def make_request(**overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def _match(message: str, *, available_artifacts: list[dict] | None = None):
+def _match(
+    message: str,
+    *,
+    available_artifacts: list[dict[str, str | list[str]]] | None = None,
+):
     request = make_request(
         message=message,
         available_artifacts=available_artifacts
@@ -91,6 +95,10 @@ def test_matches_exact_bare_artifact_names_only():
         assert result.status == "direct_action"
         assert result.plan is not None
         assert result.plan.action_intents[0].action_type == action_type
+
+
+def test_t0_is_not_a_direct_send_command():
+    assert _match("T0怎么操作").status == "no_match"
 
 
 def test_material_pack_with_options_requires_confirmation():

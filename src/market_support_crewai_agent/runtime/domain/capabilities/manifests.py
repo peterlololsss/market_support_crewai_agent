@@ -4,6 +4,7 @@ from market_support_crewai_agent.runtime.domain.capabilities.registry import (
     AbstentionPolicy,
     CapabilityManifest,
     EvidenceContract,
+    VerifierPrimitive,
 )
 
 _REPLY_OUTPUT_SCHEMA = {
@@ -22,7 +23,7 @@ _REPLY_OUTPUT_SCHEMA = {
     },
 }
 
-_STANDARD_VERIFIER_CHECKS = [
+_STANDARD_VERIFIER_CHECKS: list[VerifierPrimitive] = [
     "output_schema",
     "required_runtime_input_present",
     "required_evidence_present",
@@ -30,7 +31,7 @@ _STANDARD_VERIFIER_CHECKS = [
     "forbidden_source_not_used",
     "abstention_correctness",
 ]
-_OUTPUT_ONLY_VERIFIER_CHECKS = ["output_schema"]
+_OUTPUT_ONLY_VERIFIER_CHECKS: list[VerifierPrimitive] = ["output_schema"]
 
 _ACTION_OUTPUT_SCHEMA = {
     "type": "object",
@@ -91,7 +92,9 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "material-pack artifact. "
             "Also use for strategy intro, product highlight, open calendar, or "
             "performance material only when the wording clearly asks to send/provide "
-            "an artifact and no more specific supported action exists. "
+            "an artifact and no more specific supported action exists. Also use for "
+            "broad historical performance-summary requests where a material pack is "
+            "the supported collateral instead of a weekly report. "
             "material_pack.options are material-pack scope labels, not a general "
             "strategy catalog. If the user explicitly targets one material_pack.options "
             "value, copy that exact value into domain_scope.material_pack_option for adapter "
@@ -103,18 +106,13 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         agent_guidance="Return only the typed send_material_pack action after adapter resolve evidence.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
         examples_positive=[
-            "Send the material pack.",
-            "发一下材料包",
-            "发一下中证1000材料",
-            "发一下PPT/一页通/要素表",
-            "来个开放日历",
-            "来个培训视频",
-            "来个空气指增策略介绍",
+            'Synthetic clear material-pack send request.',
+            'Synthetic collateral one-pager send request.',
+            'Synthetic product-availability collateral request.',
         ],
         examples_negative=[
-            "Which products are in the weekly report?",
-            "介绍一下全指指增",
-            "全指指增是什么",
+            'Synthetic report-content question.',
+            'Synthetic document-backed strategy definition question.',
         ],
         runtime_capability="material_pack",
     ),
@@ -149,27 +147,31 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             guidance="If the weekly report cannot be resolved, abstain or hand off."
         ),
         planner_guidance=(
-            "Use when the user clearly asks to send the weekly report. Also use "
-            "for named public product/strategy performance, drawdown, or return follow-up, "
+            "Use when the user clearly asks to send the weekly report. Treat the "
+            "weekly report as this week's valuation/performance artifact, not as "
+            "the owner of every FAQ containing performance words. Also use "
+            "for named public product/strategy current performance, drawdown, NAV, "
+            "or return metric follow-up, "
             "and when the user clearly asks to send or provide an official "
             "performance report/material and weekly_report is the closest "
             "supported action. "
             "Do not answer unsupported numbers directly; send the weekly report "
-            "unless the request is compliance-blocked. For this performance-report send, add "
-            "risk_flags=[\"weekly_report_rationale_required\"]."
+            "unless the request is compliance-blocked. Do not use for evergreen "
+            "document FAQ facts such as factor/excess-return contribution mix, "
+            "收益来源占比, T0 mechanics, fee/到手收益 explanations, holdings, "
+            "exposure, or strategy-explanation why questions. For performance-report sends, "
+            "add risk_flags=[\"weekly_report_rationale_required\"]."
         ),
         agent_guidance="Return only the typed send_weekly_report action after adapter resolve evidence.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
         examples_positive=[
-            "Send this week's report.",
-            "请发一下周报",
-            "发一下500最近回撤修复的周报",
-            "麻烦发一下产品业绩表现",
+            'Synthetic weekly report send request.',
+            'Synthetic current product metric request requiring report artifact.',
+            'Synthetic official performance material send request.',
         ],
         examples_negative=[
-            "What products are in the weekly report?",
-            "自营盘规模多少",
-            "你们有没有核心策略？",
+            'Synthetic evergreen performance explanation question.',
+            'Synthetic report product-list question.',
         ],
         runtime_capability="weekly_report",
     ),
@@ -208,8 +210,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         agent_guidance="Return only the typed send_monthly_report action after adapter resolve evidence.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
-        examples_positive=["Send the monthly report.", "发我个月报"],
-        examples_negative=["What period does the weekly report cover?"],
+        examples_positive=[
+            'Synthetic monthly report send request.',
+        ],
+        examples_negative=[
+            'Synthetic weekly-report period question.',
+        ],
         runtime_capability="monthly_report",
     ),
     CapabilityManifest(
@@ -239,8 +245,13 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use when the user asks for human sales/support help, add-friend/add-WeChat/private-chat routing, or a named person.",
         agent_guidance="Mention only adapter-resolved sales/support targets.",
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
-        examples_positive=["帮我问下销售", "请销售确认", "能加一下好友吗？", "我想找一下你们顾总？"],
-        examples_negative=["发一下周报"],
+        examples_positive=[
+            'Synthetic request to contact sales.',
+            'Synthetic named human routing request.',
+        ],
+        examples_negative=[
+            'Synthetic artifact send request.',
+        ],
         runtime_capability="sales_mention",
     ),
     CapabilityManifest(
@@ -269,8 +280,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         agent_guidance="Ask one concise clarification and do not propose actions.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["你要发周报还是月报？"],
-        examples_negative=["发一下周报"],
+        examples_positive=[
+            'Synthetic missing material-pack option clarification.',
+        ],
+        examples_negative=[
+            'Synthetic clear report send request.',
+        ],
     ),
     CapabilityManifest(
         id="general.abstention",
@@ -294,8 +309,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use when the request is understood but required evidence is absent.",
         agent_guidance="State inability concisely and do not invent facts.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。"],
-        examples_negative=["已发送周报"],
+        examples_positive=[
+            'Synthetic unable-to-confirm response when required evidence is absent.',
+        ],
+        examples_negative=[
+            'Synthetic completed-send status.',
+        ],
     ),
     CapabilityManifest(
         id="general.refusal",
@@ -319,8 +338,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use for requests that compliance policy requires refusing.",
         agent_guidance="Use the harness refusal text and do not propose actions.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["这个产品能保本吗"],
-        examples_negative=["请发周报"],
+        examples_positive=[
+            'Synthetic guaranteed-return request.',
+        ],
+        examples_negative=[
+            'Synthetic ordinary report send request.',
+        ],
     ),
     CapabilityManifest(
         id="general.smalltalk",
@@ -344,8 +367,13 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use for greetings, thanks, self-introduction, or help/capability questions.",
         agent_guidance="Answer briefly from request metadata and policy only.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["你是谁", "谢谢"],
-        examples_negative=["发一下材料"],
+        examples_positive=[
+            'Synthetic assistant identity question.',
+            'Synthetic thanks message.',
+        ],
+        examples_negative=[
+            'Synthetic business artifact request.',
+        ],
     ),
     CapabilityManifest(
         id="general.no_reply",
@@ -369,8 +397,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         planner_guidance="Use only when the message should not receive a visible reply.",
         agent_guidance="Return no_reply with empty text, mentions, and actions.",
         verifier_checks=_OUTPUT_ONLY_VERIFIER_CHECKS,
-        examples_positive=["adapter-only status messages that do not need a reply"],
-        examples_negative=["user asks for help"],
+        examples_positive=[
+            'Synthetic adapter-only status message that should stay silent.',
+        ],
+        examples_negative=[
+            'Synthetic user help request.',
+        ],
     ),
     CapabilityManifest(
         id="material_pack.open_calendar",
@@ -415,12 +447,11 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
         examples_positive=[
-            "When is this product open for subscription?",
-            "Which products can be bought next week from the material pack?",
+            'Synthetic product open-calendar question about material-pack content.',
         ],
         examples_negative=[
-            "Send the material pack.",
-            "How did products perform in the monthly report?",
+            'Synthetic material-pack send request.',
+            'Synthetic monthly-report performance question.',
         ],
         runtime_capability="material_pack",
     ),
@@ -479,14 +510,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
         examples_positive=[
-            "Which products are in the weekly report?",
-            "What period does this weekly report cover?",
+            'Synthetic weekly-report product-list question.',
+            'Synthetic weekly-report period question.',
         ],
         examples_negative=[
-            "What products are in the material pack?",
-            "Send the monthly report.",
-            "500指增规模多少；容量多少",
-            "介绍一下全指指增",
+            'Synthetic material-pack product question.',
+            'Synthetic monthly-report send request.',
         ],
         runtime_capability="weekly_report",
     ),
@@ -545,14 +574,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
         examples_positive=[
-            "Which products are in the monthly report?",
-            "What month does this report cover?",
+            'Synthetic monthly-report product-list question.',
+            'Synthetic monthly-report period question.',
         ],
         examples_negative=[
-            "Send the weekly report.",
-            "What is in the material pack?",
-            "500指增规模多少；容量多少",
-            "介绍一下全指指增",
+            'Synthetic weekly-report send request.',
+            'Synthetic material-pack content question.',
         ],
         runtime_capability="monthly_report",
     ),
@@ -592,28 +619,22 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
             "headcount, founding date, holdings profile, factor lineup, strategy "
             "intro, product differences, exposure, excess-return sources, redemption, "
             "subscription, dividends, NAV disclosure timing, hedging cost, basis, "
-            "and FAQ style operating questions."
+            "index valuation/position facts, company-viewpoint/衍复观点 questions, "
+            "fee/到手收益 explanations, T0 strategy mechanics, document-backed "
+            "why/explanation questions, and FAQ style operating questions."
         ),
         agent_guidance=(
             "Summarize only what appears in trusted document or approved static evidence."
         ),
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
         examples_positive=[
-            "Can you summarize this channel's strategy?",
-            "How should I introduce this strategy?",
-            "500指增规模多少；容量多少",
-            "你们现在有多少员工？",
-            "全指指增是什么",
-            "因子有哪些",
-            "请问赎回是什么时间到账？",
-            "500指增的超额收益贡献占比",
-            "产品多久分红一次",
-            "自营盘规模多少",
-            "你们有没有核心策略？",
+            'Synthetic channel strategy summary question.',
+            'Synthetic company or strategy FAQ question.',
+            'Synthetic document-backed operating-rule question.',
         ],
         examples_negative=[
-            "Send the weekly report.",
-            "Which products were generated in the report?",
+            'Synthetic weekly-report send request.',
+            'Synthetic report-generation artifact question.',
         ],
         runtime_capability="document_context",
     ),
@@ -659,12 +680,12 @@ BUILTIN_CAPABILITY_MANIFESTS: tuple[CapabilityManifest, ...] = (
         ),
         verifier_checks=_STANDARD_VERIFIER_CHECKS,
         examples_positive=[
-            "Can you summarize the products for this channel?",
-            "What products can we introduce here?",
+            'Synthetic channel product summary question.',
+            'Synthetic product document FAQ question.',
         ],
         examples_negative=[
-            "Which products are in the weekly report?",
-            "When is the material-pack product open?",
+            'Synthetic weekly-report product-list question.',
+            'Synthetic material-pack open-calendar question.',
         ],
         runtime_capability="document_context",
     ),
