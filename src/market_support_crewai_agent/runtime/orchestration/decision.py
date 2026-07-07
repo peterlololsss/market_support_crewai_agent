@@ -9,12 +9,10 @@ from pydantic import Field
 from market_support_crewai_agent.runtime.domain.business_facts import (
     BusinessFacts,
     ReportState,
-    ResolvableState,
 )
 from market_support_crewai_agent.runtime.domain.capabilities import (
     ResponseMode,
     capability_by_name,
-    capability_by_resolve_type,
     resolve_type_for_action,
 )
 from market_support_crewai_agent.runtime.domain.ontology import DomainContext
@@ -29,9 +27,13 @@ from market_support_crewai_agent.runtime.domain.sources.precedence import (
     plan_has_knowledge_evidence,
 )
 from market_support_crewai_agent.runtime.validation.guardrail_types import (
+    GuardrailDecision,
+    HANDOFF_TEXT_METADATA_KEY,
+    HANDOFF_UNAVAILABLE_TEXT_METADATA_KEY,
     abstention_response_text,
 )
 from market_support_crewai_agent.schemas import (
+    AdapterResolveType,
     ReplyKind,
     ReplyMention,
     ReplyRequest,
@@ -86,11 +88,26 @@ class DecisionEngine:
             )
 
         if plan.response_mode == "handoff":
+            if (handoff_decision := _input_guardrail_handoff_decision(plan)) is not None:
+                return _handoff_or_unable(
+                    business_facts,
+                    text=_decision_metadata_text(
+                        handoff_decision,
+                        HANDOFF_TEXT_METADATA_KEY,
+                        "这个问题我帮你请销售/支持同事确认。",
+                    ),
+                    reason_code=handoff_decision.reason_code,
+                    unable_text=_decision_metadata_text(
+                        handoff_decision,
+                        HANDOFF_UNAVAILABLE_TEXT_METADATA_KEY,
+                        "这个问题需要老师您向群内请销售/支持同事确认哦。",
+                    ),
+                )
             return _handoff_or_unable(
                 business_facts,
                 text="这个问题我帮你请销售/支持同事确认。",
-                reason="intent requires human handoff",
                 reason_code="handoff_requested",
+                unable_text="这个问题需要老师您向群内请销售/支持同事确认哦。",
             )
 
         if plan.response_mode == "knowledge_answer":
@@ -169,15 +186,16 @@ def _report_period_answer(
     answer_resolve_types = _answer_report_resolve_types(plan)
     if plan.answer_capabilities and not answer_resolve_types:
         return ""
-    for resolve_type, label in (
+    report_labels: tuple[tuple[AdapterResolveType, str], ...] = (
         ("weekly_report", "周报"),
         ("monthly_report", "月报"),
-    ):
+    )
+    for resolve_type, label in report_labels:
         if answer_resolve_types and resolve_type not in answer_resolve_types:
             continue
         if resolve_type not in {item.resolve_type for item in plan.adapter_resolves}:
             continue
-        report_state = business_facts.report_state(resolve_type)  # type: ignore[arg-type]
+        report_state = business_facts.report_state(resolve_type)
         if report_state is None or not report_state.period:
             continue
         period_start, period_end = _report_period_range(resolve_type, report_state)
@@ -288,9 +306,8 @@ def _action_directive(
             return _handoff_or_unable(
                 business_facts,
                 text="目前这个渠道下我没有看到可发送的对应内容，我帮你请销售/支持同事确认。",
-                reason="requested outbound action is unavailable in adapter evidence",
                 reason_code="action_resolve_unavailable",
-                unable_text="目前这个渠道下我没有看到可发送的对应内容。",
+                unable_text="这个问题需要老师您向群内请销售/支持同事确认哦。",
             )
         if not resolve_state.resolve_ref:
             return _directive(
@@ -362,7 +379,6 @@ def _handoff_or_unable(
     business_facts: BusinessFacts,
     *,
     text: str,
-    reason: str,
     reason_code: str,
     unable_text: str | None = None,
 ) -> ResponseDirective:
@@ -371,15 +387,39 @@ def _handoff_or_unable(
             mode="handoff",
             reply_kind="human_handoff",
             text=text,
-            mentions=[ReplyMention(type="sales", reason=reason)],
+            mentions=[ReplyMention(type="sales")],
             reason_code=reason_code,
         )
     return _directive(
         mode="unable",
         reply_kind="unable_to_answer",
-        text=unable_text or "当前渠道暂未配置可用负责人。",
+        text=unable_text or "这个问题需要老师您向群内请销售/支持同事确认哦。",
         reason_code="sales_mention_unavailable",
     )
+
+
+def _input_guardrail_handoff_decision(
+    plan: ExecutionPlan,
+) -> GuardrailDecision | None:
+    for decision in plan.guardrail_decisions:
+        if (
+            decision.phase == "input"
+            and decision.outcome == "block"
+            and _decision_metadata_text(decision, HANDOFF_TEXT_METADATA_KEY, "")
+        ):
+            return decision
+    return None
+
+
+def _decision_metadata_text(
+    decision: GuardrailDecision,
+    key: str,
+    default: str,
+) -> str:
+    value = decision.metadata.get(key)
+    if isinstance(value, str) and value.strip():
+        return value
+    return default
 
 
 def _clarification_text(

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeAlias
 
-from pydantic import Field
+from pydantic import Field, JsonValue
 
 from market_support_crewai_agent.runtime.domain.capabilities import CapabilityName
 from market_support_crewai_agent.runtime.domain.ontology import ArtifactType
@@ -31,6 +31,11 @@ DestinationType = Literal[
     "unknown",
 ]
 SensitivityLevel = Literal["public", "internal", "sensitive", "unknown"]
+GuardrailMetadata: TypeAlias = dict[str, JsonValue]
+
+HANDOFF_TEXT_METADATA_KEY = "handoff_text"
+HANDOFF_UNAVAILABLE_TEXT_METADATA_KEY = "handoff_unavailable_text"
+HANDOFF_REASON_METADATA_KEY = "handoff_reason"
 
 
 class RequestedScope(StrictModel):
@@ -63,7 +68,7 @@ class SendScopePolicy(StrictModel):
     allowed_destinations: list[str] = Field(default_factory=list)
     allowed_actions: list[OutboundActionType] = Field(default_factory=list)
     required_user_confirmation: list[str] = Field(default_factory=list)
-    redaction_policy: dict[str, object] = Field(default_factory=dict)
+    redaction_policy: GuardrailMetadata = Field(default_factory=dict)
 
 
 class GuardrailDecision(StrictModel):
@@ -73,17 +78,17 @@ class GuardrailDecision(StrictModel):
     human_readable_reason: str = ""
     capability_id: str | None = None
     artifact_ids: list[str] = Field(default_factory=list)
-    source_scopes: list[dict] = Field(default_factory=list)
+    source_scopes: list[GuardrailMetadata] = Field(default_factory=list)
     evidence_required: list[str] = Field(default_factory=list)
     evidence_seen: list[str] = Field(default_factory=list)
-    metadata: dict[str, object] = Field(default_factory=dict)
+    metadata: GuardrailMetadata = Field(default_factory=dict)
 
     @property
     def allowed(self) -> bool:
         return self.outcome == "allow"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EvidenceSelection:
     accepted: tuple[EvidenceFact, ...]
     rejected: tuple[EvidenceFact, ...]
@@ -106,10 +111,10 @@ def make_decision(
     human_reason: str = "",
     capability_id: str | None = None,
     artifact_ids: list[str] | None = None,
-    source_scopes: list[dict] | None = None,
+    source_scopes: list[GuardrailMetadata] | None = None,
     evidence_required: list[str] | None = None,
     evidence_seen: list[str] | None = None,
-    metadata: dict[str, object] | None = None,
+    metadata: GuardrailMetadata | None = None,
 ) -> GuardrailDecision:
     return GuardrailDecision(
         outcome=outcome,

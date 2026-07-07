@@ -8,7 +8,7 @@ from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
     AdapterPreflightSnapshot,
 )
 from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
-from market_support_crewai_agent.runtime.orchestration.reply_agent import CrewAIReplyRuntime
+from market_support_crewai_agent.runtime.orchestration.runtime import CrewAIReplyRuntime
 from market_support_crewai_agent.schemas import AdapterResolveResult
 from tests.helpers.planning import make_plan_spec
 

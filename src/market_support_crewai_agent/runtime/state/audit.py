@@ -554,6 +554,22 @@ def _compact_evidence_fact(fact: EvidenceFact) -> dict:
         key: _compact_large_audit_value(value)
         for key, value in metadata.items()
     }
+    return {
+        "evidence_id": ":".join(
+            item
+            for item in (fact.source_type, fact.source_id, fact.fact_type)
+            if item
+        ),
+        "fact_type": fact.fact_type,
+        "value": _compact_large_audit_value(fact.value),
+        "source_type": fact.source_type,
+        "source_id": fact.source_id,
+        "resolve_type": fact.resolve_type,
+        "artifact_type": fact.artifact_type,
+        "scope": fact.scope.to_prompt_dict(),
+        "source_metadata": source_metadata_prompt_dict(fact.source_metadata),
+        "metadata": metadata,
+    }
 
 
 def _compact_execution_artifact(artifact) -> dict | None:
@@ -573,22 +589,6 @@ def _compact_execution_artifact(artifact) -> dict | None:
     if "artifact_ref" in payload:
         payload["artifact_ref_available"] = bool(payload.pop("artifact_ref"))
     return payload
-    return {
-        "evidence_id": ":".join(
-            item
-            for item in (fact.source_type, fact.source_id, fact.fact_type)
-            if item
-        ),
-        "fact_type": fact.fact_type,
-        "value": _compact_large_audit_value(fact.value),
-        "source_type": fact.source_type,
-        "source_id": fact.source_id,
-        "resolve_type": fact.resolve_type,
-        "artifact_type": fact.artifact_type,
-        "scope": fact.scope.to_prompt_dict(),
-        "source_metadata": source_metadata_prompt_dict(fact.source_metadata),
-        "metadata": metadata,
-    }
 
 
 def _compact_large_audit_value(value):

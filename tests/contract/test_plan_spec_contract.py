@@ -433,7 +433,7 @@ def test_plan_spec_accepts_handoff_abstention_when_sales_mention_is_missing():
         spec,
         output_payload=reply_payload(
             kind="unable_to_answer",
-            text="当前渠道暂未配置可用负责人。",
+            text="这个问题需要老师您向群内请销售/支持同事确认哦。",
         ),
         evidence_facts=[],
         abstained=True,
