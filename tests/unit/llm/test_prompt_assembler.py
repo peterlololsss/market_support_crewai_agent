@@ -16,7 +16,10 @@ from market_support_crewai_agent.runtime.validation.answerability import (
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.llm.prompting.assembler import assemble_prompt_program
 from market_support_crewai_agent.runtime.llm.prompting.context import PromptAssemblyContext
-from market_support_crewai_agent.runtime.llm.prompting.profiles import prompt_profile_by_stage
+from market_support_crewai_agent.runtime.llm.prompting.profiles import (
+    PromptStage,
+    prompt_profile_by_stage,
+)
 from market_support_crewai_agent.runtime.llm.prompting.router import (
     route_intent,
     select_prompt_program,
@@ -52,11 +55,11 @@ def make_request(message: str = "发一下中证1000材料", **overrides) -> Rep
     return ReplyRequest.model_validate(payload)
 
 
-def make_ctx(message: str = "发一下中证1000材料", stage: str = "planner_intent"):
+def make_ctx(message: str = "发一下中证1000材料", stage: PromptStage = "planner_intent"):
     request = make_request(message)
     policy = compile_policy(request, doc_mcp_enabled=True)
     return PromptAssemblyContext(
-        stage=stage,  # type: ignore[arg-type]
+        stage=stage,
         model_family="ds_v4pro",
         request=request,
         policy=policy,
@@ -185,6 +188,23 @@ def test_composer_prompt_uses_compact_no_action_skeleton_not_full_schema_dump():
     assert "Canonical JSON schema:" not in program.prompt_text
     assert '"$defs"' not in program.prompt_text
     assert '"properties"' not in program.prompt_text
+
+
+def test_knowledge_composer_prompt_says_existing_data_not_knowledge_base():
+    ctx = make_ctx(stage="knowledge_composer")
+    profile = prompt_profile_by_stage("knowledge_composer", "ds_v4pro")
+    program = assemble_prompt_program(
+        ctx,
+        profile,
+        (
+            "base.knowledge_composer",
+            "model.ds_v4pro.structured",
+            "output.reply_response_no_actions",
+        ),
+    )
+
+    assert "知识库" not in program.prompt_text
+    assert "根据我已有的数据" in program.prompt_text
 
 
 def test_knowledge_composer_prompt_includes_runtime_boundary_block_snapshot():

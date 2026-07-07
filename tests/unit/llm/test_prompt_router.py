@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+from typing import TypeAlias
+
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
-from market_support_crewai_agent.runtime.llm.prompting.context import PromptAssemblyContext
+from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
+from market_support_crewai_agent.runtime.llm.prompting.context import (
+    IntentGateResult,
+    PromptAssemblyContext,
+)
 from market_support_crewai_agent.runtime.llm.prompting.router import (
     model_family_from_settings,
     route_intent,
@@ -9,6 +15,11 @@ from market_support_crewai_agent.runtime.llm.prompting.router import (
 )
 from market_support_crewai_agent.schemas import ReplyRequest
 from market_support_crewai_agent.settings import Settings
+from tests.fixtures.xiaoyan_question_set import QUESTION_SET
+
+AvailableArtifactPayload: TypeAlias = dict[str, str | list[str]]
+RequestOverrideValue: TypeAlias = str | bool | list[AvailableArtifactPayload]
+PlannerCase: TypeAlias = tuple[str, str, dict[str, RequestOverrideValue]]
 
 
 OLD_PLANNER_FRAGMENTS = {
@@ -24,8 +35,8 @@ OLD_PLANNER_FRAGMENTS = {
 }
 
 
-def make_request(message: str, **overrides) -> ReplyRequest:
-    payload = {
+def make_request(message: str, **overrides: RequestOverrideValue) -> ReplyRequest:
+    payload: dict[str, RequestOverrideValue] = {
         "context_id": "msg-1",
         "conversation_key": "wecom:group-1:sender-1",
         "group_id": "group-1",
@@ -46,7 +57,15 @@ def make_request(message: str, **overrides) -> ReplyRequest:
     return ReplyRequest.model_validate(payload)
 
 
-def planner_program(message: str, **overrides):
+
+
+def _question_set_hits(text: str) -> list[str]:
+    return [question.question for question in QUESTION_SET if question.question in text]
+
+def planner_program(
+    message: str,
+    **overrides: RequestOverrideValue,
+) -> tuple[IntentGateResult, PromptProgram]:
     request = make_request(message, **overrides)
     policy = compile_policy(request, doc_mcp_enabled=True)
     gate = route_intent(request, policy)
@@ -72,7 +91,7 @@ def test_route_intent_is_non_authoritative_audit_hint():
 
 
 def test_representative_messages_use_same_universal_planner_fragments():
-    cases = [
+    cases: list[PlannerCase] = [
         ("material_send", "麻烦同步一下中证1000的一页通", {}),
         ("weekly_report", "500最近回撤修复得怎么样", {}),
         ("monthly_report", "11月表现怎么样", {}),
@@ -108,6 +127,44 @@ def test_planner_prompt_fits_context_budget_for_default_fixture():
     assert "PlanSpec compact schema:" in program.prompt_text
     assert "Canonical JSON schema:" not in program.prompt_text
     assert '"$defs"' not in program.prompt_text
+
+
+def test_planner_prompt_keeps_artifact_vocabulary_when_send_capability_absent():
+    _, program = planner_program(
+        "材料包",
+        available_artifacts=[{"type": "weekly_report"}],
+    )
+
+    assert "Known sales artifact vocabulary" in program.prompt_text
+    assert "材料包/material pack" in program.prompt_text
+    assert "absent capabilities are not selectable" in program.prompt_text
+    assert '"id": "material_pack.send"' not in program.prompt_text
+    assert "send_material_pack" not in program.prompt_text
+
+
+def test_planner_prompt_documents_section_roles_without_fixture_examples():
+    _, program = planner_program("请按当前规则处理这个请求")
+
+    assert "Planner stage roles:" in program.prompt_text
+    assert "base planner fragment" in program.prompt_text
+    assert "intent taxonomy fragment" in program.prompt_text
+    assert "Capability registry JSON" in program.prompt_text
+    assert "manifest-derived capability contracts" in program.prompt_text
+    assert "adapter resolve/preflight owns sendability" in program.prompt_text
+    assert "evidence contracts own allowed fact/source/artifact boundaries" in program.prompt_text
+    assert _question_set_hits(program.prompt_text) == []
+
+
+def test_planner_capability_registry_is_contract_context_not_few_shot_examples():
+    _, program = planner_program("请按当前规则处理这个请求")
+
+    assert '"capability_contracts"' in program.prompt_text
+    assert '"planner_guidance"' in program.prompt_text
+    assert '"evidence"' in program.prompt_text
+    assert "|pos=" not in program.prompt_text
+    assert "|neg=" not in program.prompt_text
+    assert "examples_positive" not in program.prompt_text
+    assert "examples_negative" not in program.prompt_text
 
 
 def test_ds_v4pro_model_selects_ds_structured_fragment():

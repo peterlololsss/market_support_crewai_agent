@@ -158,11 +158,17 @@ class CapabilityManifest(StrictModel):
                     self.evidence_contract.required_evidence_types
                 ),
                 "any_of_fact_types": list(self.evidence_contract.any_of_fact_types),
+                "allowed_source_types": list(
+                    self.evidence_contract.allowed_source_types
+                ),
                 "forbidden_source_types": list(
                     self.evidence_contract.forbidden_source_types
                 ),
                 "disallowed_source_types": list(
                     self.evidence_contract.disallowed_source_types
+                ),
+                "required_artifact_types": list(
+                    self.evidence_contract.required_artifact_types
                 ),
                 "allowed_artifact_types": list(
                     self.evidence_contract.allowed_artifact_types
@@ -173,7 +179,9 @@ class CapabilityManifest(StrictModel):
                 "minimum_evidence_count": (
                     self.evidence_contract.minimum_evidence_count
                 ),
+                "min_facts": self.evidence_contract.min_facts,
                 "allow_history": self.evidence_contract.allow_history,
+                "fallback_policy": self.evidence_contract.fallback_policy,
             },
             "abstain_when_missing_evidence": (
                 self.abstention_policy.requires_abstention_when_evidence_missing

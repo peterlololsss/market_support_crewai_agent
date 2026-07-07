@@ -947,30 +947,42 @@ def _compact_planner_capabilities(request: ReplyRequest, policy: PolicyManifest)
     )
     return {
         "candidate_count": len(cards),
-        "capability_cards": [_planner_capability_guidance_line(card) for card in cards],
+        "capability_contracts": [_planner_capability_contract(card) for card in cards],
     }
 
 
-def _planner_capability_guidance_line(card: Mapping[str, object]) -> str:
+def _planner_capability_contract(card: Mapping[str, object]) -> dict[str, object]:
     raw_evidence = card.get("evidence")
     evidence: Mapping[str, object] = raw_evidence if isinstance(raw_evidence, dict) else {}
-    return (
-        "{id}|t={type}|rt={runtime}|req={required_artifacts}|forbid={forbidden_artifacts}|"
-        "need={required_facts}|any={any_of_facts}|no_src={forbidden_sources}|"
-        "guidance={guidance}|pos={positive}|neg={negative}"
-    ).format(
-        id=card.get("id"),
-        type=card.get("capability_type"),
-        runtime=card.get("runtime_capability"),
-        required_artifacts=",".join(_string_values(card.get("required_artifacts"))),
-        forbidden_artifacts=",".join(_string_values(card.get("forbidden_artifacts"))),
-        required_facts=",".join(_string_values(evidence.get("required_fact_types"))),
-        any_of_facts=",".join(_string_values(evidence.get("any_of_fact_types"))),
-        forbidden_sources=",".join(_string_values(evidence.get("forbidden_source_types"))),
-        guidance=_clip(card.get("planner_guidance"), 220),
-        positive=_clip(_first_value(card.get("examples_positive", [])), 80),
-        negative=_clip(_first_value(card.get("examples_negative", [])), 80),
-    )
+    return {
+        "id": card.get("id"),
+        "type": card.get("capability_type"),
+        "runtime_capability": card.get("runtime_capability"),
+        "required_artifacts": _string_values(card.get("required_artifacts")),
+        "forbidden_artifacts": _string_values(card.get("forbidden_artifacts")),
+        "required_tools": _string_values(card.get("required_tools")),
+        "evidence": {
+            "required_fact_types": _string_values(evidence.get("required_fact_types")),
+            "required_evidence_types": _string_values(
+                evidence.get("required_evidence_types")
+            ),
+            "any_of_fact_types": _string_values(evidence.get("any_of_fact_types")),
+            "allowed_source_types": _string_values(evidence.get("allowed_source_types")),
+            "forbidden_source_types": _string_values(
+                evidence.get("forbidden_source_types")
+            ),
+            "required_artifact_types": _string_values(
+                evidence.get("required_artifact_types")
+            ),
+            "allowed_artifact_types": _string_values(
+                evidence.get("allowed_artifact_types")
+            ),
+            "allow_history": bool(evidence.get("allow_history")),
+        },
+        "planner_guidance": _clip(card.get("planner_guidance"), 260),
+        "abstention_guidance": _clip(card.get("abstention_guidance"), 180),
+        "verifier_checks": _string_values(card.get("verifier_checks")),
+    }
 
 
 def _compact_plan_validation(validation: PlanValidationResult | None) -> dict[str, Any] | None:
@@ -1192,12 +1204,6 @@ def _projection_id(payload: dict[str, Any]) -> str:
 
 def _safe_block_id(block_type: str, source: str) -> str:
     return f"{block_type}:{hashlib.sha256(str(source).encode('utf-8')).hexdigest()[:12]}"
-
-
-def _first_value(value: object) -> str:
-    if not isinstance(value, (list, tuple)) or not value:
-        return ""
-    return str(value[0])
 
 
 def _string_values(value: object) -> list[str]:
