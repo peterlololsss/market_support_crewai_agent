@@ -1,0 +1,11 @@
+# T0 Guardrail Manual QA Matrix
+
+| Criterion | Channel | Exact invocation | Pass condition | Result | Artifact |
+|---|---|---|---|---|---|
+| T0 variants route to input-policy handoff | Unit | `uv run --extra dev python -m pytest -q tests/unit/domain/test_input_policy.py` | `test_t0_mentions_route_to_guardrail_handoff` passes for `T0`, `t0`, `Ｔ ０`, `T+0`; plan has `response_mode=handoff`, `sales_mention` resolve, no actions | PASS: 5 passed | pytest stdout, `tests/unit/domain/test_input_policy.py` |
+| Non-T0 falls through to planner | Unit | `uv run --extra dev python -m pytest -q tests/unit/domain/test_input_policy.py` | `test_non_t0_message_still_leaves_planner` returns `no_match` and no plan | PASS: 5 passed | pytest stdout |
+| Rule table is injectable | Unit | `uv run --extra dev python -m pytest -q tests/unit/domain/test_input_policy.py` | `test_input_policy_accepts_injected_rule_table` passes with custom `InputPolicyRule` via `rules=` | PASS: 5 passed | pytest stdout |
+| Policy allowlist is respected | Unit | `uv run --extra dev python -m pytest -q tests/unit/domain/test_input_policy.py` | T0 still matches but no unauthorized capabilities/resolves/actions when `resolve_sales_mention` is not allowed | PASS: 5 passed | pytest stdout |
+| Harness contracts remain valid | Integration/contract | `uv run --extra dev python -m pytest -q tests/integration/runtime/test_reply_contract.py tests/contract/test_adapter_preflight.py tests/unit/validation/test_structured_guardrails.py tests/unit/state/test_action_feedback.py tests/unit/domain/test_input_policy.py` | All harness contract tests pass | PASS: 114 passed | pytest stdout |
+| User-facing Q85 surface | Eval script through `/reply` runtime | `PYTHONIOENCODING=utf-8 CREWAI_VERBOSE=false MARKET_AGENT_TRACE_LOG_EVENTS=false MARKET_AGENT_REPLY_ALIGNMENT_VERIFIER_ENABLED=false uv run --extra dev python scripts/eval_reply_xiaoyan_question_set.py --ids 85 --parallel 1 --output-md tmp/t0_q85_handoff.md` | status `200`, kind `human_handoff`, actions `-` | PASS | `tmp/t0_q85_handoff.md` |
+| Lint/type/whitespace | Static checks | `uv run ruff check ...`; `uv run basedpyright ...`; `git diff --check -- ...` | Zero Ruff findings, zero basedpyright errors, no whitespace errors | PASS | command stdout |
