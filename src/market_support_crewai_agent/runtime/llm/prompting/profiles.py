@@ -6,6 +6,9 @@ from typing import Literal
 from pydantic import BaseModel
 
 from market_support_crewai_agent.runtime.domain.plan_spec import PlanSpec
+from market_support_crewai_agent.runtime.llm.direct_composer_output import (
+    DirectComposerOutput,
+)
 from market_support_crewai_agent.runtime.llm.composer_output import ComposerReplyOutput
 from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
     ReplyAlignmentVerdict,
@@ -15,6 +18,7 @@ PromptStage = Literal[
     "planner_intent",
     "knowledge_composer",
     "smalltalk_composer",
+    "direct_composer",
     "alignment_verifier",
     "document_product_selector",
     "approved_knowledge_selector",
@@ -68,6 +72,18 @@ def _smalltalk_composer_profile(model_family: ModelFamily) -> PromptProfile:
     )
 
 
+def _direct_composer_profile(model_family: ModelFamily) -> PromptProfile:
+    return PromptProfile(
+        id=f"direct_composer.{model_family}",
+        stage="direct_composer",
+        base_template_name="base.direct_composer",
+        response_model=DirectComposerOutput,
+        model_family=model_family,
+        temperature=0.1,
+        max_tokens=2400,
+    )
+
+
 def _alignment_verifier_profile(model_family: ModelFamily) -> PromptProfile:
     return PromptProfile(
         id=f"alignment_verifier.{model_family}",
@@ -87,6 +103,7 @@ PROMPT_PROFILES: tuple[PromptProfile, ...] = tuple(
         _planner_profile(model_family),
         _composer_profile(model_family),
         _smalltalk_composer_profile(model_family),
+        _direct_composer_profile(model_family),
         _alignment_verifier_profile(model_family),
     )
 )

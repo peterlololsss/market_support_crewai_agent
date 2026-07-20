@@ -905,7 +905,7 @@ def _compact_message(message: ConversationMessage) -> dict[str, Any]:
 
 def _compact_action_record(record: ActionLedgerRecord) -> dict[str, Any]:
     execution = record.execution
-    return {
+    payload = {
         "context_id": record.context_id,
         "response_id": record.response_id,
         "action_id": execution.action_id,
@@ -923,6 +923,19 @@ def _compact_action_record(record: ActionLedgerRecord) -> dict[str, Any]:
             provenance="adapter_action_ledger",
             evidence_allowed_by_default=False,
         ).to_prompt_dict(),
+    }
+    if execution.action_type == "prepare_outbound_message":
+        payload["adapter_result"] = _compact_prepare_adapter_result(
+            execution.adapter_result
+        )
+    return payload
+
+
+def _compact_prepare_adapter_result(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value[key]
+        for key in ("confirmation_ref", "state", "target", "content")
+        if key in value
     }
 
 

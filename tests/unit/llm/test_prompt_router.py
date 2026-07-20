@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import TypeAlias
 
 from market_support_crewai_agent.runtime.domain.policy import compile_policy
+from market_support_crewai_agent.runtime.llm.direct_composer_output import (
+    DirectComposerOutput,
+)
 from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
 from market_support_crewai_agent.runtime.llm.prompting.context import (
     IntentGateResult,
@@ -183,3 +186,36 @@ def test_planner_override_model_family_is_stage_scoped():
 
     assert model_family_from_settings(settings) == "ds_v4pro"
     assert model_family_from_settings(settings, stage="planner_intent") == "generic"
+
+
+def test_direct_message_uses_dedicated_composer_prompt_and_schema():
+    request = make_request(
+        "请把这段话发到银河客户群",
+        is_group=False,
+        sender_id="arbitrary-dm-sender",
+    )
+    policy = compile_policy(
+        request,
+        doc_mcp_enabled=True,
+        outbound_messaging_enabled=True,
+    )
+
+    program = select_prompt_program(
+        PromptAssemblyContext(
+            stage="direct_composer",
+            model_family="ds_v4pro",
+            request=request,
+            policy=policy,
+        )
+    )
+
+    assert program.profile.response_model is DirectComposerOutput
+    assert program.fragment_ids == (
+        "base.direct_composer",
+        "model.ds_v4pro.structured",
+        "output.direct_composer_schema",
+        "style.wecom_concise_zh",
+    )
+    assert "DM capability boundary" in program.prompt_text
+    assert "prepare_outbound_message" in program.prompt_text
+    assert "execute_prepared_outbound_message" in program.prompt_text

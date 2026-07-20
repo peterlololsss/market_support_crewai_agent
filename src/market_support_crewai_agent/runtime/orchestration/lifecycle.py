@@ -17,6 +17,9 @@ from market_support_crewai_agent.runtime.llm.prompting.router import (
 from market_support_crewai_agent.runtime.orchestration.reply_history import (
     compact_assistant_result,
 )
+from market_support_crewai_agent.runtime.orchestration.direct_message import (
+    direct_outbound_ready,
+)
 from market_support_crewai_agent.runtime.orchestration.attempt_validation import (
     reply_validation_error_summary,
     skip_alignment_verifier,
@@ -80,6 +83,9 @@ async def run_reply_turn(runtime, request: ReplyRequest) -> ReplyResponse:
                 )
 
             model_family = model_family_from_settings(runtime.settings)
+            outbound_messaging_enabled = (
+                await direct_outbound_ready(runtime) if not request.is_group else False
+            )
             with trace_span("policy.compile"):
                 policy = compile_policy(
                     request,
@@ -89,6 +95,7 @@ async def run_reply_turn(runtime, request: ReplyRequest) -> ReplyResponse:
                         and runtime.settings.doc_mcp_base_url
                     ),
                     doc_mcp_allowed_channel_types=runtime.settings.doc_mcp_allowed_channel_types,
+                    outbound_messaging_enabled=outbound_messaging_enabled,
                 )
             trace_event(
                 "state.policy_compiled",

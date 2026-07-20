@@ -140,6 +140,44 @@ def test_compile_policy_scopes_document_capability_by_channel_type():
     assert non_bank_policy.evidence_call_limit == 4
 
 
+def test_direct_policy_only_allows_company_info_and_adapter_outbound_lifecycle():
+    request = make_request(
+        is_group=False,
+        sender_id="any-dm-sender",
+        available_artifacts=[
+            {"type": "material_pack", "options": ["指增"]},
+            {"type": "weekly_report"},
+        ],
+        allowed_read_capabilities=[
+            "resolve_material_pack",
+            "resolve_sales_mention",
+            "query_internal_company_info",
+        ],
+    )
+
+    policy = compile_policy(
+        request,
+        doc_mcp_enabled=True,
+        outbound_messaging_enabled=True,
+    )
+
+    assert policy.allowed_capabilities == frozenset(
+        {"document_context", "outbound_message"}
+    )
+    assert policy.allowed_read_capabilities == frozenset(
+        {"query_internal_company_info"}
+    )
+    assert policy.allowed_outbound_actions == frozenset(
+        {
+            "prepare_outbound_message",
+            "execute_prepared_outbound_message",
+        }
+    )
+    assert policy.allowed_adapter_resolves == frozenset(
+        {"outbound_message_target"}
+    )
+
+
 def test_compile_policy_includes_adapter_safe_ledger_summary():
     ledger = ActionLedger()
     ledger.record_feedback(

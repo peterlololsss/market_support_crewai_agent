@@ -50,7 +50,9 @@ class CrewAIAgentFactory:
         )
 
     def build_composer_agent(self, stage="knowledge_composer"):
-        spec = prompt_agent_spec_by_id("agent.composer")
+        spec = prompt_agent_spec_by_id(
+            "agent.direct_composer" if stage == "direct_composer" else "agent.composer"
+        )
         return self._build_crewai_agent(
             role=spec.role,
             goal=spec.goal,

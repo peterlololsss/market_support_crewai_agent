@@ -61,7 +61,7 @@ def route_intent(
 def select_prompt_program(ctx: PromptAssemblyContext) -> PromptProgram:
     if ctx.stage == "planner_intent":
         return PromptAssembler().assemblePlannerPrompt(ctx)
-    if ctx.stage in {"knowledge_composer", "smalltalk_composer"}:
+    if ctx.stage in {"knowledge_composer", "smalltalk_composer", "direct_composer"}:
         return PromptAssembler().assembleAgentPrompt(ctx)
     elif ctx.stage == "alignment_verifier":
         return PromptAssembler().assembleVerifierPrompt(ctx)
@@ -97,6 +97,15 @@ def smalltalk_composer_fragment_ids(ctx: PromptAssemblyContext) -> list[str]:
     ]
 
 
+def direct_composer_fragment_ids(ctx: PromptAssemblyContext) -> list[str]:
+    return [
+        "base.direct_composer",
+        _model_fragment(ctx.model_family),
+        "output.direct_composer_schema",
+        "style.wecom_concise_zh",
+    ]
+
+
 def verifier_fragment_ids(ctx: PromptAssemblyContext) -> list[str]:
     return [
         "base.alignment_verifier",
@@ -110,6 +119,8 @@ def agent_fragment_ids(ctx: PromptAssemblyContext) -> list[str]:
         return knowledge_composer_fragment_ids(ctx)
     if ctx.stage == "smalltalk_composer":
         return smalltalk_composer_fragment_ids(ctx)
+    if ctx.stage == "direct_composer":
+        return direct_composer_fragment_ids(ctx)
     raise ValueError(f"unsupported agent prompt stage: {ctx.stage}")
 
 

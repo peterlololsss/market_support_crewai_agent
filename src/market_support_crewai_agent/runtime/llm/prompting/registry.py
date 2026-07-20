@@ -66,6 +66,14 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         required=True,
     ),
     PromptFragment(
+        id="base.direct_composer",
+        stage="direct_composer",
+        layer="stable",
+        priority=10,
+        template_name="base/direct_composer_base.md",
+        required=True,
+    ),
+    PromptFragment(
         id="base.alignment_verifier",
         stage="alignment_verifier",
         layer="stable",
@@ -99,6 +107,14 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
     ),
     PromptFragment(
         id="model.ds_v4pro.structured",
+        stage="direct_composer",
+        layer="stable",
+        priority=20,
+        template_name="model/ds_v4pro_structured.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="model.ds_v4pro.structured",
         stage="alignment_verifier",
         layer="stable",
         priority=20,
@@ -124,6 +140,14 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
     PromptFragment(
         id="model.generic.structured",
         stage="smalltalk_composer",
+        layer="stable",
+        priority=20,
+        template_name="model/generic_structured.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="model.generic.structured",
+        stage="direct_composer",
         layer="stable",
         priority=20,
         template_name="model/generic_structured.md",
@@ -178,6 +202,14 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         required=True,
     ),
     PromptFragment(
+        id="style.wecom_concise_zh",
+        stage="direct_composer",
+        layer="stable",
+        priority=110,
+        template_name="style/wecom_concise_zh.md",
+        required=True,
+    ),
+    PromptFragment(
         id="output.plan_spec_schema",
         stage="planner_intent",
         layer="task",
@@ -199,6 +231,14 @@ PROMPT_FRAGMENTS: tuple[PromptFragment, ...] = (
         layer="task",
         priority=30,
         template_name="output/reply_response_no_actions.md",
+        required=True,
+    ),
+    PromptFragment(
+        id="output.direct_composer_schema",
+        stage="direct_composer",
+        layer="task",
+        priority=30,
+        template_name="output/direct_composer_schema.md",
         required=True,
     ),
     PromptFragment(
@@ -258,6 +298,18 @@ PROMPT_AGENT_SPECS: tuple[PromptAgentSpec, ...] = (
         backstory=(
             "You are the external agent brain for a market support workflow. You "
             "use the validated plan and evidence facts."
+        ),
+    ),
+    PromptAgentSpec(
+        id="agent.direct_composer",
+        role="WeCom Direct Message Composer",
+        goal=(
+            "Handle one DM using only grounded company information or the "
+            "adapter-owned prepared outbound lifecycle."
+        ),
+        backstory=(
+            "You serve individual WeCom messages. You never widen permissions, "
+            "invent adapter references, or bypass confirmation."
         ),
     ),
     PromptAgentSpec(

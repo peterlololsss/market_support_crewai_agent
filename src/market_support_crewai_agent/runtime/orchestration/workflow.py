@@ -17,6 +17,9 @@ from market_support_crewai_agent.runtime.llm.prompting.context import (
 from market_support_crewai_agent.runtime.orchestration.planning_workflow import (
     build_candidate_via_planner,
 )
+from market_support_crewai_agent.runtime.orchestration.direct_message import (
+    build_direct_message_candidate,
+)
 from market_support_crewai_agent.runtime.state.action_ledger import ActionLedgerRecord
 from market_support_crewai_agent.runtime.state.conversation_store import (
     ConversationMessage,
@@ -47,6 +50,21 @@ async def build_candidate_response(
     alignment_verdict: ReplyAlignmentVerdict | None = None,
     alignment_attempt: int = 0,
 ) -> AttemptResult:
+    if not request.is_group:
+        return await build_direct_message_candidate(
+            runtime,
+            request=request,
+            domain_context=domain_context,
+            policy=policy,
+            model_family=model_family,
+            intent_gate=intent_gate,
+            history=history,
+            action_history=action_history,
+            prompt_programs=prompt_programs,
+            llm_executions=llm_executions,
+            alignment_verdict=alignment_verdict,
+            alignment_attempt=alignment_attempt,
+        )
     with trace_span("input_policy.match"):
         input_policy = match_input_policy(request, policy)
     if input_policy.matched and input_policy.plan is not None:

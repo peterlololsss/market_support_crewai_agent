@@ -16,6 +16,8 @@ from market_support_crewai_agent.schemas import (
     AdapterResolveBatchResult,
     AdapterResolveRequest,
     AdapterResolveResult,
+    OutboundTargetKind,
+    OutboundTargetResolveResult,
 )
 from market_support_crewai_agent.settings import Settings, get_settings
 
@@ -112,6 +114,26 @@ class AdapterResolveClient:
         except ValueError as exc:
             raise AdapterClientError("adapter batch resolve returned an invalid contract") from exc
 
+    def resolve_outbound_target(
+        self,
+        target_kind: OutboundTargetKind,
+        target_name: str,
+    ) -> OutboundTargetResolveResult:
+        raw = self._post_json(
+            "/adapter/resolve",
+            {
+                "resolve_type": "outbound_message_target",
+                "target_kind": target_kind,
+                "target_name": target_name,
+            },
+        )
+        try:
+            return OutboundTargetResolveResult.model_validate_json(raw)
+        except ValueError as exc:
+            raise AdapterClientError(
+                "adapter outbound target resolve returned an invalid contract"
+            ) from exc
+
     def report_scope(self, request: AdapterReportScopeRequest) -> AdapterReportScopeResult:
         raw = self._post_json(
             "/adapter/report-scope",
@@ -162,6 +184,17 @@ class AdapterResolveClient:
         requests: list[AdapterResolveRequest],
     ) -> list[AdapterResolveResult]:
         return await asyncio.to_thread(self.resolve_many, requests)
+
+    async def resolve_outbound_target_async(
+        self,
+        target_kind: OutboundTargetKind,
+        target_name: str,
+    ) -> OutboundTargetResolveResult:
+        return await asyncio.to_thread(
+            self.resolve_outbound_target,
+            target_kind,
+            target_name,
+        )
 
     async def report_scope_async(
         self,

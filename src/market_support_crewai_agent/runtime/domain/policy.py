@@ -61,7 +61,16 @@ def compile_policy(
         ledger_summary: LedgerSummary | None = None,
         doc_mcp_enabled: bool = False,
         doc_mcp_allowed_channel_types: tuple[ChannelType, ...] = ("bank", "non_bank"),
+        outbound_messaging_enabled: bool = False,
 ) -> PolicyManifest:
+    if request is not None and not request.is_group:
+        return _compile_direct_policy(
+            request,
+            ledger_summary=ledger_summary,
+            doc_mcp_enabled=doc_mcp_enabled,
+            doc_mcp_allowed_channel_types=doc_mcp_allowed_channel_types,
+            outbound_messaging_enabled=outbound_messaging_enabled,
+        )
     policy_scope = request.channel_type if request is not None else "default"
     allowed_capabilities: set[CapabilityName] = {"sales_mention"}
     allowed_capabilities.update(_artifact_capabilities(request.available_artifacts if request else ()))
@@ -132,6 +141,64 @@ def compile_policy(
         ),
         ledger_summary=ledger_summary or LedgerSummary(),
         evidence_call_limit=len(allowed_read_capabilities),
+    )
+
+
+def _compile_direct_policy(
+    request: ReplyRequest,
+    *,
+    ledger_summary: LedgerSummary | None,
+    doc_mcp_enabled: bool,
+    doc_mcp_allowed_channel_types: tuple[ChannelType, ...],
+    outbound_messaging_enabled: bool,
+) -> PolicyManifest:
+    company_info_enabled = (
+        "query_internal_company_info" in request.allowed_read_capabilities
+        and _doc_mcp_allowed_for_request(
+            request,
+            doc_mcp_enabled,
+            doc_mcp_allowed_channel_types,
+        )
+    )
+    allowed_capabilities: set[CapabilityName] = set()
+    if company_info_enabled:
+        allowed_capabilities.add("document_context")
+    if outbound_messaging_enabled:
+        allowed_capabilities.add("outbound_message")
+    allowed_actions: frozenset[OutboundActionType] = (
+        frozenset(
+            {
+                "prepare_outbound_message",
+                "execute_prepared_outbound_message",
+            }
+        )
+        if outbound_messaging_enabled
+        else frozenset()
+    )
+    allowed_resolves: frozenset[AdapterResolveType] = (
+        frozenset({"outbound_message_target"})
+        if outbound_messaging_enabled
+        else frozenset()
+    )
+    allowed_reads: frozenset[ReadCapability] = (
+        frozenset({"query_internal_company_info"})
+        if company_info_enabled
+        else frozenset()
+    )
+    allowed_modes: frozenset[ResponseMode] = frozenset(
+        {"action", "clarification", "unable"}
+    )
+    if company_info_enabled:
+        allowed_modes = allowed_modes | frozenset({"knowledge_answer"})
+    return PolicyManifest(
+        policy_id="support-reply-policy:direct",
+        allowed_reply_modes=allowed_modes,
+        allowed_capabilities=frozenset(allowed_capabilities),
+        allowed_outbound_actions=allowed_actions,
+        allowed_read_capabilities=allowed_reads,
+        allowed_adapter_resolves=allowed_resolves,
+        ledger_summary=ledger_summary or LedgerSummary(),
+        evidence_call_limit=len(allowed_reads) + len(allowed_resolves),
     )
 
 

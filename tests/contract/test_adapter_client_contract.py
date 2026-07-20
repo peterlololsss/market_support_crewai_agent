@@ -15,6 +15,7 @@ from market_support_crewai_agent.schemas import (
     AdapterMetrics,
     AdapterResolveRequest,
     AdapterResolveResult,
+    OutboundTargetResolveResult,
 )
 from market_support_crewai_agent.settings import Settings
 
@@ -76,6 +77,16 @@ class ResolveHandler(BaseHTTPRequestHandler):
 
 
 def _resolve_response(payload):
+    if payload["resolve_type"] == "outbound_message_target":
+        return {
+            "status": "resolved",
+            "reason_code": "ok",
+            "display_name": payload["target_name"],
+            "target_kind": payload["target_kind"],
+            "target_count": 1,
+            "resolved_count": 1,
+            "resolve_ref": "outbound-target:" + "a" * 64,
+        }
     return {
         "contract_version": "adapter-resolve",
         "resolve_type": payload["resolve_type"],
@@ -113,7 +124,36 @@ def _capabilities_response():
             "weekly_report",
             "monthly_report",
             "sales_mention",
+            "outbound_message_target",
         ],
+        "outbound_target_kinds": ["channel", "group"],
+        "outbound_target_response_fields": [
+            "status",
+            "reason_code",
+            "display_name",
+            "target_kind",
+            "target_count",
+            "resolved_count",
+            "resolve_ref",
+        ],
+        "outbound_messaging": {
+            "enabled": True,
+            "readiness": {"ready": True, "reason_codes": []},
+            "action_types": [
+                "execute_prepared_outbound_message",
+                "prepare_outbound_message",
+            ],
+            "content_types": ["link", "link_card", "report_card", "text"],
+            "report_types": ["monthly_report", "weekly_report"],
+            "constraints": {
+                "dm_only": True,
+                "later_trusted_message_required": True,
+                "prepare_feedback_ack_required": True,
+                "single_use": True,
+                "sdk_result_semantics": "accepted_not_delivered",
+            },
+            "result_fields": ["outcome"],
+        },
         "statuses": [
             "resolved",
             "missing",
@@ -190,6 +230,7 @@ def test_adapter_capabilities_schema_accepts_adapter_contract():
         "weekly_report",
         "monthly_report",
         "sales_mention",
+        "outbound_message_target",
     ]
     assert capabilities.max_batch_requests == 16
     assert capabilities.action_contract_version == "adapter-action"
@@ -197,6 +238,43 @@ def test_adapter_capabilities_schema_accepts_adapter_contract():
     assert capabilities.cache_max_entries == 512
     assert capabilities.auth is not None
     assert "/adapter/metrics" in capabilities.auth.protected_endpoints
+    assert capabilities.outbound_messaging is not None
+    assert capabilities.outbound_messaging.ready is True
+
+
+def test_adapter_client_resolves_outbound_target_with_exact_adapter_shape():
+    ResolveHandler.payloads = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ResolveHandler)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+
+    try:
+        client = AdapterResolveClient(
+            Settings(
+                llm_api_key="test-key",
+                adapter_base_url=f"http://127.0.0.1:{server.server_address[1]}",
+            )
+        )
+        result = client.resolve_outbound_target("group", "银河客户群")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+    assert result == OutboundTargetResolveResult(
+        status="resolved",
+        reason_code="ok",
+        display_name="银河客户群",
+        target_kind="group",
+        target_count=1,
+        resolved_count=1,
+        resolve_ref="outbound-target:" + "a" * 64,
+    )
+    assert ResolveHandler.payloads[-1]["payload"] == {
+        "resolve_type": "outbound_message_target",
+        "target_kind": "group",
+        "target_name": "银河客户群",
+    }
 
 
 def test_adapter_metrics_schema_accepts_adapter_contract():

@@ -108,6 +108,7 @@ Registry fragment IDs:
 base.planner_intent
 base.knowledge_composer
 base.smalltalk_composer
+base.direct_composer
 base.alignment_verifier
 model.ds_v4pro.structured
 model.generic.structured
@@ -118,6 +119,7 @@ style.wecom_concise_zh
 output.plan_spec_schema
 output.reply_response_no_actions
 output.reply_alignment_verdict_schema
+output.direct_composer_schema
 canonicalization.document_product_selector
 canonicalization.approved_knowledge_selector
 guardrail.image_alignment_verifier
@@ -128,6 +130,7 @@ Registry agent descriptor IDs:
 ```text
 agent.planner
 agent.composer
+agent.direct_composer
 agent.alignment_verifier
 agent.document_product_selector
 agent.approved_knowledge_selector

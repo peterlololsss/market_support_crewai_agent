@@ -9,11 +9,11 @@ from market_support_crewai_agent.runtime.domain.capabilities.manifests import (
     BUILTIN_CAPABILITY_MANIFESTS,
 )
 from market_support_crewai_agent.runtime.domain.capabilities.registry import (
-    AbstentionPolicy,
+    AbstentionPolicy as AbstentionPolicy,
     CapabilityManifest,
     CapabilityRegistry,
-    EvidenceContract,
-    VerifierPrimitive,
+    EvidenceContract as EvidenceContract,
+    VerifierPrimitive as VerifierPrimitive,
 )
 from market_support_crewai_agent.schemas import (
     AdapterResolveType,
@@ -28,6 +28,7 @@ CapabilityName = Literal[
     "monthly_report",
     "sales_mention",
     "document_context",
+    "outbound_message",
 ]
 ArtifactKind = Literal[
     "material_pack",

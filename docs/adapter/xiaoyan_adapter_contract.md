@@ -41,7 +41,22 @@ material_pack
 weekly_report
 monthly_report
 sales_mention
+outbound_message_target
 ```
+
+`outbound_message_target` is available only to the DM outbound lifecycle. It
+uses the adapter's strict shape instead of the distributor artifact shape:
+
+```json
+{
+  "resolve_type": "outbound_message_target",
+  "target_kind": "group",
+  "target_name": "银河客户群"
+}
+```
+
+The result contains only `status`, `reason_code`, `display_name`,
+`target_kind`, `target_count`, `resolved_count`, and the opaque `resolve_ref`.
 
 `material_pack_option` is accepted only for `resolve_type=material_pack`. Weekly and monthly report resolve requests do not accept strategy, material-pack option, or report-scope selectors; they resolve the whole current report for the channel.
 
@@ -116,6 +131,47 @@ Removed locator fields such as `card_ref`, URLs, filesystem paths, and raw MCP l
 The adapter owns standard post-send follow-up wording for material packs, weekly reports, and monthly reports. The
 harness returns semantic outbound action proposals and should not send duplicate "already sent / please check" text before
 adapter execution.
+
+## Direct-message outbound lifecycle
+
+When `ReplyRequest.is_group=false`, the harness accepts every adapter-forwarded
+DM sender and exposes only `query_internal_company_info` plus the adapter-owned
+prepared outbound capability. It does not expose current-chat material/report
+sends, sales mentions, or any sender allowlist of its own. The adapter retains
+final authorization and execution authority.
+
+The harness checks `GET /adapter/capabilities` for a ready
+`outbound_messaging` capability whose action types are exactly the lifecycle
+actions supported by xiaoyan_wecom. A complete initial request returns:
+
+```json
+{
+  "type": "prepare_outbound_message",
+  "action_id": "act-1",
+  "target": {
+    "kind": "group",
+    "name": "银河客户群",
+    "resolve_ref": "outbound-target:..."
+  },
+  "content": {"kind": "text", "text": "请查收本周更新"}
+}
+```
+
+The adapter prepares immutable state and reports its sanitized
+`confirmation_ref` through `/actions/feedback`. Only a later DM in the same
+conversation may return:
+
+```json
+{
+  "type": "execute_prepared_outbound_message",
+  "action_id": "act-1",
+  "confirmation_ref": "wecom-adapter-confirmation:..."
+}
+```
+
+Execute never repeats or mutates target/content. Missing target/content is a
+clarification with no action, and a confirmation ref not present in
+adapter-confirmed prepare feedback fails closed.
 
 ## Runtime preflight requirement
 

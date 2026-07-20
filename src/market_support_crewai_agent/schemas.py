@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from typing import Annotated, Any, Literal, Union
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -13,7 +16,9 @@ AdapterResolveType = Literal[
     "weekly_report",
     "monthly_report",
     "sales_mention",
+    "outbound_message_target",
 ]
+OutboundTargetKind = Literal["channel", "group"]
 ReadCapability = Literal[
     "resolve_material_pack",
     "resolve_weekly_report",
@@ -37,6 +42,8 @@ ActionExecutionType = Literal[
     "send_monthly_report",
     "mention_sales",
     "send_text",
+    "prepare_outbound_message",
+    "execute_prepared_outbound_message",
 ]
 ReplyKind = Literal[
     "answer",
@@ -50,6 +57,8 @@ OutboundActionType = Literal[
     "send_material_pack",
     "send_weekly_report",
     "send_monthly_report",
+    "prepare_outbound_message",
+    "execute_prepared_outbound_message",
 ]
 
 
@@ -177,6 +186,39 @@ class AdapterResolveResult(StrictModel):
         return self
 
 
+class OutboundTargetResolveResult(StrictModel):
+    status: Literal["resolved", "missing", "ambiguous", "temporarily_unavailable"]
+    reason_code: str = Field(min_length=1)
+    display_name: str = Field(min_length=1, max_length=128)
+    target_kind: OutboundTargetKind
+    target_count: int = Field(ge=0)
+    resolved_count: int = Field(ge=0)
+    resolve_ref: str = ""
+
+    @field_validator("resolve_ref")
+    @classmethod
+    def validate_resolve_ref(cls, value: str) -> str:
+        if value and (
+            not value.startswith("outbound-target:")
+            or len(value) != len("outbound-target:") + 64
+            or any(char not in "0123456789abcdef" for char in value[16:])
+        ):
+            raise ValueError("outbound target resolve_ref is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_resolved_shape(self):
+        if self.resolved_count > self.target_count:
+            raise ValueError("resolved_count cannot exceed target_count")
+        if self.status == "resolved" and (
+            not self.resolve_ref or self.resolved_count != self.target_count
+        ):
+            raise ValueError("resolved outbound target must be complete")
+        if self.status != "resolved" and self.resolve_ref:
+            raise ValueError("unresolved outbound target must not include resolve_ref")
+        return self
+
+
 class AdapterResolveBatchRequest(StrictModel):
     requests: list[AdapterResolveRequest] = Field(min_length=1, max_length=16)
 
@@ -254,6 +296,48 @@ class AdapterCapabilityAuth(StrictModel):
     protected_endpoints: list[str] = Field(default_factory=list)
 
 
+class AdapterOutboundReadiness(StrictModel):
+    ready: bool
+    reason_codes: list[str] = Field(default_factory=list, max_length=16)
+
+
+class AdapterOutboundConstraints(StrictModel):
+    dm_only: bool
+    later_trusted_message_required: bool
+    prepare_feedback_ack_required: bool
+    single_use: bool
+    sdk_result_semantics: Literal["accepted_not_delivered"]
+
+
+class AdapterOutboundMessagingCapability(StrictModel):
+    enabled: bool
+    readiness: AdapterOutboundReadiness
+    action_types: list[Literal[
+        "prepare_outbound_message",
+        "execute_prepared_outbound_message",
+    ]]
+    content_types: list[Literal["link", "link_card", "report_card", "text"]]
+    report_types: list[Literal["monthly_report", "weekly_report"]]
+    constraints: AdapterOutboundConstraints
+    result_fields: list[str]
+
+    @property
+    def ready(self) -> bool:
+        required_actions = {
+            "prepare_outbound_message",
+            "execute_prepared_outbound_message",
+        }
+        return (
+            self.enabled
+            and self.readiness.ready
+            and required_actions.issubset(self.action_types)
+            and self.constraints.dm_only
+            and self.constraints.later_trusted_message_required
+            and self.constraints.prepare_feedback_ack_required
+            and self.constraints.single_use
+        )
+
+
 class AdapterCapabilities(StrictModel):
     service: Literal["xiaoyan-wecom-market-agent-adapter"]
     contract_version: Literal["adapter-resolve"]
@@ -267,6 +351,9 @@ class AdapterCapabilities(StrictModel):
     cache_ttl_seconds: float = Field(default=0, ge=0)
     cache_max_entries: int = Field(default=0, ge=0)
     auth: AdapterCapabilityAuth | None = None
+    outbound_target_kinds: list[OutboundTargetKind] = Field(default_factory=list)
+    outbound_target_response_fields: list[str] = Field(default_factory=list)
+    outbound_messaging: AdapterOutboundMessagingCapability | None = None
 
 
 class AdapterCacheMetrics(StrictModel):
@@ -364,14 +451,123 @@ class SendMonthlyReportAction(SendActionBase):
     report_date: str = Field(min_length=1)
 
 
+class OutboundMessageTarget(StrictModel):
+    kind: OutboundTargetKind
+    name: str = Field(min_length=1, max_length=128)
+    resolve_ref: str = Field(pattern=r"^outbound-target:[0-9a-f]{64}$")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("outbound target name must be trimmed")
+        return value
+
+
+class OutboundTextContent(StrictModel):
+    kind: Literal["text"]
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class OutboundLinkContent(StrictModel):
+    kind: Literal["link"]
+    url: str = Field(min_length=1, max_length=2048)
+    label: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        return _validate_outbound_https_url(value)
+
+
+class OutboundLinkCardContent(StrictModel):
+    kind: Literal["link_card"]
+    title: str = Field(min_length=1, max_length=128)
+    description: str = Field(min_length=1, max_length=512)
+    url: str = Field(min_length=1, max_length=2048)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        return _validate_outbound_https_url(value)
+
+
+class OutboundReportCardContent(StrictModel):
+    kind: Literal["report_card"]
+    report_kind: Literal["weekly_report", "monthly_report"]
+    resolve_ref: str = Field(min_length=1)
+    source_channel: str = Field(min_length=1, max_length=128)
+    period: str = Field(min_length=1, max_length=64)
+    report_date: str = Field(min_length=1, max_length=64)
+
+    @field_validator("resolve_ref")
+    @classmethod
+    def validate_resolve_ref(cls, value: str) -> str:
+        _reject_raw_locator_text(value, "resolve_ref")
+        return value
+
+
+OutboundMessageContent = Annotated[
+    Union[
+        OutboundTextContent,
+        OutboundLinkContent,
+        OutboundLinkCardContent,
+        OutboundReportCardContent,
+    ],
+    Field(discriminator="kind"),
+]
+
+
+class PrepareOutboundMessageAction(OutboundActionBase):
+    type: Literal["prepare_outbound_message"]
+    target: OutboundMessageTarget
+    content: OutboundMessageContent
+
+
+class ExecutePreparedOutboundMessageAction(OutboundActionBase):
+    type: Literal["execute_prepared_outbound_message"]
+    confirmation_ref: str
+
+    @field_validator("confirmation_ref")
+    @classmethod
+    def validate_confirmation_ref(cls, value: str) -> str:
+        prefix = "wecom-adapter-confirmation:"
+        token = value.removeprefix(prefix)
+        if (
+            not value.startswith(prefix)
+            or len(token) != 43
+            or any(char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-" for char in token)
+        ):
+            raise ValueError("confirmation_ref is invalid")
+        try:
+            decoded = base64.urlsafe_b64decode(token + "=")
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("confirmation_ref is invalid") from exc
+        canonical = base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=")
+        if len(decoded) != 32 or canonical != token:
+            raise ValueError("confirmation_ref is invalid")
+        return value
+
+
 OutboundAction = Annotated[
     Union[
         SendMaterialPackAction,
         SendWeeklyReportAction,
         SendMonthlyReportAction,
+        PrepareOutboundMessageAction,
+        ExecutePreparedOutboundMessageAction,
     ],
     Field(discriminator="type"),
 ]
+
+
+def _validate_outbound_https_url(value: str) -> str:
+    if value != value.strip():
+        raise ValueError("outbound URL must be trimmed")
+    parsed = urlsplit(value)
+    if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username:
+        raise ValueError("outbound URL must be HTTPS without credentials")
+    return value
 
 
 class ReplyResponse(StrictModel):

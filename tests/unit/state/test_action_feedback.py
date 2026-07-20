@@ -175,6 +175,31 @@ def test_action_feedback_rejects_unknown_action_type():
     assert get_action_ledger().count() == 0
 
 
+def test_prepare_outbound_feedback_preserves_confirmation_ref_for_next_dm_turn():
+    payload = make_feedback()
+    payload["executions"] = [
+        {
+            "action_type": "prepare_outbound_message",
+            "status": "executed",
+            "action_id": "act-prepare",
+            "artifact": None,
+            "adapter_result": {
+                "ok": True,
+                "confirmation_ref": "wecom-adapter-confirmation:abc123",
+                "state": "prepared",
+                "target": {"kind": "group", "name": "银河客户群"},
+                "content": {"kind": "text"},
+            },
+        }
+    ]
+
+    feedback = ActionFeedbackRequest.model_validate(payload)
+
+    assert feedback.executions[0].adapter_result["confirmation_ref"] == (
+        "wecom-adapter-confirmation:abc123"
+    )
+
+
 def test_action_feedback_rejects_raw_artifact_ref_locator():
     payload = make_feedback()
     payload["executions"][0]["artifact"]["artifact_ref"] = "https://example.invalid/weekly"

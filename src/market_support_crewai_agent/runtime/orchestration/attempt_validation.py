@@ -126,6 +126,7 @@ def skip_alignment_verifier(candidate: AttemptResult) -> bool:
         decision.reason_code
         in {
             "direct_send_command_matched",
+            "direct_message_composer",
             "material_pack_option_confirmation_required",
         }
         for decision in candidate.plan.guardrail_decisions
