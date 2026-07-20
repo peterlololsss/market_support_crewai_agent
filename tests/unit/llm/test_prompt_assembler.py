@@ -190,6 +190,32 @@ def test_composer_prompt_uses_compact_no_action_skeleton_not_full_schema_dump():
     assert '"properties"' not in program.prompt_text
 
 
+def test_direct_composer_prompt_maps_named_channel_and_said_text_to_prepare():
+    request = make_request(
+        "发群消息给银河证券渠道说imalive",
+        is_group=False,
+        available_artifacts=[],
+    )
+    policy = compile_policy(
+        request,
+        doc_mcp_enabled=True,
+        outbound_messaging_enabled=True,
+    )
+    program = select_prompt_program(
+        PromptAssemblyContext(
+            stage="direct_composer",
+            model_family="ds_v4pro",
+            request=request,
+            policy=policy,
+            intent_gate=route_intent(request, policy),
+        )
+    )
+
+    assert "发群消息给银河证券渠道说imalive" in program.prompt_text
+    assert 'target={"kind":"channel","name":"银河证券"}' in program.prompt_text
+    assert 'content={"kind":"text","text":"imalive"}' in program.prompt_text
+
+
 def test_knowledge_composer_prompt_says_existing_data_not_knowledge_base():
     ctx = make_ctx(stage="knowledge_composer")
     profile = prompt_profile_by_stage("knowledge_composer", "ds_v4pro")
