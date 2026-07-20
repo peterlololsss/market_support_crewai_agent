@@ -102,6 +102,19 @@ async def _materialize_prepare(
         return _unable("暂时无法确认发送目标，请稍后再试。")
     if resolved_target.status != "resolved":
         return _clarification("请确认要发送到的群或渠道的准确名称。")
+    reply = output.reply
+    if resolved_target.resolved_count < resolved_target.target_count:
+        reply = PrimaryReply(
+            kind="clarification",
+            text=(
+                "当前可发送到 {}/{} 个群。{}".format(
+                    resolved_target.resolved_count,
+                    resolved_target.target_count,
+                    output.reply.text,
+                )
+            ),
+            mentions=[],
+        )
     try:
         outbound_content = await _materialize_content(content, adapter_client)
     except (AdapterClientError, ValidationError):
@@ -122,7 +135,7 @@ async def _materialize_prepare(
         return _unable("暂时无法准备这条发送请求，请稍后再试。")
     return DirectMaterialization(
         mode="action",
-        response=ReplyResponse(reply=output.reply, actions=[action]),
+        response=ReplyResponse(reply=reply, actions=[action]),
         capability="outbound_message",
     )
 

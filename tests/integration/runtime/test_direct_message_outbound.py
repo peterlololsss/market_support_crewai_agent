@@ -117,8 +117,15 @@ def _capabilities() -> AdapterCapabilities:
 
 
 class FakeDirectAdapterClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        target_count: int = 1,
+        resolved_count: int = 1,
+    ) -> None:
         self.target_requests: list[tuple[str, str]] = []
+        self.target_count = target_count
+        self.resolved_count = resolved_count
 
     async def capabilities_async(self) -> AdapterCapabilities:
         return _capabilities()
@@ -131,11 +138,15 @@ class FakeDirectAdapterClient:
         self.target_requests.append((target_kind, target_name))
         return OutboundTargetResolveResult(
             status="resolved",
-            reason_code="ok",
+            reason_code=(
+                "ok"
+                if self.resolved_count == self.target_count
+                else "partial_target"
+            ),
             display_name=target_name,
             target_kind=target_kind,
-            target_count=1,
-            resolved_count=1,
+            target_count=self.target_count,
+            resolved_count=self.resolved_count,
             resolve_ref="outbound-target:" + "b" * 64,
         )
 
@@ -160,6 +171,17 @@ class FakeDirectComposer:
         return SimpleNamespace(pydantic=self.output, raw="")
 
 
+class FakeSequentialDirectComposer:
+    def __init__(self, outputs: list[DirectComposerOutput]) -> None:
+        self.outputs = iter(outputs)
+        self.prompts: list[str] = []
+
+    async def kickoff_async(self, prompt: str, response_format):
+        assert response_format is DirectComposerOutput
+        self.prompts.append(prompt)
+        return SimpleNamespace(pydantic=next(self.outputs), raw="")
+
+
 class FakeCompanyEvidenceService:
     def __init__(self, fact: EvidenceFact) -> None:
         self.fact = fact
@@ -174,8 +196,13 @@ def _runtime(
     *,
     action_ledger: ActionLedger | None = None,
     company_fact: EvidenceFact | None = None,
+    target_count: int = 1,
+    resolved_count: int = 1,
 ) -> tuple[CrewAIReplyRuntime, FakeDirectAdapterClient]:
-    adapter_client = FakeDirectAdapterClient()
+    adapter_client = FakeDirectAdapterClient(
+        target_count=target_count,
+        resolved_count=resolved_count,
+    )
     preflight_service = SimpleNamespace(adapter_client=adapter_client)
     evidence_executor = (
         EvidenceExecutor(
@@ -268,6 +295,131 @@ def test_any_dm_sender_can_prepare_exact_xiaoyan_outbound_action():
         },
         "content": {"kind": "text", "text": "请查收本周更新"},
     }
+
+
+def test_partial_channel_target_prepares_reachable_subset_with_confirmation():
+    output = DirectComposerOutput(
+        response_mode="prepare_outbound_message",
+        reply=PrimaryReply(
+            kind="clarification",
+            text="确认向银河证券渠道发送“imalive”吗？",
+            mentions=[],
+        ),
+        target=DirectTargetDraft(kind="channel", name="银河证券"),
+        content=DirectTextDraft(kind="text", text="imalive"),
+    )
+    runtime, adapter_client = _runtime(
+        output,
+        target_count=10,
+        resolved_count=8,
+    )
+
+    response = anyio.run(
+        runtime.reply,
+        _direct_request(
+            "发群消息给银河证券说imalive",
+            context_id="dm-partial-channel",
+        ),
+    )
+
+    assert adapter_client.target_requests == [("channel", "银河证券")]
+    assert response.reply.kind == "clarification"
+    assert "8/10" in response.reply.text
+    assert response.actions[0].type == "prepare_outbound_message"
+
+
+def test_followup_resolves_pending_dm_outbound_fields_from_same_conversation(
+    monkeypatch,
+):
+    greeting_output = DirectComposerOutput(
+        response_mode="abstain",
+        reply=PrimaryReply(
+            kind="unable_to_answer",
+            text="老师您好，我是小衍，请问有什么可以帮您的？",
+            mentions=[],
+        ),
+    )
+    clarification_output = DirectComposerOutput(
+        response_mode="clarify",
+        reply=PrimaryReply(
+            kind="clarification",
+            text=(
+                "老师，您说的“发群消息给银河证券”是指发到银河证券的哪个群呢？"
+                "另外“imalive”是直接发送这段文字吗？"
+            ),
+            mentions=[],
+        ),
+    )
+    prepare_output = DirectComposerOutput(
+        response_mode="prepare_outbound_message",
+        reply=PrimaryReply(
+            kind="clarification",
+            text="确认向银河证券渠道下的所有群发送“imalive”吗？",
+            mentions=[],
+        ),
+        target=DirectTargetDraft(kind="channel", name="银河证券"),
+        content=DirectTextDraft(kind="text", text="imalive"),
+    )
+    runtime, adapter_client = _runtime(
+        greeting_output,
+        target_count=10,
+        resolved_count=1,
+    )
+    composer = FakeSequentialDirectComposer(
+        [greeting_output, clarification_output, prepare_output]
+    )
+    runtime._build_agent = (  # type: ignore[method-assign]
+        lambda stage="knowledge_composer": composer
+    )
+    monkeypatch.setattr(
+        "market_support_crewai_agent.server.main.build_reply",
+        runtime.reply,
+    )
+    client = TestClient(app)
+
+    greeting_response = client.post(
+        "/reply",
+        json=_direct_request("Hi", context_id="dm-followup-0").model_dump(
+            mode="json"
+        ),
+    )
+    clarification_response = client.post(
+        "/reply",
+        json=_direct_request(
+            "发群消息给银河证券说imalive",
+            context_id="dm-followup-1",
+        ).model_dump(mode="json"),
+    )
+    prepare_response = client.post(
+        "/reply",
+        json=_direct_request(
+            "银河证券的渠道的所有群  然后文字是的",
+            context_id="dm-followup-2",
+        ).model_dump(mode="json"),
+    )
+
+    assert greeting_response.status_code == 200
+    assert clarification_response.status_code == 200
+    assert clarification_response.json()["reply"]["kind"] == "clarification"
+    assert clarification_response.json()["actions"] == []
+    assert prepare_response.status_code == 200
+    assert "1/10" in prepare_response.json()["reply"]["text"]
+    assert "Pending clarification context JSON" in composer.prompts[2]
+    assert "do not ask the same clarification again" in composer.prompts[2]
+    assert "complete channel fan-out target" in composer.prompts[2]
+    assert adapter_client.target_requests == [("channel", "银河证券")]
+    assert prepare_response.json()["actions"] == [
+        {
+            "action_id": "act-1",
+            "type": "prepare_outbound_message",
+            "target": {
+                "kind": "channel",
+                "name": "银河证券",
+                "resolve_ref": "outbound-target:" + "b" * 64,
+            },
+            "content": {"kind": "text", "text": "imalive"},
+        }
+    ]
 
 
 def test_reply_http_surface_returns_xiaoyan_prepare_contract(monkeypatch):

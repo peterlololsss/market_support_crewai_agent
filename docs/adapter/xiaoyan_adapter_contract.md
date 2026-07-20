@@ -57,6 +57,12 @@ uses the adapter's strict shape instead of the distributor artifact shape:
 
 The result contains only `status`, `reason_code`, `display_name`,
 `target_kind`, `target_count`, `resolved_count`, and the opaque `resolve_ref`.
+For a channel target, the adapter resolves every currently reachable configured
+group. A non-empty reachable subset returns `status=resolved`, an opaque
+`resolve_ref` bound only to that subset, `target_count` for configured groups,
+and `resolved_count` for the prepared subset. The harness may show these counts
+in its confirmation, but it never asks the user to supply individual group
+names. Zero reachable groups remains unresolved.
 
 `material_pack_option` is accepted only for `resolve_type=material_pack`. Weekly and monthly report resolve requests do not accept strategy, material-pack option, or report-scope selectors; they resolve the whole current report for the channel.
 
@@ -194,6 +200,12 @@ Run live contract tests from this repo:
 cd /Users/ivan/PycharmProjects/market_support_crewai_agent
 MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:8011 uv run --extra dev python -m pytest -q tests/live/test_xiaoyan_adapter_live_contract.py
 ```
+
+To verify a real channel prepares every currently reachable group without
+supplying group names, set `MARKET_AGENT_LIVE_OUTBOUND_TARGET_NAME` to the
+channel name and run
+`tests/live/test_xiaoyan_adapter_live_contract.py::test_live_xiaoyan_adapter_resolves_reachable_channel_subset`
+with live adapter tests enabled.
 
 To test a real channel's current sendability:
 

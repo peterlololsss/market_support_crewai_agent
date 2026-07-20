@@ -186,7 +186,7 @@ class ContextProjectionManager:
         )
 
         pending = _pending_clarification_from_history(history)
-        if stage == "planner_intent" and pending is not None:
+        if stage in {"planner_intent", "direct_composer"} and pending is not None:
             blocks.append(
                 self._block(
                     "pending_clarification",

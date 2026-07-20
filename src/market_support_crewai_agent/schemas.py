@@ -211,9 +211,9 @@ class OutboundTargetResolveResult(StrictModel):
         if self.resolved_count > self.target_count:
             raise ValueError("resolved_count cannot exceed target_count")
         if self.status == "resolved" and (
-            not self.resolve_ref or self.resolved_count != self.target_count
+            not self.resolve_ref or self.resolved_count == 0
         ):
-            raise ValueError("resolved outbound target must be complete")
+            raise ValueError("resolved outbound target must include a reachable target")
         if self.status != "resolved" and self.resolve_ref:
             raise ValueError("unresolved outbound target must not include resolve_ref")
         return self

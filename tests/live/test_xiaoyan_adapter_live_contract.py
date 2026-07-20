@@ -65,7 +65,11 @@ def test_live_xiaoyan_adapter_capabilities_contract():
         "weekly_report",
         "monthly_report",
         "sales_mention",
+        "outbound_message_target",
     ]
+    assert capabilities.outbound_target_kinds == ["channel", "group"]
+    assert capabilities.outbound_messaging is not None
+    assert capabilities.outbound_messaging.ready
     assert capabilities.max_batch_requests >= 4
     assert capabilities.max_request_body_bytes > 0
     assert capabilities.cache_ttl_seconds >= 0
@@ -118,6 +122,29 @@ def test_live_xiaoyan_adapter_metrics_contract():
     assert "/Users/" not in serialized
     assert "/home/" not in serialized
     assert "portfolio_url_info.csv" not in serialized
+
+
+def test_live_xiaoyan_adapter_resolves_reachable_channel_subset():
+    target_name = os.getenv("MARKET_AGENT_LIVE_OUTBOUND_TARGET_NAME")
+    if not target_name:
+        pytest.skip(
+            "outbound target live eval requires "
+            "MARKET_AGENT_LIVE_OUTBOUND_TARGET_NAME"
+        )
+    base_url = _live_adapter_base_url()
+    api_key = os.getenv("MARKET_AGENT_LIVE_ADAPTER_API_KEY") or None
+
+    _skip_if_adapter_is_not_running(base_url, api_key)
+
+    result = _live_adapter_client(base_url, api_key).resolve_outbound_target(
+        "channel",
+        target_name,
+    )
+
+    assert result.status == "resolved"
+    assert result.display_name == target_name
+    assert result.target_count >= result.resolved_count >= 1
+    assert result.resolve_ref.startswith("outbound-target:")
 
 
 def test_live_xiaoyan_adapter_batch_contract():
