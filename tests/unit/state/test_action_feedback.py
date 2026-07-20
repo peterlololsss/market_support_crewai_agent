@@ -200,6 +200,39 @@ def test_prepare_outbound_feedback_preserves_confirmation_ref_for_next_dm_turn()
     )
 
 
+def test_prepare_outbound_feedback_route_accepts_adapter_payload():
+    payload = make_feedback()
+    payload["executions"] = [
+        {
+            "action_type": "prepare_outbound_message",
+            "status": "executed",
+            "action_id": "act-prepare",
+            "artifact": None,
+            "adapter_result": {
+                "ok": True,
+                "action": "prepare_outbound_message",
+                "confirmation_ref": "wecom-adapter-confirmation:abc123",
+                "state": "feedback_pending",
+                "expires_at": 1784529047,
+                "replayed": False,
+                "requires_feedback_ack": True,
+                "target": {
+                    "kind": "channel",
+                    "name": "银河证券",
+                    "resolve_ref": "outbound-target:" + "b" * 64,
+                    "target_count": 1,
+                },
+                "content": {"kind": "text"},
+            },
+        }
+    ]
+
+    response = client.post("/actions/feedback", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "accepted", "stored": 1}
+
+
 def test_action_feedback_rejects_raw_artifact_ref_locator():
     payload = make_feedback()
     payload["executions"][0]["artifact"]["artifact_ref"] = "https://example.invalid/weekly"
