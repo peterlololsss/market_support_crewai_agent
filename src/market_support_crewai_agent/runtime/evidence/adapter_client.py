@@ -170,6 +170,8 @@ class AdapterResolveClient:
             raise AdapterClientError(
                 f"adapter request returned HTTP {exc.code}: {detail}"
             ) from exc
+        except TimeoutError as exc:
+            raise AdapterClientError(f"adapter request timed out: {exc}") from exc
         except URLError as exc:
             raise AdapterClientError(f"adapter request failed: {exc}") from exc
 
