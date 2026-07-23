@@ -15,6 +15,18 @@ def test_doc_mcp_configuration_defaults_to_disabled(monkeypatch):
     assert settings.agent_input_max_message_chars is None
 
 
+def test_conversation_context_defaults_keep_six_recent_turns_verbatim(monkeypatch):
+    monkeypatch.delenv("AGENT_CONVERSATION_MAX_MESSAGES", raising=False)
+    monkeypatch.delenv("AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT", raising=False)
+    monkeypatch.delenv("AGENT_CONTEXT_MAX_HISTORY_MESSAGE_CHARS_INLINE", raising=False)
+
+    settings = get_settings()
+
+    assert settings.agent_conversation_max_messages == 24
+    assert settings.agent_context_recent_turns_verbatim_count == 12
+    assert settings.agent_context_max_history_message_chars_inline == 2400
+
+
 def test_input_max_message_chars_reads_environment(monkeypatch):
     monkeypatch.setenv("AGENT_INPUT_MAX_MESSAGE_CHARS", "2000")
 

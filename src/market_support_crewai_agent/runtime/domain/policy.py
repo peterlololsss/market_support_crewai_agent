@@ -20,9 +20,7 @@ from market_support_crewai_agent.schemas import (
 )
 
 _DEFAULT_REPLY_MODES: frozenset[ResponseMode] = frozenset(
-    mode
-    for mode in get_args(ResponseMode)
-    if mode != "knowledge_answer"
+    mode for mode in get_args(ResponseMode) if mode != "knowledge_answer"
 )
 
 
@@ -57,11 +55,11 @@ class PolicyManifest:
 
 
 def compile_policy(
-        request: ReplyRequest | None,
-        ledger_summary: LedgerSummary | None = None,
-        doc_mcp_enabled: bool = False,
-        doc_mcp_allowed_channel_types: tuple[ChannelType, ...] = ("bank", "non_bank"),
-        outbound_messaging_enabled: bool = False,
+    request: ReplyRequest | None,
+    ledger_summary: LedgerSummary | None = None,
+    doc_mcp_enabled: bool = False,
+    doc_mcp_allowed_channel_types: tuple[ChannelType, ...] = ("bank", "non_bank"),
+    outbound_messaging_enabled: bool = False,
 ) -> PolicyManifest:
     if request is not None and not request.is_group:
         return _compile_direct_policy(
@@ -73,7 +71,9 @@ def compile_policy(
         )
     policy_scope = request.channel_type if request is not None else "default"
     allowed_capabilities: set[CapabilityName] = {"sales_mention"}
-    allowed_capabilities.update(_artifact_capabilities(request.available_artifacts if request else ()))
+    allowed_capabilities.update(
+        _artifact_capabilities(request.available_artifacts if request else ())
+    )
 
     if _doc_mcp_allowed_for_request(
         request,
@@ -87,9 +87,7 @@ def compile_policy(
         allowed_capabilities = {
             capability_name
             for capability_name in allowed_capabilities
-            if (
-                capability := capability_by_name(capability_name)
-            ) is not None
+            if (capability := capability_by_name(capability_name)) is not None
             and (
                 capability.read_capability is None
                 or capability.read_capability in adapter_allowed
@@ -99,24 +97,21 @@ def compile_policy(
     allowed_actions = {
         capability.outbound_action_type
         for capability_name in allowed_capabilities
-        if (
-            capability := capability_by_name(capability_name)
-        ) is not None and capability.outbound_action_type is not None
+        if (capability := capability_by_name(capability_name)) is not None
+        and capability.outbound_action_type is not None
     }
 
     allowed_read_capabilities = frozenset(
         capability.read_capability
         for capability_name in allowed_capabilities
-        if (
-            capability := capability_by_name(capability_name)
-        ) is not None and capability.read_capability is not None
+        if (capability := capability_by_name(capability_name)) is not None
+        and capability.read_capability is not None
     )
     allowed_adapter_resolves = frozenset(
         capability.resolve_type
         for capability_name in allowed_capabilities
-        if (
-            capability := capability_by_name(capability_name)
-        ) is not None and capability.resolve_type is not None
+        if (capability := capability_by_name(capability_name)) is not None
+        and capability.resolve_type is not None
     )
     allowed_reply_modes = _DEFAULT_REPLY_MODES
     if "document_context" in allowed_capabilities or {
@@ -135,7 +130,9 @@ def compile_policy(
         material_pack_options=tuple(
             _ordered_unique(
                 option.strip()
-                for option in _material_pack_options(request.available_artifacts if request else ())
+                for option in _material_pack_options(
+                    request.available_artifacts if request else ()
+                )
                 if option and option.strip()
             )
         ),
@@ -186,10 +183,10 @@ def _compile_direct_policy(
         else frozenset()
     )
     allowed_modes: frozenset[ResponseMode] = frozenset(
-        {"action", "clarification", "unable"}
+        {"action", "clarification", "smalltalk", "unable"}
     )
     if company_info_enabled:
-        allowed_modes = allowed_modes | frozenset({"knowledge_answer"})
+        allowed_modes = allowed_modes | frozenset[ResponseMode]({"knowledge_answer"})
     return PolicyManifest(
         policy_id="support-reply-policy:direct",
         allowed_reply_modes=allowed_modes,
@@ -203,7 +200,7 @@ def _compile_direct_policy(
 
 
 def ledger_summary_from_action_history(
-        action_history: Sequence[ActionLedgerRecord] | None,
+    action_history: Sequence[ActionLedgerRecord] | None,
 ) -> LedgerSummary:
     executed = [
         record.execution
@@ -214,7 +211,9 @@ def ledger_summary_from_action_history(
         recent_executed_count=len(executed),
         recent_artifacts=tuple(
             artifact
-            for artifact in (_ledger_artifact_summary(execution.artifact) for execution in executed)
+            for artifact in (
+                _ledger_artifact_summary(execution.artifact) for execution in executed
+            )
             if artifact
         ),
     )
@@ -248,13 +247,19 @@ def _doc_mcp_allowed_for_request(
     return request.channel_type in allowed_channel_types
 
 
-def _artifact_capabilities(artifacts: Sequence[AvailableArtifact]) -> set[CapabilityName]:
+def _artifact_capabilities(
+    artifacts: Sequence[AvailableArtifact],
+) -> set[CapabilityName]:
     mapping: dict[str, CapabilityName] = {
         "material_pack": "material_pack",
         "weekly_report": "weekly_report",
         "monthly_report": "monthly_report",
     }
-    return {capability for artifact in artifacts if (capability := mapping.get(artifact.type))}
+    return {
+        capability
+        for artifact in artifacts
+        if (capability := mapping.get(artifact.type))
+    }
 
 
 def _material_pack_options(artifacts: Sequence[AvailableArtifact]) -> list[str]:

@@ -7,9 +7,13 @@ from market_support_crewai_agent.runtime.domain.planning import (
     ExecutionPlan,
 )
 from market_support_crewai_agent.runtime.domain.policy import PolicyManifest
+from market_support_crewai_agent.runtime.context.pending import (
+    PendingOutboundConfirmation,
+)
 from market_support_crewai_agent.runtime.evidence.models import EvidenceFact
 from market_support_crewai_agent.runtime.llm.direct_composer_output import (
     DirectComposerOutput,
+    DirectOutboundDraft,
 )
 from market_support_crewai_agent.runtime.orchestration.direct_actions import (
     DirectAdapterClient,
@@ -72,6 +76,8 @@ async def materialize_allowed_direct_output(
     evidence_facts: list[EvidenceFact],
     adapter_client: DirectAdapterClient,
     action_history: list[ActionLedgerRecord],
+    pending_outbound_draft: DirectOutboundDraft | None = None,
+    pending_confirmation: PendingOutboundConfirmation | None = None,
 ) -> DirectMaterialization:
     if output.response_mode == "answer_company_info":
         allowed_ids = {
@@ -93,11 +99,15 @@ async def materialize_allowed_direct_output(
         }
         and "outbound_message" not in policy.allowed_capabilities
     ):
-        return unable_direct_materialization("当前无法使用外发功能，请稍后再试。")
+        return unable_direct_materialization(
+            "企微适配器当前不可用，无法验证发送权限和目标，因此本次没有发送。请稍后重试。"
+        )
     return await materialize_direct_output(
         output,
         adapter_client=adapter_client,
         action_history=action_history,
+        pending_outbound_draft=pending_outbound_draft,
+        pending_confirmation=pending_confirmation,
     )
 
 
@@ -130,6 +140,8 @@ def plan_for_direct_materialization(
         artifact_kind=(
             "knowledge_answer"
             if materialization.mode == "knowledge_answer"
+            else "smalltalk"
+            if materialization.mode == "smalltalk"
             else "multi_action"
             if materialization.mode == "action"
             else "unclear"
@@ -157,7 +169,7 @@ def direct_answerability(
     allowed_ids = [
         evidence_id(fact) for fact in evidence_facts if trusted_document_context(fact)
     ]
-    can_answer = materialization.mode in {"knowledge_answer", "action"}
+    can_answer = materialization.mode in {"knowledge_answer", "smalltalk", "action"}
     return AnswerabilityAssessment(
         can_answer=can_answer,
         capability_id=materialization.capability or "direct.unavailable",

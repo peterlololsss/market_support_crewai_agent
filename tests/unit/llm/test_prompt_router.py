@@ -6,6 +6,7 @@ from market_support_crewai_agent.runtime.domain.policy import compile_policy
 from market_support_crewai_agent.runtime.llm.direct_composer_output import (
     DirectComposerOutput,
 )
+from market_support_crewai_agent.runtime.llm.composer_output import ComposerReplyOutput
 from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
 from market_support_crewai_agent.runtime.llm.prompting.context import (
     IntentGateResult,
@@ -219,3 +220,32 @@ def test_direct_message_uses_dedicated_composer_prompt_and_schema():
     assert "DM capability boundary" in program.prompt_text
     assert "prepare_outbound_message" in program.prompt_text
     assert "execute_prepared_outbound_message" in program.prompt_text
+    assert "result_replies" not in program.prompt_text
+    assert 'target={"kind":null' in program.prompt_text
+    assert "simultaneously try the same-name channel and group" in program.prompt_text
+
+
+def test_action_feedback_uses_no_action_reply_composer_contract():
+    request = make_request(
+        '{"outcome":"partial","accepted_count":1,"failed_count":1}',
+        is_group=False,
+        available_artifacts=[],
+    )
+    policy = compile_policy(request, outbound_messaging_enabled=False)
+
+    program = select_prompt_program(
+        PromptAssemblyContext(
+            stage="action_feedback_composer",
+            model_family="ds_v4pro",
+            request=request,
+            policy=policy,
+        )
+    )
+
+    assert program.profile.response_model is ComposerReplyOutput
+    assert program.fragment_ids == (
+        "base.action_feedback_composer",
+        "model.ds_v4pro.structured",
+        "output.reply_response_no_actions",
+        "style.wecom_concise_zh",
+    )

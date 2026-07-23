@@ -24,6 +24,9 @@ from market_support_crewai_agent.runtime.knowledge.approved_knowledge import (
     ApprovedKnowledgeEvidenceService,
 )
 from market_support_crewai_agent.runtime.llm.composer_output import ComposerReplyOutput
+from market_support_crewai_agent.runtime.llm.direct_composer_output import (
+    DirectOutboundDraft,
+)
 from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
 from market_support_crewai_agent.runtime.state.action_ledger import (
     ActionLedger,
@@ -90,6 +93,7 @@ class AttemptResult:
     reply_validation: ValidationResult
     guardrail_decisions: list[GuardrailDecision]
     composer_output: ComposerReplyOutput | None = None
+    pending_outbound_draft: DirectOutboundDraft | None = None
 
 
 def build_runtime_deps(

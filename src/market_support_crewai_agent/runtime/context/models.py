@@ -112,8 +112,8 @@ class ContextPressureEstimate:
 
 @dataclass(frozen=True)
 class ContextProjectionPolicy:
-    recent_turns_verbatim_count: int = 4
-    max_history_message_chars_inline: int = 1200
+    recent_turns_verbatim_count: int = 12
+    max_history_message_chars_inline: int = 2400
     max_evidence_chars_inline: int = 6000
     # Answer evidence is small today and models have room; inline it unless it
     # is truly pathological.
@@ -134,10 +134,10 @@ class ContextProjectionPolicy:
             return cls()
         return cls(
             recent_turns_verbatim_count=int(
-                getattr(settings, "agent_context_recent_turns_verbatim_count", 4)
+                getattr(settings, "agent_context_recent_turns_verbatim_count", 12)
             ),
             max_history_message_chars_inline=int(
-                getattr(settings, "agent_context_max_history_message_chars_inline", 1200)
+                getattr(settings, "agent_context_max_history_message_chars_inline", 2400)
             ),
             max_evidence_chars_inline=int(
                 getattr(settings, "agent_context_max_evidence_chars_inline", 6000)

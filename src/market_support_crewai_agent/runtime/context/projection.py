@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -19,6 +18,7 @@ from market_support_crewai_agent.runtime.context.models import (
     RuntimeAppState,
     stable_json,
 )
+from market_support_crewai_agent.runtime.context.pending import pending_user_answer
 from market_support_crewai_agent.runtime.context.payload_store import ContextPayloadStore
 from market_support_crewai_agent.runtime.context.pressure import (
     ContextPressureEstimator,
@@ -147,8 +147,14 @@ class ContextProjectionManager:
             policy=_compact_policy(policy),
             runtime_clock=_runtime_clock(self._now_factory),
             intent_gate=_model_dump(intent_gate),
-            execution_plan=_model_dump(execution_plan),
-            plan_validation=_compact_plan_validation(plan_validation),
+            execution_plan=(
+                None if stage == "direct_composer" else _model_dump(execution_plan)
+            ),
+            plan_validation=(
+                None
+                if stage == "direct_composer"
+                else _compact_plan_validation(plan_validation)
+            ),
             preflight=_compact_preflight(preflight) if preflight else None,
             business_facts=business_facts.to_prompt_dict() if business_facts else None,
             answerability_assessment=(
@@ -185,14 +191,24 @@ class ContextProjectionManager:
             )
         )
 
-        pending = _pending_clarification_from_history(history)
+        pending_answer = pending_user_answer(history)
+        pending = pending_answer.to_prompt_dict() if pending_answer is not None else None
+        if stage == "direct_composer" and pending is None:
+            pending = {
+                "status": "none",
+                "pending_outbound_draft": None,
+                "unresolved_fields": [],
+            }
         if stage in {"planner_intent", "direct_composer"} and pending is not None:
+            pending_block_type = (
+                "current_task" if stage == "direct_composer" else "context_only"
+            )
             blocks.append(
                 self._block(
                     "pending_clarification",
                     "Pending clarification context JSON",
                     pending,
-                    block_type="context_only",
+                    block_type=pending_block_type,
                     source_ids=["conversation:pending_clarification"],
                     included_reason="prior_clarification_pending_user_answer",
                 )
@@ -201,7 +217,7 @@ class ContextProjectionManager:
                 ProjectionDecision(
                     source_id="conversation:pending_clarification",
                     decision="include",
-                    block_type="context_only",
+                    block_type=pending_block_type,
                     reason="prior_clarification_pending_user_answer",
                     projected_char_count=len(stable_json(pending)),
                 )
@@ -839,47 +855,6 @@ def _summarize_history_span(
         unresolved_items=[],
         source_ids=source_ids,
     )
-
-
-def _pending_clarification_from_history(
-    history: list[ConversationMessage],
-) -> dict[str, Any] | None:
-    for index in range(len(history) - 1, -1, -1):
-        message = history[index]
-        if message.role != "assistant":
-            continue
-        payload = _assistant_runtime_history_payload(message.content)
-        reply = payload.get("reply_response", {}).get("reply", {})
-        pending_plan = payload.get("pending_plan")
-        if reply.get("kind") != "clarification" or not isinstance(pending_plan, dict):
-            continue
-        return {
-            "status": "awaiting_user_answer",
-            "assistant_question": reply.get("text", ""),
-            "pending_plan": pending_plan,
-            "user_messages_after_question": [
-                item.content for item in history[index + 1 :] if item.role == "user"
-            ],
-            "instruction": (
-                "If the current user message answers this clarification, reuse the "
-                "pending plan intent and do not ask the same clarification again. "
-                "If adapter evidence later shows unavailable content, return unable "
-                "or handoff instead of clarifying."
-            ),
-        }
-    return None
-
-
-def _assistant_runtime_history_payload(content: str) -> dict[str, Any]:
-    try:
-        payload = json.loads(content)
-    except ValueError:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    if payload.get("contract_version") != "reply-runtime-history":
-        return {}
-    return payload
 
 
 def _compact_message(message: ConversationMessage) -> dict[str, Any]:

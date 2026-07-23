@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from market_support_crewai_agent.runtime.context import projection as projection_module
@@ -106,6 +107,61 @@ def test_conversation_history_is_context_only_not_allowed_evidence():
     assert all(block.block_type != "allowed_evidence" for block in projection.blocks)
     assert any(block.block_type == "recent_verbatim" for block in projection.blocks)
     assert projection.context_only_source_ids
+
+
+def test_prepared_outbound_confirmation_remains_active_context():
+    request = make_request(message="发送", is_group=False)
+    history = [
+        ConversationMessage(
+            "assistant",
+            json.dumps(
+                {
+                    "contract_version": "reply-runtime-history",
+                    "reply_response": {
+                        "response_id": "resp-latest",
+                        "reply": {"kind": "clarification", "text": "请确认是否发送？"},
+                        "actions": [
+                            {
+                                "action_id": "act-1",
+                                "type": "prepare_outbound_message",
+                                "target": {
+                                    "kind": "channel",
+                                    "name": "银河证券",
+                                    "resolve_ref": "outbound-target:" + "b" * 64,
+                                },
+                                "content": {"kind": "text", "text": "你好"},
+                            }
+                        ],
+                    },
+                    "pending_plan": None,
+                    "pending_outbound_draft": None,
+                },
+                ensure_ascii=False,
+            ),
+            datetime.now(timezone.utc),
+        )
+    ]
+
+    projection = ContextProjectionManager().project_for_stage(
+        stage="direct_composer",
+        request=request,
+        policy=compile_policy(request, outbound_messaging_enabled=True),
+        history=history,
+    )
+
+    pending = next(
+        block.payload
+        for block in projection.blocks
+        if block.title == "Pending clarification context JSON"
+    )
+    assert pending["status"] == "awaiting_user_answer"
+    assert pending["pending_confirmation"] == {
+        "response_id": "resp-latest",
+        "action_id": "act-1",
+        "action_type": "prepare_outbound_message",
+        "target": {"kind": "channel", "name": "银河证券"},
+        "content": {"kind": "text", "text": "你好"},
+    }
 
 
 def test_large_evidence_becomes_preview_with_reload_handle():

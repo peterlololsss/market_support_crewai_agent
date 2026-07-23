@@ -136,7 +136,9 @@ def test_compile_policy_scopes_document_capability_by_channel_type():
     )
 
     assert "query_internal_company_info" in bank_policy.allowed_read_capabilities
-    assert "query_internal_company_info" not in non_bank_policy.allowed_read_capabilities
+    assert (
+        "query_internal_company_info" not in non_bank_policy.allowed_read_capabilities
+    )
     assert non_bank_policy.evidence_call_limit == 4
 
 
@@ -173,9 +175,8 @@ def test_direct_policy_only_allows_company_info_and_adapter_outbound_lifecycle()
             "execute_prepared_outbound_message",
         }
     )
-    assert policy.allowed_adapter_resolves == frozenset(
-        {"outbound_message_target"}
-    )
+    assert policy.allowed_adapter_resolves == frozenset({"outbound_message_target"})
+    assert "smalltalk" in policy.allowed_reply_modes
 
 
 def test_compile_policy_includes_adapter_safe_ledger_summary():

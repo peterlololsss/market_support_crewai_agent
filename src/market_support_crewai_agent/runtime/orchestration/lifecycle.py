@@ -188,7 +188,11 @@ async def run_reply_turn(runtime, request: ReplyRequest) -> ReplyResponse:
                 runtime.conversation_store.save_turn(
                     request.conversation_key,
                     request.message,
-                    compact_assistant_result(candidate.response, candidate.plan),
+                    compact_assistant_result(
+                        candidate.response,
+                        candidate.plan,
+                        candidate.pending_outbound_draft,
+                    ),
                 )
             return candidate.response
         finally:

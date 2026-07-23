@@ -18,7 +18,7 @@ class DirectComposerContractError(ValueError):
 
 
 class DirectTargetDraft(StrictModel):
-    kind: OutboundTargetKind
+    kind: OutboundTargetKind | None = None
     name: str = Field(min_length=1, max_length=128)
 
 
@@ -52,15 +52,30 @@ DirectContentDraft = Annotated[
 ]
 
 
+class DirectOutboundDraft(StrictModel):
+    target: DirectTargetDraft | None = None
+    content: DirectContentDraft | None = None
+
+
 class DirectComposerOutput(StrictModel):
     contract_version: Literal["direct-composer"] = "direct-composer"
     response_mode: Literal[
+        "request_company_info",
         "answer_company_info",
+        "smalltalk",
         "prepare_outbound_message",
         "execute_prepared_outbound_message",
         "clarify",
         "abstain",
     ]
+    pending_confirmation_resolution: Literal[
+        "not_applicable",
+        "confirm",
+        "correct",
+        "cancel",
+        "topic_switch",
+        "ambiguous",
+    ] = "not_applicable"
     claims: list[str] = Field(default_factory=list, max_length=20)
     evidence_ids: list[str] = Field(default_factory=list, max_length=20)
     reply: PrimaryReply
@@ -73,6 +88,12 @@ class DirectComposerOutput(StrictModel):
         if self.reply.mentions:
             raise DirectComposerContractError("direct_composer_mentions_forbidden")
         match self.response_mode:
+            case "request_company_info":
+                if self.reply.kind != "unable_to_answer" or not self.reply.text.strip():
+                    raise DirectComposerContractError(
+                        "direct_company_request_reply_required"
+                    )
+                self._validate_no_action_fields()
             case "answer_company_info":
                 if self.reply.kind != "answer" or not self.reply.text.strip():
                     raise DirectComposerContractError("direct_company_answer_required")
@@ -84,12 +105,18 @@ class DirectComposerOutput(StrictModel):
                     raise DirectComposerContractError(
                         "direct_company_outbound_forbidden"
                     )
+            case "smalltalk":
+                if self.reply.kind != "answer" or not self.reply.text.strip():
+                    raise DirectComposerContractError(
+                        "direct_smalltalk_answer_required"
+                    )
+                self._validate_no_action_fields()
             case "prepare_outbound_message":
                 if self.reply.kind != "clarification" or not self.reply.text.strip():
                     raise DirectComposerContractError(
                         "direct_prepare_confirmation_required"
                     )
-                if self.target is None or self.content is None or self.confirmation_ref:
+                if self.confirmation_ref:
                     raise DirectComposerContractError("direct_prepare_shape_invalid")
                 if self.claims or self.evidence_ids:
                     raise DirectComposerContractError(
@@ -113,7 +140,14 @@ class DirectComposerOutput(StrictModel):
             case "clarify":
                 if self.reply.kind != "clarification" or not self.reply.text.strip():
                     raise DirectComposerContractError("direct_clarification_required")
-                self._validate_no_action_fields()
+                if self.confirmation_ref:
+                    raise DirectComposerContractError(
+                        "direct_non_action_outbound_forbidden"
+                    )
+                if self.claims or self.evidence_ids:
+                    raise DirectComposerContractError(
+                        "direct_non_answer_evidence_forbidden"
+                    )
             case "abstain":
                 if self.reply.kind != "unable_to_answer" or not self.reply.text.strip():
                     raise DirectComposerContractError("direct_abstention_required")
@@ -123,7 +157,11 @@ class DirectComposerOutput(StrictModel):
         return self
 
     def _validate_no_action_fields(self) -> None:
-        if self.target is not None or self.content is not None or self.confirmation_ref:
+        if (
+            self.target is not None
+            or self.content is not None
+            or self.confirmation_ref
+        ):
             raise DirectComposerContractError("direct_non_action_outbound_forbidden")
         if self.claims or self.evidence_ids:
             raise DirectComposerContractError("direct_non_answer_evidence_forbidden")

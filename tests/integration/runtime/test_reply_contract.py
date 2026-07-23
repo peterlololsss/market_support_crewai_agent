@@ -1017,7 +1017,7 @@ def test_planner_prompt_includes_pending_clarification_context():
     assert "Pending clarification context JSON" in planner_prompts[0]
     assert '"status": "awaiting_user_answer"' in planner_prompts[0]
     assert '"ambiguity_slots": [' in planner_prompts[0]
-    assert "do not ask the same clarification again" in planner_prompts[0]
+    assert "Resolve the current message as a reply to the assistant question" in planner_prompts[0]
 
 
 def test_ambiguous_action_candidates_are_structured_for_composer():

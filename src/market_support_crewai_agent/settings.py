@@ -30,7 +30,7 @@ class Settings(BaseModel):
     planner_transient_retry_base_seconds: float = Field(default=0.5, ge=0)
     agent_input_max_message_chars: int | None = Field(default=None, gt=0)
     agent_conversation_ttl_seconds: int = Field(default=86400, gt=0)
-    agent_conversation_max_messages: int = Field(default=12, gt=0)
+    agent_conversation_max_messages: int = Field(default=24, gt=0)
     agent_conversation_max_sessions: int = Field(default=5000, gt=0)
     agent_conversation_cleanup_interval_seconds: int = Field(default=300, gt=0)
     adapter_base_url: str = "http://127.0.0.1:8011"
@@ -66,8 +66,8 @@ class Settings(BaseModel):
     feishu_app_id: str | None = None
     feishu_app_secret: str | None = None
     feishu_chat_id: str | None = None
-    agent_context_recent_turns_verbatim_count: int = Field(default=4, ge=0)
-    agent_context_max_history_message_chars_inline: int = Field(default=1200, gt=0)
+    agent_context_recent_turns_verbatim_count: int = Field(default=12, ge=0)
+    agent_context_max_history_message_chars_inline: int = Field(default=2400, gt=0)
     agent_context_max_evidence_chars_inline: int = Field(default=6000, gt=0)
     # Answer-bearing evidence (selected knowledge documents) inline budget. Keep
     # >= doc_mcp_max_chars_per_document so a selected document reaches the
@@ -131,7 +131,7 @@ def get_settings() -> Settings:
             "AGENT_CONVERSATION_TTL_SECONDS", 86400
         ),
         agent_conversation_max_messages=_int_env(
-            "AGENT_CONVERSATION_MAX_MESSAGES", 12
+            "AGENT_CONVERSATION_MAX_MESSAGES", 24
         ),
         agent_conversation_max_sessions=_int_env(
             "AGENT_CONVERSATION_MAX_SESSIONS", 5000
@@ -204,10 +204,10 @@ def get_settings() -> Settings:
         feishu_app_secret=os.getenv("MARKET_AGENT_FEISHU_APP_SECRET") or None,
         feishu_chat_id=os.getenv("MARKET_AGENT_FEISHU_CHAT_ID") or None,
         agent_context_recent_turns_verbatim_count=_non_negative_int_env(
-            "AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT", 4
+            "AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT", 12
         ),
         agent_context_max_history_message_chars_inline=_int_env(
-            "AGENT_CONTEXT_MAX_HISTORY_MESSAGE_CHARS_INLINE", 1200
+            "AGENT_CONTEXT_MAX_HISTORY_MESSAGE_CHARS_INLINE", 2400
         ),
         agent_context_max_evidence_chars_inline=_int_env(
             "AGENT_CONTEXT_MAX_EVIDENCE_CHARS_INLINE", 6000
