@@ -21,6 +21,7 @@ from market_support_crewai_agent.runtime.validation.request_input_guard import (
 )
 from market_support_crewai_agent.runtime.orchestration.runtime import (
     AgentRuntimeError,
+    build_action_feedback_reply,
     build_reply,
 )
 from market_support_crewai_agent.schemas import (
@@ -97,10 +98,19 @@ async def reply(
 @app.post(
     "/actions/feedback",
     response_model=ActionFeedbackResponse,
+    response_model_exclude_none=True,
 )
 async def action_feedback(
     request: ActionFeedbackRequest,
     _authorized: None = Depends(require_api_key),
 ) -> ActionFeedbackResponse:
     stored = get_action_ledger().record_feedback(request)
-    return ActionFeedbackResponse(status="accepted", stored=stored)
+    try:
+        feedback_reply = await build_action_feedback_reply(request)
+    except AgentRuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ActionFeedbackResponse(
+        status="accepted",
+        stored=stored,
+        reply=feedback_reply,
+    )

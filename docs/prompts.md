@@ -109,6 +109,7 @@ base.planner_intent
 base.knowledge_composer
 base.smalltalk_composer
 base.direct_composer
+base.action_feedback_composer
 base.alignment_verifier
 model.ds_v4pro.structured
 model.generic.structured

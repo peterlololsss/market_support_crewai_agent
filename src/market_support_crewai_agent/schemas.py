@@ -720,6 +720,7 @@ class ActionFeedbackRequest(StrictModel):
 class ActionFeedbackResponse(StrictModel):
     status: Literal["accepted"]
     stored: int
+    reply: PrimaryReply | None = None
 
 
 class HealthResponse(StrictModel):

@@ -177,7 +177,11 @@ conversation may return:
 
 Execute never repeats or mutates target/content. Missing target/content is a
 clarification with no action, and a confirmation ref not present in
-adapter-confirmed prepare feedback fails closed.
+adapter-confirmed prepare feedback fails closed. The adapter owns the terminal
+outcome and reports it through `/actions/feedback`. The agent then composes one
+user-visible reply from the actual sanitized result using the no-action composer
+contract. The adapter forwards that reply only after feedback succeeds. The reply
+must not claim final delivery because the SDK result means accepted, not delivered.
 
 ## Runtime preflight requirement
 
@@ -231,6 +235,12 @@ POST /actions/feedback
 ```
 
 The runtime action ledger stores adapter-confirmed executions. Repeated identical feedback payloads are idempotent. The runtime includes only recent `status=executed` adapter actions in prompts so “just sent” references are grounded by adapter-confirmed execution.
+
+For terminal `execute_prepared_outbound_message` feedback, the response also
+contains the existing `PrimaryReply` shape under `reply`. This is composed from
+the actual `complete|partial|failed` outcome and counts, and never contains
+actions or mentions. Non-execute feedback continues to return only `status` and
+`stored`.
 
 Accepted feedback action categories reflect adapter execution metadata and remain adapter-safe:
 

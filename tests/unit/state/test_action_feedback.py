@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
@@ -9,6 +10,8 @@ from market_support_crewai_agent.runtime.state.action_ledger import (
     get_action_ledger,
 )
 from market_support_crewai_agent.schemas import ActionFeedbackRequest
+from market_support_crewai_agent.schemas import PrimaryReply
+from market_support_crewai_agent.server import main as server_main
 from market_support_crewai_agent.server.main import app
 
 
@@ -231,6 +234,49 @@ def test_prepare_outbound_feedback_route_accepts_adapter_payload():
 
     assert response.status_code == 200
     assert response.json() == {"status": "accepted", "stored": 1}
+
+
+def test_execute_feedback_returns_agent_composed_primary_reply(monkeypatch):
+    payload = make_feedback()
+    payload["executions"] = [
+        {
+            "action_type": "execute_prepared_outbound_message",
+            "status": "executed",
+            "action_id": "act-execute",
+            "artifact": None,
+            "adapter_result": {
+                "ok": True,
+                "outcome": "partial",
+                "target_count": 2,
+                "attempted_count": 2,
+                "accepted_count": 1,
+                "failed_count": 1,
+                "unattempted_count": 0,
+            },
+        }
+    ]
+    compose = AsyncMock(
+        return_value=PrimaryReply(
+            kind="answer",
+            text="有一个目标已提交，另一个未成功。",
+            mentions=[],
+        )
+    )
+    monkeypatch.setattr(server_main, "build_action_feedback_reply", compose)
+
+    response = client.post("/actions/feedback", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "accepted",
+        "stored": 1,
+        "reply": {
+            "kind": "answer",
+            "text": "有一个目标已提交，另一个未成功。",
+            "mentions": [],
+        },
+    }
+    compose.assert_awaited_once()
 
 
 def test_action_feedback_rejects_raw_artifact_ref_locator():

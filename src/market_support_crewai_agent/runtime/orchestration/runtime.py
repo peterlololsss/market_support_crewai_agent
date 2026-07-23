@@ -77,7 +77,12 @@ from market_support_crewai_agent.runtime.orchestration.attempt_validation import
 from market_support_crewai_agent.runtime.orchestration.workflow import (
     build_candidate_response,
 )
-from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse
+from market_support_crewai_agent.schemas import (
+    ActionFeedbackRequest,
+    PrimaryReply,
+    ReplyRequest,
+    ReplyResponse,
+)
 from market_support_crewai_agent.settings import Settings
 from market_support_crewai_agent.runtime.turn import (
     AgentRuntimeError,
@@ -111,6 +116,26 @@ async def build_reply(
         )
     )
     return await runtime.reply(request)
+
+
+async def build_action_feedback_reply(
+    request: ActionFeedbackRequest,
+    settings: Settings | None = None,
+    conversation_store: ConversationStore | None = None,
+    action_ledger: ActionLedger | None = None,
+) -> PrimaryReply | None:
+    from market_support_crewai_agent.runtime.orchestration.action_feedback_reply import (
+        compose_action_feedback_reply,
+    )
+
+    runtime = CrewAIReplyRuntime(
+        build_runtime_deps(
+            settings=settings,
+            conversation_store=conversation_store,
+            action_ledger=action_ledger,
+        )
+    )
+    return await compose_action_feedback_reply(runtime, request)
 
 
 class CrewAIReplyRuntime:

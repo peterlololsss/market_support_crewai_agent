@@ -19,6 +19,7 @@ PromptStage = Literal[
     "knowledge_composer",
     "smalltalk_composer",
     "direct_composer",
+    "action_feedback_composer",
     "alignment_verifier",
     "document_product_selector",
     "approved_knowledge_selector",
@@ -84,6 +85,18 @@ def _direct_composer_profile(model_family: ModelFamily) -> PromptProfile:
     )
 
 
+def _action_feedback_composer_profile(model_family: ModelFamily) -> PromptProfile:
+    return PromptProfile(
+        id=f"action_feedback_composer.{model_family}",
+        stage="action_feedback_composer",
+        base_template_name="base.action_feedback_composer",
+        response_model=ComposerReplyOutput,
+        model_family=model_family,
+        temperature=0.1,
+        max_tokens=300,
+    )
+
+
 def _alignment_verifier_profile(model_family: ModelFamily) -> PromptProfile:
     return PromptProfile(
         id=f"alignment_verifier.{model_family}",
@@ -104,6 +117,7 @@ PROMPT_PROFILES: tuple[PromptProfile, ...] = tuple(
         _composer_profile(model_family),
         _smalltalk_composer_profile(model_family),
         _direct_composer_profile(model_family),
+        _action_feedback_composer_profile(model_family),
         _alignment_verifier_profile(model_family),
     )
 )
