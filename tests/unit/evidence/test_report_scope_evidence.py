@@ -1,674 +1,197 @@
 from __future__ import annotations
 
-import asyncio
+import anyio
+import pytest
 
-from market_support_crewai_agent.runtime.domain.planning import (
-    AdapterResolveSpec,
-    ComplianceDecision,
-    ExecutionPlan,
+from market_support_crewai_agent.runtime.evidence.canonical_identity import (
+    DistributionEvidenceScopeIdentityV1,
 )
-from market_support_crewai_agent.runtime.domain.policy import compile_policy
-from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
-    AdapterPreflightItem,
+from market_support_crewai_agent.runtime.evidence.canonical_values import (
+    EvidenceStringValueV1,
+    ReportScopeProductsCanonicalV1,
+)
+from market_support_crewai_agent.runtime.evidence.executor import EvidenceExecutor
+from market_support_crewai_agent.runtime.hashing import evidence_scope_ref
+from market_support_crewai_agent.runtime.identity import KernelReplyRequestV1
+from market_support_crewai_agent.runtime.integrations.adapter.preflight import (
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.runtime.evidence.report_scope import (
+from market_support_crewai_agent.runtime.integrations.adapter.report_scope import (
     ReportScopeEvidenceService,
 )
-from market_support_crewai_agent.schemas import (
-    AdapterReportScopeResult,
-    AdapterResolveResult,
-    ReplyRequest,
+from market_support_crewai_agent.schemas.type_ids import AdapterResolveType
+from tests.unit.evidence._report_scope_evidence_fixtures import (
+    FakeReportScopeClient,
+    report_inputs,
 )
 
 
-def test_report_scope_evidence_collects_summary_and_match_without_listing_products():
-    request = make_request()
-    plan = ExecutionPlan(
-        user_need="answer weekly report scope question",
-        artifact_kind="knowledge_answer",
-        response_mode="knowledge_answer",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal report question",
-        ),
-        evidence_query="A500",
-        capabilities=["weekly_report"],
-        adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
-    )
-    fake_client = FakeReportScopeClient()
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
+def test_collect_returns_typed_canonical_report_facts_with_bound_provenance() -> None:
+    # Given: a V2 product-list plan and authoritative adapter preflight metadata.
+    source = report_inputs()
+    client = FakeReportScopeClient()
+    service = ReportScopeEvidenceService(adapter_client=client)
 
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [
-                                    {"type": "weekly_report"},
-                                    {"type": "monthly_report"},
-                                ],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:test",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                            }
-                        ),
-                    )
-                ]
-            ),
+    # When: report-scope evidence is collected through the integration boundary.
+    async def collect():
+        return await service.collect(
+            source.request,
+            source.plan,
+            source.policy,
+            source.preflight,
         )
-    )
 
-    assert [call.command for call in fake_client.calls] == ["summary", "match"]
-    assert [fact.fact_type for fact in facts] == [
-        "report_scope_summary",
-        "report_scope_match",
-    ]
-    assert facts[0].metadata["full_product_list_in_prompt"] is False
-    assert facts[1].metadata["match"]["status"] == "matched"
+    facts = anyio.run(collect)
 
-
-def test_report_scope_match_not_found_does_not_list_products_or_fallback():
-    request = make_request()
-    plan = ExecutionPlan(
-        user_need="answer weekly report scope question",
-        artifact_kind="knowledge_answer",
-        response_mode="knowledge_answer",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal report question",
-        ),
-        evidence_query="A500",
-        capabilities=["weekly_report"],
-        adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
-    )
-    fake_client = FakeReportScopeClient(match_status="not_found")
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
-
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [{"type": "weekly_report"}],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:test",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                            }
-                        ),
-                    )
-                ]
-            ),
-        )
-    )
-
-    assert [call.command for call in fake_client.calls] == ["summary", "match"]
-    assert facts[1].value == "not_found"
-    assert facts[1].metadata["match"]["status"] == "not_found"
-    assert "selector_used" not in facts[1].metadata
-
-
-def test_report_period_answer_does_not_call_report_scope_endpoint():
-    request = make_request(message="这个周报是什么时间段")
-    plan = ExecutionPlan(
-        user_need="answer weekly report period question",
-        artifact_kind="knowledge_answer",
-        response_mode="knowledge_answer",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal report period question",
-        ),
-        evidence_query=None,
-        capabilities=["weekly_report"],
-        adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
-    )
-    fake_client = FakeReportScopeClient()
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
-
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [
-                                    {"type": "weekly_report"},
-                                    {"type": "monthly_report"},
-                                ],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:test",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                                "period_start": "2026-06-08",
-                                "period_end": "2026-06-12",
-                            }
-                        ),
-                    )
-                ]
-            ),
-        )
-    )
-
-    assert fake_client.calls == []
-    assert facts == []
-
-
-def test_report_scope_summary_sentinel_collects_summary_only():
-    request = make_request(message="这个周报用了哪些产品生成")
-    plan = ExecutionPlan(
-        user_need="answer weekly report scope summary question",
-        artifact_kind="knowledge_answer",
-        response_mode="knowledge_answer",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal report scope question",
-        ),
-        evidence_query="report_scope_summary",
-        capabilities=["weekly_report"],
-        adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
-    )
-    fake_client = FakeReportScopeClient()
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
-
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [
-                                    {"type": "weekly_report"},
-                                    {"type": "monthly_report"},
-                                ],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:test",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                            }
-                        ),
-                    )
-                ]
-            ),
-        )
-    )
-
-    assert [call.command for call in fake_client.calls] == ["summary"]
-    assert [fact.fact_type for fact in facts] == ["report_scope_summary"]
-
-
-def test_report_scope_products_sentinel_collects_bounded_product_page():
-    request = make_request(message="刚发的周报有哪些产品")
-    plan = ExecutionPlan(
-        user_need="answer weekly report product list question",
-        artifact_kind="knowledge_answer",
-        response_mode="knowledge_answer",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal report product list question",
-        ),
-        evidence_query="report_scope_products",
-        capabilities=["weekly_report"],
-        adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
-    )
-    fake_client = FakeReportScopeClient()
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
-
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [
-                                    {"type": "weekly_report"},
-                                    {"type": "monthly_report"},
-                                ],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:test",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                            }
-                        ),
-                    )
-                ]
-            ),
-        )
-    )
-
-    assert [call.command for call in fake_client.calls] == ["summary", "list_products"]
-    assert [fact.fact_type for fact in facts] == [
+    # Then: transport payloads become canonical facts without metadata dictionaries.
+    assert [call.command for call in client.calls] == ["summary", "list_products"]
+    assert tuple(fact.fact_type for fact in facts) == (
         "report_scope_summary",
         "report_scope_products",
-    ]
-    assert facts[1].metadata["product_total_count"] == 2
-    assert [product["product_name"] for product in facts[1].metadata["products"]] == [
-        "Product1",
-        "Product2",
-    ]
-    assert facts[1].metadata["full_product_list_in_prompt"] is True
-
-
-def test_report_scope_products_fetches_all_pages_when_bounded():
-    request = make_request(message="刚发的周报有A500指增吗")
-    plan = ExecutionPlan(
-        user_need="answer weekly report shorthand product question",
-        artifact_kind="knowledge_answer",
-        response_mode="knowledge_answer",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal report product question",
-        ),
-        evidence_query="report_scope_products",
-        capabilities=["weekly_report"],
-        adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
     )
-    names = [f"Product{i:02d}" for i in range(53)]
-    fake_client = FakeReportScopeClient(
-        product_pages={1: names[:50], 2: names[50:]},
-        product_total_count=53,
+    assert all(fact.contract_version == "canonical-evidence-fact.v1" for fact in facts)
+    assert all(
+        fact.provenance.scope_ref == evidence_scope_ref(fact.scope) for fact in facts
     )
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
+    for fact in facts:
+        assert isinstance(fact.scope, DistributionEvidenceScopeIdentityV1)
+        assert fact.scope.business_scope_ref == source.scope.business_scope_ref
+    payload = facts[1].report_payload
+    assert isinstance(payload, ReportScopeProductsCanonicalV1)
+    assert payload.products[0].product_name == "Product1"
 
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [{"type": "weekly_report"}],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:test",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                            }
-                        ),
-                    )
-                ]
-            ),
+
+def test_collect_keeps_product_paging_bounded_and_marks_partial_projection() -> None:
+    # Given: more products than the canonical 200-item projection ceiling.
+    source = report_inputs()
+    pages = {
+        page: tuple(
+            f"Product{index:03d}" for index in range((page - 1) * 50, page * 50)
         )
-    )
+        for page in range(1, 5)
+    }
+    client = FakeReportScopeClient(product_pages=pages, product_total_count=201)
+    service = ReportScopeEvidenceService(adapter_client=client)
 
-    product_fact = facts[1]
-    assert [(call.command, call.page) for call in fake_client.calls] == [
-        ("summary", None),
-        ("list_products", 1),
-        ("list_products", 2),
-    ]
-    assert product_fact.metadata["product_returned_count"] == 53
-    assert product_fact.metadata["full_product_list_in_prompt"] is True
-    assert product_fact.metadata["products"][-1]["product_name"] == "Product52"
-
-
-def test_report_scope_products_fetches_until_prompt_cap_when_list_is_too_large():
-    request = make_request(message="周报里有A500指增吗")
-    plan = ExecutionPlan(
-        user_need="answer weekly report shorthand product question",
-        artifact_kind="knowledge_answer",
-        response_mode="knowledge_answer",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal report product question",
-        ),
-        evidence_query="report_scope_products",
-        capabilities=["weekly_report"],
-        adapter_resolves=[AdapterResolveSpec(resolve_type="weekly_report")],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
-    )
-    fake_client = FakeReportScopeClient(
-        product_pages={
-            1: [f"Product{i:03d}" for i in range(50)],
-            2: [f"Product{i:03d}" for i in range(50, 100)],
-            3: [f"Product{i:03d}" for i in range(100, 150)],
-            4: [f"Product{i:03d}" for i in range(150, 200)],
-        },
-        product_total_count=201,
-    )
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
-
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [{"type": "weekly_report"}],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:test",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                            }
-                        ),
-                    )
-                ]
-            ),
+    # When: all bounded pages are collected.
+    async def collect():
+        return await service.collect(
+            source.request, source.plan, source.policy, source.preflight
         )
-    )
 
-    assert [(call.command, call.page) for call in fake_client.calls] == [
+    facts = anyio.run(collect)
+
+    # Then: only four pages are fetched and the typed payload declares incompleteness.
+    assert [(call.command, call.page) for call in client.calls] == [
         ("summary", None),
         ("list_products", 1),
         ("list_products", 2),
         ("list_products", 3),
         ("list_products", 4),
     ]
-    assert facts[1].metadata["product_returned_count"] == 200
-    assert facts[1].metadata["full_product_list_in_prompt"] is False
+    payload = facts[1].report_payload
+    assert isinstance(payload, ReportScopeProductsCanonicalV1)
+    assert payload.returned_count == 200
+    assert payload.total_count == 201
+    assert payload.full_product_list_in_projection is False
 
 
-def test_report_scope_evidence_for_mixed_action_uses_answer_capabilities_only():
-    request = make_request(message="weekly products, then send monthly")
-    plan = ExecutionPlan(
-        user_need="answer weekly products and send monthly",
-        artifact_kind="multi_action",
-        response_mode="action",
-        compliance=ComplianceDecision(
-            is_compliant=True,
-            reason_code="compliant_product_request",
-            reason="normal mixed report request",
-        ),
-        evidence_query="report_scope_products",
-        capabilities=["monthly_report", "weekly_report"],
-        answer_capabilities=["weekly_report"],
-        adapter_resolves=[
-            AdapterResolveSpec(resolve_type="monthly_report"),
-            AdapterResolveSpec(resolve_type="weekly_report"),
-        ],
-        action_intents=[],
-        ambiguity_slots=[],
-        confidence=0.9,
-    )
-    fake_client = FakeReportScopeClient()
-    service = ReportScopeEvidenceService(adapter_client=fake_client)
+def test_execute_v2_admits_report_products_into_the_matching_unit_grounding() -> None:
+    # Given: the real canonical executor with fake adapter transports.
+    source = report_inputs()
+    report_service = ReportScopeEvidenceService(adapter_client=FakeReportScopeClient())
 
-    facts = asyncio.run(
-        service.collect(
-            request,
-            plan,
-            compile_policy(request),
-            AdapterPreflightSnapshot(
-                items=[
-                    AdapterPreflightItem(
-                        resolve_type="weekly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "weekly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [
-                                    {"type": "weekly_report"},
-                                    {"type": "monthly_report"},
-                                ],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:weekly",
-                                "period": "20260612",
-                                "report_date": "2026-06-12",
-                            }
-                        ),
-                    ),
-                    AdapterPreflightItem(
-                        resolve_type="monthly_report",
-                        result=AdapterResolveResult.model_validate(
-                            {
-                                "contract_version": "adapter-resolve",
-                                "resolve_type": "monthly_report",
-                                "status": "resolved",
-                                "display_name": "TestDist",
-                                "reason_code": "ok",
-                                "available_artifacts": [
-                                    {"type": "weekly_report"},
-                                    {"type": "monthly_report"},
-                                ],
-                                "resolved_at": 1,
-                                "resolve_ref": "wecom-adapter:monthly",
-                                "period": "2026-05",
-                                "report_date": "2026-05-31",
-                            }
-                        ),
-                    ),
-                ]
-            ),
-        )
-    )
+    class Preflight:
+        async def collect(
+            self,
+            request: KernelReplyRequestV1,
+            resolve_types: list[AdapterResolveType] | None = None,
+            resolve_material_pack_options: dict[AdapterResolveType, str] | None = None,
+        ) -> AdapterPreflightSnapshot:
+            del request, resolve_types, resolve_material_pack_options
+            return source.preflight
 
-    assert [call.material_type for call in fake_client.calls] == ["weekly", "weekly"]
-    assert [fact.resolve_type for fact in facts] == ["weekly_report", "weekly_report"]
+    executor = EvidenceExecutor(Preflight(), report_scope_service=report_service)
 
-
-class FakeReportScopeClient:
-    def __init__(
-        self,
-        match_status="matched",
-        *,
-        product_pages: dict[int, list[str]] | None = None,
-        product_total_count: int | None = None,
-    ) -> None:
-        self.calls = []
-        self.match_status = match_status
-        self.product_pages = product_pages or {1: ["Product1", "Product2"]}
-        self.product_total_count = (
-            product_total_count
-            if product_total_count is not None
-            else sum(len(products) for products in self.product_pages.values())
+    # When: the V2 plan executes end to end without a legacy fact adapter.
+    async def execute():
+        return await executor.execute_v2(
+            source.request,
+            source.plan,
+            source.policy,
+            scope_authority=source.scope,
         )
 
-    async def report_scope_async(self, request):
-        self.calls.append(request)
-        if request.command == "summary":
-            return AdapterReportScopeResult.model_validate(
-                {
-                    "contract_version": "adapter-report-scope",
-                    "material_type": "weekly",
-                    "dist_name": request.dist_name,
-                    "period": request.period or "20260612",
-                    "status": "resolved",
-                    "reason_code": "ok",
-                    "report_date": "2026-06-12",
-                    "period_start": "2026-06-08",
-                    "period_end": "2026-06-12",
-                    "period_label": "2026-06-08至2026-06-12周报",
-                    "scope_complete": True,
-                    "expected_product_count": 100,
-                    "generated_product_count": 100,
-                    "missing_product_count": 0,
-                    "report_sections": [
-                        {
-                            "name": "A500",
-                            "expected_product_count": 12,
-                            "generated_product_count": 12,
-                            "missing_product_count": 0,
-                        }
-                    ],
-                }
-            )
-        if request.command == "list_products":
-            products = self.product_pages.get(request.page or 1, [])
-            return AdapterReportScopeResult.model_validate(
-                {
-                    "contract_version": "adapter-report-scope",
-                    "material_type": "weekly",
-                    "dist_name": request.dist_name,
-                    "period": request.period or "20260612",
-                    "status": "resolved",
-                    "reason_code": "ok",
-                    "report_date": "2026-06-12",
-                    "period_start": "2026-06-08",
-                    "period_end": "2026-06-12",
-                    "period_label": "2026-06-08至2026-06-12周报",
-                    "scope_complete": True,
-                    "expected_product_count": 2,
-                    "generated_product_count": 2,
-                    "missing_product_count": 0,
-                    "report_sections": [],
-                    "products": [
-                        {
-                            "product_name": product,
-                            "portfolio_type": "IndexPlus",
-                            "report_section": "IndexPlus",
-                            "source_pdf_status": "found",
-                            "final_report_status": "generated",
-                        }
-                        for product in products
-                    ],
-                    "product_page": request.page or 1,
-                    "product_page_size": 50,
-                    "product_total_count": self.product_total_count,
-                }
-            )
-        return AdapterReportScopeResult.model_validate(
-            {
-                "contract_version": "adapter-report-scope",
-                "material_type": "weekly",
-                "dist_name": request.dist_name,
-                "period": request.period or "20260612",
-                "status": "resolved",
-                "reason_code": "ok",
-                "report_date": "2026-06-12",
-                "period_start": "2026-06-08",
-                "period_end": "2026-06-12",
-                "period_label": "2026-06-08至2026-06-12周报",
-                "scope_complete": True,
-                "expected_product_count": 100,
-                "generated_product_count": 100,
-                "missing_product_count": 0,
-                "report_sections": [],
-                "match": {
-                    "status": self.match_status,
-                    "query": request.query,
-                    "match_type": "section" if self.match_status == "matched" else None,
-                    "matched_section": "A500" if self.match_status == "matched" else None,
-                    "candidate_count": 12 if self.match_status == "matched" else 0,
-                    "products": [],
-                    "product_page": 1,
-                    "product_page_size": 10,
-                },
-            }
-        )
+    result = anyio.run(execute)
 
-
-def make_request(**overrides) -> ReplyRequest:
-    payload = {
-        "conversation_key": "wecom:group-1:sender-1",
-        "group_id": "group-1",
-        "sender_id": "sender-1",
-        "context_id": "msg-1",
-        "message": "why is A500 missing from this weekly report",
-        "is_group": True,
-        "group_name": "test group",
-        "dist_channel_name": "TestDist",
-        "sender_nickname": "tester",
-        "available_artifacts": [
-            {"type": "weekly_report"},
-            {"type": "monthly_report"},
-        ],
-        "channel_type": "bank",
-        "allowed_read_capabilities": [
-            "resolve_weekly_report",
-            "resolve_monthly_report",
-            "resolve_sales_mention",
-        ],
+    # Then: the report product fact is the only evidence admitted by that manifest.
+    grounding = result.groundings[0]
+    assert {fact.fact_type for fact in result.canonical_facts} == {
+        "weekly_report_resolvable",
+        "report_scope_summary",
+        "report_scope_products",
     }
-    payload.update(overrides)
-    return ReplyRequest.model_validate(payload)
+    assert tuple(fact.fact_type for fact in grounding.allowed_evidence) == (
+        "report_scope_products",
+    )
+    assert grounding.business_facts.evidence_fact_count == 1
+    assert grounding.business_facts.user_permission == "allowed"
+
+
+@pytest.mark.parametrize(
+    ("response_overrides", "reason_code"),
+    [
+        (
+            {"material_type": "monthly"},
+            "adapter_report_scope_material_type_mismatch",
+        ),
+        ({"dist_name": "OtherDist"}, "adapter_report_scope_distribution_mismatch"),
+        ({"period": "19990101"}, "adapter_report_scope_period_mismatch"),
+    ],
+    ids=["wrong-material-type", "wrong-distribution", "wrong-period"],
+)
+def test_execute_v2_rejects_report_scope_response_outside_issued_target(
+    response_overrides: dict[str, str],
+    reason_code: str,
+) -> None:
+    # Given: a valid weekly report plan and a parsed adapter response for another scope.
+    source = report_inputs()
+    report_service = ReportScopeEvidenceService(
+        adapter_client=FakeReportScopeClient(response_overrides=response_overrides)
+    )
+
+    class Preflight:
+        async def collect(
+            self,
+            request: KernelReplyRequestV1,
+            resolve_types: list[AdapterResolveType] | None = None,
+            resolve_material_pack_options: dict[AdapterResolveType, str] | None = None,
+        ) -> AdapterPreflightSnapshot:
+            del request, resolve_types, resolve_material_pack_options
+            return source.preflight
+
+    executor = EvidenceExecutor(Preflight(), report_scope_service=report_service)
+
+    # When: the response crosses the real report fact and evidence-admission seam.
+    async def execute():
+        return await executor.execute_v2(
+            source.request,
+            source.plan,
+            source.policy,
+            scope_authority=source.scope,
+        )
+
+    result = anyio.run(execute)
+
+    # Then: the mismatch is typed unavailable and cannot enter unit grounding.
+    unavailable = next(
+        fact
+        for fact in result.canonical_facts
+        if fact.fact_type == "report_scope_unavailable"
+    )
+    assert isinstance(unavailable.value, EvidenceStringValueV1)
+    assert unavailable.value.value == reason_code
+    assert "report_scope_products" not in {
+        fact.fact_type for fact in result.canonical_facts
+    }
+    assert result.groundings[0].allowed_evidence == ()

@@ -1,0 +1,47 @@
+{
+  "contract_version": "real-llm-invocations.v1",
+  "invocations": [
+    {
+      "stage_kind": "planner_intent",
+      "path": "src/market_support_crewai_agent/runtime/planning/planner_llm.py",
+      "symbol": "run_planner_kickoff_with_retry",
+      "owner_todo": 14
+    },
+    {
+      "stage_kind": "knowledge_composer",
+      "path": "src/market_support_crewai_agent/runtime/rendering/composer.py",
+      "symbol": "run_composer_kickoff_with_retry",
+      "owner_todo": 14
+    },
+    {
+      "stage_kind": "smalltalk_composer",
+      "path": "src/market_support_crewai_agent/runtime/rendering/composer.py",
+      "symbol": "run_composer_kickoff_with_retry",
+      "owner_todo": 14
+    },
+    {
+      "stage_kind": "alignment_verifier",
+      "path": "src/market_support_crewai_agent/runtime/validation/alignment.py",
+      "symbol": "verify_reply_alignment",
+      "owner_todo": 14
+    },
+    {
+      "stage_kind": "document_product_selector",
+      "path": "src/market_support_crewai_agent/runtime/integrations/document_mcp/client.py",
+      "symbol": "_select_products_with_llm",
+      "owner_todo": 14
+    },
+    {
+      "stage_kind": "approved_knowledge_selector",
+      "path": "src/market_support_crewai_agent/runtime/recall/approved_static_knowledge.py",
+      "symbol": "_select_with_llm",
+      "owner_todo": 14
+    },
+    {
+      "stage_kind": "llm_health_probe",
+      "path": "src/market_support_crewai_agent/health/llm_health.py",
+      "symbol": "_probe_llm",
+      "owner_todo": 14
+    }
+  ]
+}

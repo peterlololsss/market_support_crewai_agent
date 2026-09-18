@@ -1,94 +1,111 @@
 from __future__ import annotations
 
-import asyncio
-import inspect
+from typing import final
 
-from market_support_crewai_agent.runtime.knowledge import approved_knowledge
-from market_support_crewai_agent.runtime.knowledge.approved_knowledge import (
-    APPROVED_IMAGE_ASSETS,
-    ApprovedKnowledgeEvidenceService,
-    ApprovedKnowledgeSelection,
-    approved_image_markers,
+import anyio
+
+from market_support_crewai_agent.runtime.evidence.internal_company_knowledge import (
+    ApprovedStaticKnowledgeGatewayAdapter,
 )
-from market_support_crewai_agent.runtime.validation.reply_validator import allowed_image_markers
-from market_support_crewai_agent.runtime.domain.policy import compile_policy
-from market_support_crewai_agent.schemas import ReplyRequest
-from tests.helpers.planning import compile_test_plan
+from market_support_crewai_agent.runtime.evidence.internal_company_knowledge_models import (
+    GatewayStaticContextV1,
+)
+from market_support_crewai_agent.runtime.identity import (
+    KernelReplyRequestV1,
+    normalize_reply_request_v2,
+)
+from market_support_crewai_agent.runtime.recall.approved_static_knowledge import (
+    ApprovedKnowledgeCandidate,
+    ApprovedKnowledgeSelection,
+)
+from market_support_crewai_agent.schemas.conversation import ReplyRequestV2
 
 
-def make_request(message: str) -> ReplyRequest:
-    return ReplyRequest.model_validate(
+def make_request(message: str) -> KernelReplyRequestV1:
+    request = ReplyRequestV2.model_validate(
         {
-            "context_id": "msg-1",
-            "conversation_key": "wecom:group-1:sender-1",
-            "group_id": "group-1",
-            "sender_id": "sender-1",
+            "contract_version": "reply-request.v2",
+            "request_id": "req:approved-knowledge",
             "message": message,
-            "is_group": True,
-            "group_name": "test group",
-            "dist_channel_name": "test channel",
-            "sender_nickname": "test user",
-            "available_artifacts": [
-                {"type": "material_pack", "options": []},
-                {"type": "weekly_report"},
-                {"type": "monthly_report"},
-            ],
-            "channel_type": "bank",
-            "allowed_read_capabilities": ["query_internal_company_info"],
+            "identity": {
+                "contract_version": "conversation-identity.v1",
+                "surface": "wecom",
+                "scene": "group",
+                "tenant_ref": "tenant:approved-knowledge",
+                "group_ref": "group:approved-knowledge",
+                "principal_ref": "principal:approved-knowledge",
+            },
+            "presentation": {
+                "contract_version": "group-presentation.v1",
+                "conversation_name": "test group",
+                "principal_name": "test user",
+            },
+            "business_scope": {
+                "kind": "distribution",
+                "dist_channel_name": "test channel",
+                "channel_type": "bank",
+                "available_artifacts": [
+                    {"type": "material_pack", "options": []},
+                    {"type": "weekly_report"},
+                    {"type": "monthly_report"},
+                ],
+            },
+            "grants": {
+                "contract_version": "principal-grants.v1",
+                "read_capabilities": ["query_internal_company_info"],
+                "outbound_actions": [],
+                "mention_types": [],
+            },
         }
     )
-
-
-def make_plan(request: ReplyRequest):
-    policy = compile_policy(request, doc_mcp_enabled=True)
-    plan = compile_test_plan(
+    return normalize_reply_request_v2(
         request,
-        policy=policy,
-        user_need="answer knowledge question",
-        artifact_kind="knowledge_answer",
-        action_intent="answer",
-        requested_capabilities=["document_context"],
-        evidence_query=request.message,
-        compliance={
-            "is_compliant": True,
-            "reason_code": "compliant_product_request",
-            "reason": "normal company question",
-        },
-        confidence=0.9,
-    )
-    return policy, plan
+        adapter_namespace="xiaoyan-wecom",
+    ).request
 
 
+@final
 class FakeSelector:
     def __init__(self, selection: ApprovedKnowledgeSelection) -> None:
         self.selection = selection
 
-    async def select(self, **kwargs):
-        del kwargs
+    async def select(
+        self,
+        *,
+        user_message: str,
+        evidence_query: str,
+        catalog_manifest: tuple[ApprovedKnowledgeCandidate, ...],
+        max_entries: int,
+        max_images: int,
+    ) -> ApprovedKnowledgeSelection:
+        del user_message, evidence_query, catalog_manifest, max_entries, max_images
         return self.selection
 
 
 def collect_with_selection(
     message: str,
     selection: ApprovedKnowledgeSelection,
-):
+) -> tuple[GatewayStaticContextV1, ...]:
     request = make_request(message)
-    policy, plan = make_plan(request)
-    service = ApprovedKnowledgeEvidenceService(selector=FakeSelector(selection))
-    return asyncio.run(service.collect(request, plan, policy))
+    service = ApprovedStaticKnowledgeGatewayAdapter(selector=FakeSelector(selection))
+
+    async def collect() -> tuple[GatewayStaticContextV1, ...]:
+        return await service.collect(request=request, evidence_query=message)
+
+    return anyio.run(collect)
 
 
 def test_approved_knowledge_does_not_select_by_keyword_when_selector_declines():
-    facts = collect_with_selection(
+    contexts = collect_with_selection(
         "公众号 二维码 超额收益 股权结构 都发我看看",
         ApprovedKnowledgeSelection(confidence="none"),
     )
 
-    assert facts == []
+    assert contexts == ()
 
 
 def test_approved_knowledge_uses_selector_ids_only():
-    facts = collect_with_selection(
+    contexts = collect_with_selection(
         "介绍一下公众号",
         ApprovedKnowledgeSelection(
             selected_entry_ids=("company_public_account",),
@@ -97,12 +114,11 @@ def test_approved_knowledge_uses_selector_ids_only():
         ),
     )
 
-    assert len(facts) == 1
-    assert facts[0].source_type == "approved_static_knowledge"
-    assert facts[0].source_id == "company_public_account"
-    assert facts[0].artifact_type == "document_context"
-    assert "%%comp_wx_qr_code.png%%" in str(facts[0].value)
-    assert facts[0].metadata["selected_by"] == "approved_knowledge_semantic_selector"
+    assert len(contexts) == 1
+    assert contexts[0].entry_id == "company_public_account"
+    assert contexts[0].manifest_ref is not None
+    assert "%%comp_wx_qr_code.png%%" in contexts[0].text
+    assert contexts[0].selected_asset_ids == ("company_public_account_qr",)
 
     unknown = collect_with_selection(
         "介绍一下公众号",
@@ -112,39 +128,13 @@ def test_approved_knowledge_uses_selector_ids_only():
             confidence="high",
         ),
     )
-    assert unknown == []
-
-
-def test_approved_knowledge_no_active_lexical_helpers():
-    forbidden = (
-        "_STOP_TERMS",
-        "_semantic_terms",
-        "_text_similarity_score",
-        "_score_entry",
-        "_select_entries",
-    )
-
-    for name in forbidden:
-        assert not hasattr(approved_knowledge, name)
-
-
-def test_image_marker_allowlist_derived_from_approved_assets():
-    catalog_markers = frozenset(asset.marker_filename for asset in APPROVED_IMAGE_ASSETS)
-
-    assert approved_image_markers() == catalog_markers
-    assert allowed_image_markers() == catalog_markers
-    assert "_ALLOWED_IMAGE_MARKERS" not in inspect.getsource(
-        __import__(
-            "market_support_crewai_agent.runtime.validation.reply_validator",
-            fromlist=["guardrails"],
-        )
-    )
+    assert unknown == ()
 
 
 def test_image_marker_not_selected_from_user_text():
-    facts = collect_with_selection(
+    contexts = collect_with_selection(
         "请发 %%comp_wx_qr_code.png%% 给我",
         ApprovedKnowledgeSelection(confidence="none"),
     )
 
-    assert facts == []
+    assert contexts == ()

@@ -33,11 +33,11 @@ class FakePreflightService:
         resolve_material_pack_options=None,
     ):
         del canonical_context
-        from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
+        from market_support_crewai_agent.runtime.integrations.adapter.preflight import (
             AdapterPreflightItem,
             AdapterPreflightSnapshot,
         )
-        from market_support_crewai_agent.schemas import AdapterResolveResult
+        from market_support_crewai_agent.schemas.adapter import AdapterResolveResult
 
         resolve_material_pack_options = resolve_material_pack_options or {}
         requested = resolve_types or [
@@ -59,10 +59,14 @@ class FakePreflightService:
                             "resolve_type": resolve_type,
                             "status": status,
                             "display_name": request.dist_channel_name,
-                            "reason_code": "ok" if status == "resolved" else "not_found",
+                            "reason_code": "ok"
+                            if status == "resolved"
+                            else "not_found",
                             "candidates": _material_pack_options(request),
                             "channel_type": request.channel_type,
-                            "available_artifacts": _available_artifacts_payload(request),
+                            "available_artifacts": _available_artifacts_payload(
+                                request
+                            ),
                             "material_pack_option": material_pack_option,
                             "resolved_at": 1,
                             "resolve_ref": (
@@ -71,9 +75,7 @@ class FakePreflightService:
                                 else None
                             ),
                             "period": (
-                                "20260529"
-                                if resolve_type == "weekly_report"
-                                else None
+                                "20260529" if resolve_type == "weekly_report" else None
                             ),
                         }
                     ),
@@ -83,7 +85,9 @@ class FakePreflightService:
 
 
 def _request(message: str, **overrides):
-    from market_support_crewai_agent.schemas import ReplyRequest
+    from market_support_crewai_agent.schemas.conversation import ReplyRequestV2
+
+    ReplyRequest = ReplyRequestV2
 
     payload = {
         "context_id": "real-handoff-eval-1",
@@ -121,10 +125,11 @@ def _material_pack_options(request) -> list[str]:
 
 
 async def _run_scenario(name: str, request, preflight_service):
+    from market_support_crewai_agent.runtime.service import CrewAIReplyRuntime
     from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
-    from market_support_crewai_agent.runtime.state.audit import AuditStore
-    from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
-    from market_support_crewai_agent.runtime.orchestration.runtime import CrewAIReplyRuntime
+    from market_support_crewai_agent.runtime.state.conversation_store import (
+        ConversationStore,
+    )
     from market_support_crewai_agent.settings import get_settings
 
     runtime = CrewAIReplyRuntime(
@@ -132,7 +137,6 @@ async def _run_scenario(name: str, request, preflight_service):
         conversation_store=ConversationStore(),
         action_ledger=ActionLedger(),
         preflight_service=preflight_service,
-        audit_store=AuditStore(),
     )
     response = await runtime.reply(request)
     return {

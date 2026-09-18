@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from market_support_crewai_agent.schemas import ReplyRequest
-from market_support_crewai_agent.settings import Settings
+from market_support_crewai_agent.runtime.identity import KernelReplyRequestV1
+from market_support_crewai_agent.settings_model import Settings
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ class InputGuardrailError(ValueError):
 
 
 def validate_reply_request_input(
-    request: ReplyRequest,
+    request: KernelReplyRequestV1,
     settings: Settings,
 ) -> None:
     """Apply request-level guardrails before policy, evidence, or CrewAI calls."""

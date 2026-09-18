@@ -1,0 +1,11 @@
+{
+  "contract_version": "legacy-group-handoff-no-sales.v1",
+  "reply": {
+    "kind": "unable_to_answer",
+    "text": "这个问题需要老师您向群内请销售/支持同事确认哦。",
+    "mentions": [],
+    "media": []
+  },
+  "actions": [],
+  "reason_code": "t0_human_support_required"
+}

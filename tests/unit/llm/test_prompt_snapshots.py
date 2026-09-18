@@ -1,148 +1,169 @@
 from __future__ import annotations
 
-import os
-from dataclasses import replace
 from pathlib import Path
+from typing import TypedDict
 
-from market_support_crewai_agent.runtime.domain.policy import compile_policy
-from market_support_crewai_agent.runtime.llm.prompting.assembler import (
-    assembleGuardrailPrompt,
-)
-from market_support_crewai_agent.runtime.llm.prompting.context import PromptAssemblyContext
-from market_support_crewai_agent.runtime.llm.prompting.profiles import PromptStage
-from market_support_crewai_agent.runtime.llm.prompting.router import (
-    route_intent,
-    select_prompt_program,
-)
-from market_support_crewai_agent.runtime.validation.answerability import (
-    AnswerabilityAssessment,
-    DisallowedEvidence,
-)
-from market_support_crewai_agent.schemas import (
-    PrimaryReply,
-    ReplyRequest,
-    ReplyResponse,
-    SendWeeklyReportAction,
-)
+from pydantic import TypeAdapter
 
-SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "snapshots" / "prompts"
+from market_support_crewai_agent.runtime.evidence.scope_authority import (
+    business_scope_authority_v1,
+)
+from market_support_crewai_agent.runtime.context.stage_inputs import (
+    AlignmentVerifierPromptInputV1,
+    KnowledgeComposerPromptInputV1,
+    PlannerPromptInputV1,
+    SmalltalkComposerPromptInputV1,
+    build_alignment_verifier_prompt_input_v1,
+    build_knowledge_composer_prompt_input_v1,
+    build_planner_prompt_input_v1,
+    build_smalltalk_composer_prompt_input_v1,
+)
+from market_support_crewai_agent.runtime.planning.plan_spec import PlanSpec
+from market_support_crewai_agent.runtime.policy.manifest import (
+    compile_policy_authority_core_v1,
+)
+from market_support_crewai_agent.runtime.prompts.registry import PROMPT_REGISTRY
+from market_support_crewai_agent.runtime.prompts.router import (
+    select_stage_input_prompt_program,
+)
+from market_support_crewai_agent.runtime.rendering.composer_output import (
+    ComposerReplyOutput,
+)
+from market_support_crewai_agent.runtime.validation.guardrail_common import (
+    image_marker_filenames,
+)
+from market_support_crewai_agent.runtime.validation.locator_safety import (
+    LocatorSafetyClassifierV1,
+)
+from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
+    ReplyAlignmentVerdict,
+)
+from tests.helpers.reply_contract_requests import make_v2_envelope
+from tests.unit.llm._stage_input_fixtures import stage_sources
 
 
-def make_request(message: str = "发一下中证1000材料", **overrides) -> ReplyRequest:
-    payload = {
-        "context_id": "msg-1",
-        "conversation_key": "wecom:group-1:sender-1",
-        "group_id": "group-1",
-        "sender_id": "sender-1",
-        "message": message,
-        "is_group": True,
-        "group_name": "test group",
-        "dist_channel_name": "test channel",
-        "sender_nickname": "test user",
-        "available_artifacts": [
-            {"type": "material_pack", "options": ["中证1000"]},
-            {"type": "weekly_report"},
-            {"type": "monthly_report"},
-        ],
-        "channel_type": "bank",
+ROOT = Path(__file__).resolve().parents[3]
+
+
+class _LlmInvocationV1(TypedDict):
+    stage_kind: str
+
+
+class _LlmInvocationInventoryV1(TypedDict):
+    invocations: list[_LlmInvocationV1]
+
+
+def make_stage_inputs(
+    message: str = "send the requested material",
+) -> tuple[
+    PlannerPromptInputV1,
+    KnowledgeComposerPromptInputV1,
+    SmalltalkComposerPromptInputV1,
+    AlignmentVerifierPromptInputV1,
+]:
+    planner, knowledge, smalltalk, verifier = stage_sources(message)
+    return (
+        build_planner_prompt_input_v1(planner),
+        build_knowledge_composer_prompt_input_v1(knowledge),
+        build_smalltalk_composer_prompt_input_v1(smalltalk),
+        build_alignment_verifier_prompt_input_v1(verifier),
+    )
+
+
+def test_planner_prompt_snapshot() -> None:
+    # Given: a group planner registration and its immutable static budget.
+    planner, _, _, _ = make_stage_inputs()
+    program = select_stage_input_prompt_program(planner, "ds_v4pro")
+
+    # When/Then: structural registration replaces rendered-prose snapshots.
+    assert program.program_id == "planner_intent.wecom_group.v1@1"
+    assert program.scene_contract_id == "scene.wecom_group.planner_intent.v1"
+    assert program.profile.response_model is PlanSpec
+    assert program.layers == ("stable", "domain", "runtime", "task")
+    assert program.static_bytes == program.baseline_bytes
+    assert program.static_bytes <= program.allowed_max_bytes
+
+
+def test_knowledge_composer_prompt_snapshot() -> None:
+    # Given: the registered group knowledge-composer program.
+    _, knowledge, _, _ = make_stage_inputs()
+    program = select_stage_input_prompt_program(knowledge, "ds_v4pro")
+
+    # When/Then: one scene contract and the typed output schema are bound.
+    assert program.program_id == "knowledge_composer.wecom_group.v1@1"
+    assert program.profile.response_model is ComposerReplyOutput
+    assert tuple(
+        fragment_id
+        for fragment_id in program.fragment_ids
+        if fragment_id.startswith("scene.")
+    ) == ("scene.wecom_group.knowledge_composer.v1",)
+    assert program.static_bytes == program.baseline_bytes
+
+
+def test_prompt_rules_route_company_intro_and_allow_public_urls() -> None:
+    # Given: direct internal-knowledge authority and the locator safety boundary.
+    request = make_v2_envelope(
+        message="介绍下你们公司",
+        identity={
+            "contract_version": "conversation-identity.v1",
+            "surface": "wecom",
+            "scene": "direct",
+            "tenant_ref": "tenant:test",
+            "direct_thread_ref": "direct:thread-1",
+            "principal_ref": "principal:sender-1",
+        },
+        presentation={
+            "contract_version": "direct-presentation.v1",
+            "principal_name": "test user",
+        },
+        business_scope={"kind": "unscoped"},
+        grants={
+            "contract_version": "principal-grants.v1",
+            "read_capabilities": ["query_internal_company_info"],
+            "outbound_actions": [],
+            "mention_types": [],
+        },
+    ).request
+    policy = compile_policy_authority_core_v1(
+        request,
+        business_scope_authority_v1(request.business_scope),
+    )
+    locator = LocatorSafetyClassifierV1(internal_origins=frozenset(), secrets=())
+
+    # When/Then: company knowledge remains eligible and public evidence URLs survive.
+    assert "answer_internal_company_knowledge" in {
+        ref.manifest_id for ref in policy.eligible_capabilities
     }
-    payload.update(overrides)
-    return ReplyRequest.model_validate(payload)
+    assert locator.public_url("https://example.com/public/company") == (
+        "https://example.com/public/company"
+    )
+    assert locator.public_url("http://127.0.0.1/internal") is None
 
 
-def make_context(
-    message: str = "发一下中证1000材料",
-    *,
-    stage: PromptStage = "planner_intent",
-) -> PromptAssemblyContext:
-    request = make_request(message)
-    policy = compile_policy(request, doc_mcp_enabled=True)
-    return PromptAssemblyContext(
-        stage=stage,
-        model_family="ds_v4pro",
-        request=request,
-        policy=policy,
-        intent_gate=route_intent(request, policy),
+def test_alignment_verifier_prompt_snapshot() -> None:
+    # Given: the registered group alignment-verifier program.
+    _, _, _, verifier = make_stage_inputs()
+    program = select_stage_input_prompt_program(verifier, "ds_v4pro")
+
+    # When/Then: verifier schema, scene contract, and sealed budget are structural.
+    assert program.program_id == "alignment_verifier.wecom_group.v1@1"
+    assert program.profile.response_model is ReplyAlignmentVerdict
+    assert program.scene_contract_id == "scene.wecom_group.alignment_verifier.v1"
+    assert program.static_bytes == program.baseline_bytes
+
+
+def test_guardrail_prompt_snapshot() -> None:
+    # Given: deterministic marker parsing and the real invocation inventory.
+    inventory = TypeAdapter(_LlmInvocationInventoryV1).validate_json(
+        (ROOT / "tests/fixtures/real_llm_invocations.v1.json").read_bytes()
     )
 
-
-def test_planner_prompt_snapshot():
-    program = select_prompt_program(make_context())
-
-    assert_snapshot("planner_intent_ds_v4pro.txt", program.prompt_text)
-
-
-def test_knowledge_composer_prompt_snapshot():
-    ctx = make_context(stage="knowledge_composer")
-    assessment = AnswerabilityAssessment(
-        can_answer=False,
-        capability_id="channel.strategy_summary",
-        required_artifacts=["document_context"],
-        missing_artifacts=["document_context"],
-        required_runtime_inputs=["request.dist_channel_name"],
-        disallowed_evidence_ids=[
-            DisallowedEvidence(
-                evidence_id="adapter_report_scope:weekly_report:report_scope_products",
-                reason="source_type_not_allowed",
-            )
-        ],
-        ambiguity="unknown_artifact",
-        recommended_response_mode="abstain",
-        user_facing_reason="document evidence missing",
-    )
-    program = select_prompt_program(
-        replace(ctx, answerability_assessment=assessment)
-    )
-
-    assert_snapshot("knowledge_composer_boundary.txt", program.prompt_text)
-
-
-def test_prompt_rules_route_company_intro_and_allow_public_urls():
-    planner_program = select_prompt_program(make_context("介绍下你们公司"))
-    composer_program = select_prompt_program(make_context(stage="knowledge_composer"))
-
-    assert "介绍你们公司" in planner_program.prompt_text
-    assert "company introduction" in planner_program.prompt_text
-    assert "runtime_clock.relative_years" in planner_program.prompt_text
-    assert "runtime_clock.relative_years" in composer_program.prompt_text
-    assert "Public http(s) URLs from allowed evidence may be preserved" in composer_program.prompt_text
-    assert "Do not output raw URLs" not in composer_program.prompt_text
-
-
-def test_alignment_verifier_prompt_snapshot():
-    candidate = ReplyResponse(
-        response_id="resp-1",
-        reply=PrimaryReply(kind="answer", text=""),
-        actions=[
-            SendWeeklyReportAction(
-                type="send_weekly_report",
-                action_id="act-1",
-                resolve_type="weekly_report",
-                resolve_ref="weekly:resolve-ref",
-                period="20260529",
-                report_date="2026-05-29",
-            )
-        ],
-    )
-    ctx = make_context(stage="alignment_verifier")
-    program = select_prompt_program(replace(ctx, candidate_response=candidate))
-
-    assert_snapshot("alignment_verifier.txt", program.prompt_text)
-
-
-def test_guardrail_prompt_snapshot():
-    guardrail_prompt = assembleGuardrailPrompt(
-        "guardrail.image_alignment_verifier",
-        stage="image_alignment_verifier",
-        verifier_input_json='{"reply_image_filenames":["company_shareholders.png"]}',
-    )
-
-    assert_snapshot("guardrail_image_alignment_verifier.txt", guardrail_prompt)
-
-
-def assert_snapshot(name: str, actual: str) -> None:
-    path = SNAPSHOT_DIR / name
-    if os.getenv("UPDATE_PROMPT_SNAPSHOTS") == "1":
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(actual, encoding="utf-8")
-    assert actual == path.read_text(encoding="utf-8")
+    # When/Then: marker validation remains local and no image LLM program exists.
+    assert image_marker_filenames("资料：%%company_shareholders.png%%") == [
+        "company_shareholders.png"
+    ]
+    assert "guardrail.image_alignment_verifier" not in PROMPT_REGISTRY.prompt_ids()
+    assert "agent.image_alignment_verifier" not in PROMPT_REGISTRY.agent_spec_ids()
+    assert "image_alignment_verifier" not in {
+        row["stage_kind"] for row in inventory["invocations"]
+    }

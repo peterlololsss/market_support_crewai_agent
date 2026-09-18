@@ -1,0 +1,20 @@
+{
+  "contract_version": "baseline-preserved-prompt-assets.v1",
+  "assets": [
+    {
+      "path": "src/market_support_crewai_agent/runtime/prompts/fragments/guardrail/image_alignment_verifier.md",
+      "sha256": "55bbd8f89eaefb5b42630981f0820af21c63e217fafe6cd591eae42b731c46ee",
+      "status": "baseline_preserved_dead_asset"
+    },
+    {
+      "path": "tests/snapshots/prompts/guardrail_image_alignment_verifier.txt",
+      "sha256": "6d68acc041d706fdd02b2201372ead6c5170c7e1d28782a2c4120bd8e4aa8143",
+      "status": "baseline_preserved_dead_asset"
+    },
+    {
+      "path": "tests/snapshots/prompts/planner_intent_ds_v4pro.txt",
+      "sha256": "3459fb54d878cddd37a5fde258d50d634e64c7ee742369be72f856e9ae4c0886",
+      "status": "baseline_preserved_dead_asset"
+    }
+  ]
+}

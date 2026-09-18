@@ -1,29 +1,33 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import RLock
-from typing import Callable
 
-from market_support_crewai_agent.schemas import (
-    ActionExecutionFeedback,
-    ActionFeedbackRequest,
+from market_support_crewai_agent.runtime.identity import (
+    ConversationStateKey,
+    state_key_ref,
 )
-
+from market_support_crewai_agent.schemas.feedback import (
+    ActionExecutionFeedbackV2,
+    ActionFeedbackRequestV2,
+)
 
 DEFAULT_ACTION_LEDGER_TTL_SECONDS = 86400
 
 
 @dataclass(frozen=True)
 class ActionLedgerRecord:
-    conversation_key: str
+    state_key: ConversationStateKey
+    state_key_ref: str
     group_id: str
     sender_id: str
     context_id: str | None
     response_id: str | None
-    execution: ActionExecutionFeedback
+    execution: ActionExecutionFeedbackV2
     received_at: datetime
-    dedupe_key: tuple
+    dedupe_key: tuple[str, ...]
 
 
 class ActionLedger:
@@ -44,23 +48,32 @@ class ActionLedger:
             raise ValueError("max_records must be greater than zero")
         if ttl_seconds is not None and ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be greater than zero")
-        self._max_records = max_records
-        self._ttl = None if ttl_seconds is None else timedelta(seconds=ttl_seconds)
-        self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
+        self._max_records: int = max_records
+        self._ttl: timedelta | None = (
+            None if ttl_seconds is None else timedelta(seconds=ttl_seconds)
+        )
+        self._now_factory: Callable[[], datetime] = now_factory or (
+            lambda: datetime.now(UTC)
+        )
         self._records: list[ActionLedgerRecord] = []
-        self._keys: set[tuple] = set()
-        self._lock = RLock()
+        self._keys: set[tuple[str, ...]] = set()
+        self._lock: RLock = RLock()
 
-    def record_feedback(self, feedback: ActionFeedbackRequest) -> int:
+    def record_feedback(
+        self,
+        feedback: ActionFeedbackRequestV2,
+        state_key: ConversationStateKey,
+    ) -> int:
         now = self._now()
-        candidates = []
+        candidates: list[tuple[tuple[str, ...], ActionLedgerRecord]] = []
         for index, execution in enumerate(feedback.executions):
-            key = _feedback_record_key(feedback, execution, index)
+            key = _feedback_record_key(feedback, execution, index, state_key)
             record = ActionLedgerRecord(
-                conversation_key=feedback.conversation_key,
-                group_id=feedback.group_id,
-                sender_id=feedback.sender_id,
-                context_id=feedback.context_id,
+                state_key=state_key,
+                state_key_ref=state_key_ref(state_key),
+                group_id=state_key.subject_ref,
+                sender_id=state_key.principal_ref,
+                context_id=feedback.request_id,
                 response_id=feedback.response_id,
                 execution=execution,
                 received_at=now,
@@ -71,8 +84,8 @@ class ActionLedger:
             return 0
 
         with self._lock:
-            self._cleanup_expired_locked(now)
-            records = []
+            _ = self._cleanup_expired_locked(now)
+            records: list[ActionLedgerRecord] = []
             for key, record in candidates:
                 if key in self._keys:
                     continue
@@ -88,49 +101,45 @@ class ActionLedger:
 
     def recent_for_conversation(
         self,
-        conversation_key: str,
+        state_key: ConversationStateKey,
         limit: int = 20,
     ) -> list[ActionLedgerRecord]:
         if limit <= 0:
             return []
         with self._lock:
-            self._cleanup_expired_locked(self._now())
+            _ = self._cleanup_expired_locked(self._now())
             matches = [
-                record
-                for record in self._records
-                if record.conversation_key == conversation_key
+                record for record in self._records if record.state_key == state_key
             ]
             return list(matches[-limit:])
 
     def recent_executed_for_conversation(
         self,
-        conversation_key: str,
+        state_key: ConversationStateKey,
         limit: int = 20,
     ) -> list[ActionLedgerRecord]:
         if limit <= 0:
             return []
         with self._lock:
-            self._cleanup_expired_locked(self._now())
+            _ = self._cleanup_expired_locked(self._now())
             matches = [
                 record
                 for record in self._records
-                if record.conversation_key == conversation_key
+                if record.state_key == state_key
                 and record.execution.status == "executed"
             ]
             return list(matches[-limit:])
 
     def by_context_id(self, context_id: str) -> list[ActionLedgerRecord]:
         with self._lock:
-            self._cleanup_expired_locked(self._now())
+            _ = self._cleanup_expired_locked(self._now())
             return [
-                record
-                for record in self._records
-                if record.context_id == context_id
+                record for record in self._records if record.context_id == context_id
             ]
 
     def count(self) -> int:
         with self._lock:
-            self._cleanup_expired_locked(self._now())
+            _ = self._cleanup_expired_locked(self._now())
             return len(self._records)
 
     def cleanup_expired(self) -> int:
@@ -158,8 +167,8 @@ class ActionLedger:
     def _now(self) -> datetime:
         value = self._now_factory()
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
 
 _DEFAULT_ACTION_LEDGER = ActionLedger()
@@ -170,21 +179,25 @@ def get_action_ledger() -> ActionLedger:
 
 
 def _feedback_record_key(
-    feedback: ActionFeedbackRequest,
-    execution: ActionExecutionFeedback,
+    feedback: ActionFeedbackRequestV2,
+    execution: ActionExecutionFeedbackV2,
     index: int,
-) -> tuple:
+    state_key: ConversationStateKey,
+) -> tuple[str, ...]:
     artifact = execution.artifact
     return (
-        feedback.conversation_key,
-        feedback.context_id or "",
-        feedback.response_id or "",
-        execution.action_id or "index:{}".format(index),
+        state_key_ref(state_key),
+        feedback.feedback_id,
+        feedback.request_id,
+        feedback.response_id,
+        execution.action_id or f"index:{index}",
         execution.action_type,
         execution.status,
         artifact.type if artifact is not None else "",
         getattr(artifact, "option", "") or "",
         getattr(artifact, "period", "") or "",
         getattr(artifact, "report_date", "") or "",
-        artifact.artifact_ref if artifact is not None else "",
+        artifact.artifact_ref
+        if artifact is not None and artifact.artifact_ref is not None
+        else "",
     )

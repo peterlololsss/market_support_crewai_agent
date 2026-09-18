@@ -1,52 +1,55 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 
-from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
-from market_support_crewai_agent.runtime.domain.ontology import DomainContext
-from market_support_crewai_agent.runtime.domain.planning import (
-    ExecutionPlan,
-    PlanValidationResult,
+from market_support_crewai_agent.runtime.context.payload_store import (
+    ScopedContextPayloadStoreV1,
 )
-from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
-    AdapterPreflightService,
-    AdapterPreflightSnapshot,
-)
-from market_support_crewai_agent.runtime.evidence.document_mcp import (
-    DocumentMcpEvidenceService,
+from market_support_crewai_agent.runtime.evidence.canonical_commands import (
+    DocumentMcpCacheConfigV1,
 )
 from market_support_crewai_agent.runtime.evidence.executor import EvidenceExecutor
-from market_support_crewai_agent.runtime.evidence.report_scope import (
-    ReportScopeEvidenceService,
+from market_support_crewai_agent.runtime.evidence.internal_company_knowledge import (
+    ApprovedStaticKnowledgeGatewayAdapter,
+    DocumentMcpGatewayAdapter,
+    InternalCompanyKnowledgeGatewayV1,
 )
-from market_support_crewai_agent.runtime.evidence.models import EvidenceFact
-from market_support_crewai_agent.runtime.knowledge.approved_knowledge import (
-    ApprovedKnowledgeEvidenceService,
+from market_support_crewai_agent.runtime.evidence.internal_company_knowledge_models import (
+    GatewayDocumentContextV1,
 )
-from market_support_crewai_agent.runtime.llm.composer_output import ComposerReplyOutput
-from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
+from market_support_crewai_agent.runtime.identity import KernelReplyRequestV1
+from market_support_crewai_agent.runtime.integrations.adapter.preflight import (
+    AdapterPreflightService,
+)
+from market_support_crewai_agent.runtime.integrations.document_mcp.cache import (
+    DocumentMcpCacheAuthorityV1,
+)
+from market_support_crewai_agent.runtime.integrations.document_mcp.client import (
+    DocumentMcpClient,
+)
+from market_support_crewai_agent.runtime.rendering.v2_composer import V2Composer
 from market_support_crewai_agent.runtime.state.action_ledger import (
     ActionLedger,
     get_action_ledger,
 )
-from market_support_crewai_agent.runtime.state.audit import AuditStore, get_audit_store
 from market_support_crewai_agent.runtime.state.conversation_store import (
     ConversationStore,
 )
-from market_support_crewai_agent.runtime.validation.answerability import (
-    AnswerabilityAssessment,
+from market_support_crewai_agent.runtime.state.coordinator_protocol import (
+    ReplyTurnStateCoordinatorV1,
 )
-from market_support_crewai_agent.runtime.validation.guardrail_types import (
-    GuardrailDecision,
+from market_support_crewai_agent.runtime.state.coordinator_provider import (
+    get_reply_state_coordinator,
+)
+from market_support_crewai_agent.runtime.state.transaction_coordinator import (
+    ReplyStateTransactionCoordinatorV1,
 )
 from market_support_crewai_agent.runtime.validation.reply_alignment_verifier import (
     ReplyAlignmentVerifier,
 )
-from market_support_crewai_agent.runtime.validation.reply_validator import (
-    ValidationResult,
-)
-from market_support_crewai_agent.schemas import ReplyResponse
-from market_support_crewai_agent.settings import Settings, get_settings
+from market_support_crewai_agent.settings import get_settings
+from market_support_crewai_agent.settings_model import Settings
 
 
 class AgentRuntimeError(RuntimeError):
@@ -57,12 +60,10 @@ _APP_SETTINGS = get_settings()
 _APP_CONVERSATION_STORE = ConversationStore.from_settings(_APP_SETTINGS)
 _APP_ACTION_LEDGER = get_action_ledger()
 _APP_ADAPTER_PREFLIGHT = AdapterPreflightService(settings=_APP_SETTINGS)
-_APP_AUDIT_STORE = get_audit_store()
-_APP_DOCUMENT_EVIDENCE_SERVICE = DocumentMcpEvidenceService(_APP_SETTINGS)
-_APP_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE = ApprovedKnowledgeEvidenceService(
-    settings=_APP_SETTINGS
+_APP_CONTEXT_PAYLOAD_STORE = ScopedContextPayloadStoreV1(
+    conversation_ttl_seconds=_APP_SETTINGS.agent_conversation_ttl_seconds,
+    direct_audit_ttl_seconds=_APP_SETTINGS.agent_direct_audit_ttl_seconds,
 )
-_APP_REPORT_SCOPE_EVIDENCE_SERVICE = ReportScopeEvidenceService(_APP_SETTINGS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,24 +73,11 @@ class RuntimeDeps:
     action_ledger: ActionLedger
     preflight_service: AdapterPreflightService
     evidence_executor: EvidenceExecutor
-    audit_store: AuditStore
+    context_payload_store: ScopedContextPayloadStoreV1
+    coordinator: ReplyTurnStateCoordinatorV1
+    document_cache_config: DocumentMcpCacheConfigV1 | None = None
     alignment_verifier: ReplyAlignmentVerifier | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AttemptResult:
-    plan: ExecutionPlan
-    plan_validation: PlanValidationResult
-    preflight: AdapterPreflightSnapshot
-    evidence_facts: list[EvidenceFact]
-    business_facts: BusinessFacts
-    domain_context: DomainContext
-    answerability: AnswerabilityAssessment
-    directive: ResponseDirective
-    response: ReplyResponse
-    reply_validation: ValidationResult
-    guardrail_decisions: list[GuardrailDecision]
-    composer_output: ComposerReplyOutput | None = None
+    v2_composer: V2Composer | None = None
 
 
 def build_runtime_deps(
@@ -99,8 +87,12 @@ def build_runtime_deps(
     action_ledger: ActionLedger | None = None,
     preflight_service: AdapterPreflightService | None = None,
     evidence_executor: EvidenceExecutor | None = None,
-    audit_store: AuditStore | None = None,
+    context_payload_store: ScopedContextPayloadStoreV1 | None = None,
+    coordinator: ReplyStateTransactionCoordinatorV1 | None = None,
+    internal_company_knowledge_gateway: InternalCompanyKnowledgeGatewayV1 | None = None,
+    document_cache_config: DocumentMcpCacheConfigV1 | None = None,
     alignment_verifier: ReplyAlignmentVerifier | None = None,
+    v2_composer: V2Composer | None = None,
 ) -> RuntimeDeps:
     use_app_singletons = settings is None
     resolved_settings = settings or _APP_SETTINGS
@@ -108,6 +100,11 @@ def build_runtime_deps(
         _APP_ADAPTER_PREFLIGHT
         if use_app_singletons
         else AdapterPreflightService(settings=resolved_settings)
+    )
+    resolved_gateway, resolved_cache_config = _internal_knowledge_dependencies(
+        resolved_settings,
+        gateway=internal_company_knowledge_gateway,
+        cache_config=document_cache_config,
     )
 
     return RuntimeDeps(
@@ -125,16 +122,82 @@ def build_runtime_deps(
         if evidence_executor is not None
         else EvidenceExecutor(
             resolved_preflight_service,
-            _APP_DOCUMENT_EVIDENCE_SERVICE
-            if use_app_singletons
-            else DocumentMcpEvidenceService(resolved_settings),
-            _APP_APPROVED_KNOWLEDGE_EVIDENCE_SERVICE
-            if use_app_singletons
-            else ApprovedKnowledgeEvidenceService(settings=resolved_settings),
-            _APP_REPORT_SCOPE_EVIDENCE_SERVICE
-            if use_app_singletons
-            else ReportScopeEvidenceService(settings=resolved_settings),
+            internal_company_knowledge_gateway=resolved_gateway,
         ),
-        audit_store=audit_store or _APP_AUDIT_STORE,
+        context_payload_store=context_payload_store
+        if context_payload_store is not None
+        else (
+            _APP_CONTEXT_PAYLOAD_STORE
+            if use_app_singletons
+            else ScopedContextPayloadStoreV1(
+                conversation_ttl_seconds=resolved_settings.agent_conversation_ttl_seconds,
+                direct_audit_ttl_seconds=resolved_settings.agent_direct_audit_ttl_seconds,
+            )
+        ),
+        coordinator=coordinator or get_reply_state_coordinator(),
+        document_cache_config=resolved_cache_config,
         alignment_verifier=alignment_verifier,
+        v2_composer=v2_composer,
     )
+
+
+def _internal_knowledge_dependencies(
+    settings: Settings,
+    *,
+    gateway: InternalCompanyKnowledgeGatewayV1 | None,
+    cache_config: DocumentMcpCacheConfigV1 | None,
+) -> tuple[InternalCompanyKnowledgeGatewayV1 | None, DocumentMcpCacheConfigV1 | None]:
+    config = cache_config or _sealed_document_cache_config(settings)
+    if gateway is not None:
+        return gateway, config
+    document_provider = _document_gateway_provider(settings, config)
+    return (
+        InternalCompanyKnowledgeGatewayV1(
+            document_provider=document_provider,
+            static_provider=ApprovedStaticKnowledgeGatewayAdapter(),
+        ),
+        config,
+    )
+
+
+def _document_gateway_provider(
+    settings: Settings,
+    cache_config: DocumentMcpCacheConfigV1 | None,
+) -> DocumentMcpGatewayAdapter | _NoopDocumentGatewayProvider:
+    if not settings.doc_mcp_enabled or not settings.doc_mcp_base_url:
+        return _NoopDocumentGatewayProvider()
+    if settings.doc_mcp_cache_ttl_seconds > 0 and cache_config is None:
+        return _NoopDocumentGatewayProvider()
+    return DocumentMcpGatewayAdapter(DocumentMcpClient(settings))
+
+
+class _NoopDocumentGatewayProvider:
+    async def collect(
+        self,
+        *,
+        request: KernelReplyRequestV1,
+        evidence_query: str,
+        cache_authority: DocumentMcpCacheAuthorityV1 | None,
+    ) -> tuple[GatewayDocumentContextV1, ...]:
+        del request, evidence_query, cache_authority
+        return ()
+
+
+def _sealed_document_cache_config(
+    settings: Settings,
+) -> DocumentMcpCacheConfigV1 | None:
+    if settings.doc_mcp_cache_ttl_seconds <= 0:
+        return None
+    try:
+        return DocumentMcpCacheConfigV1(
+            client_contract_version="document-mcp-client.v1",
+            corpus_version="document-mcp-corpus.v1",
+            request_schema_hash="osh1:4a056b7f023a7b26ba65b73db3e2e296f7d2ba889fe9fd54c3a5d9221bd0b5a1",
+            response_schema_hash="osh1:6ffdc9963cee4d339749e972ab0a22cbee1e34ccdcbd1a4595cf84a0e4d357f7",
+            timeout_milliseconds=round(settings.doc_mcp_timeout_seconds * 1_000),
+            max_candidates=50,
+            ttl_seconds=max(1, ceil(settings.doc_mcp_cache_ttl_seconds)),
+            capacity=256,
+        )
+    except ValueError:
+        return None

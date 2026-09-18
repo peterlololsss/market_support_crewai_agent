@@ -8,17 +8,17 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from market_support_crewai_agent.runtime.llm.prompting.registry import (  # noqa: E402
+from market_support_crewai_agent.runtime.prompts.registry import (  # noqa: E402
     PROMPT_FRAGMENT_PACKAGE,
     PROMPT_FRAGMENTS,
     PROMPT_REGISTRY,
 )
 
-PROMPT_ROOT = (
-    SRC
-    / Path(*PROMPT_FRAGMENT_PACKAGE.split("."))
-)
-DOCS_PROMPTS = ROOT / "docs" / "prompts.md"
+PROMPT_ROOT = SRC / Path(*PROMPT_FRAGMENT_PACKAGE.split("."))
+PRESERVED_UNREGISTERED_PROMPTS = {
+    (PROMPT_ROOT / "guardrail/image_alignment_verifier.md").resolve()
+}
+DOCS_PROMPTS = ROOT / "docs" / "capabilities-and-prompts.md"
 
 MAX_RAW_PROMPT_CHARS = 180
 PROMPT_MARKERS = (
@@ -42,12 +42,12 @@ BUSINESS_HIERARCHY_MARKERS = (
     "Monthly report intent includes",
 )
 RAW_PROMPT_ALLOWED_FILES = {
-    SRC / "market_support_crewai_agent/runtime/llm/prompting/registry.py",
-    SRC / "market_support_crewai_agent/runtime/domain/capabilities/manifests.py",
-    SRC / "market_support_crewai_agent/runtime/domain/compliance_policy.py",
+    SRC / "market_support_crewai_agent/runtime/prompts/registry.py",
+    SRC / "market_support_crewai_agent/runtime/policy/capabilities/manifests.py",
+    SRC / "market_support_crewai_agent/runtime/policy/compliance.py",
 }
 RAW_PROMPT_ALLOWED_DIRS = {
-    SRC / "market_support_crewai_agent/runtime/llm/prompts",
+    SRC / "market_support_crewai_agent/runtime/integrations/crewai/prompts",
 }
 
 
@@ -89,7 +89,10 @@ def _check_template_files() -> list[str]:
             )
 
     for path in PROMPT_ROOT.rglob("*.md"):
-        if path.resolve() not in registered_files:
+        if (
+            path.resolve() not in registered_files
+            and path.resolve() not in PRESERVED_UNREGISTERED_PROMPTS
+        ):
             failures.append(f"prompt template is not registered: {path}")
     return failures
 
@@ -139,8 +142,7 @@ def _is_allowed_raw_prompt_path(path: Path) -> bool:
     if resolved in {item.resolve() for item in RAW_PROMPT_ALLOWED_FILES}:
         return True
     return any(
-        resolved == directory.resolve()
-        or directory.resolve() in resolved.parents
+        resolved == directory.resolve() or directory.resolve() in resolved.parents
         for directory in RAW_PROMPT_ALLOWED_DIRS
     )
 

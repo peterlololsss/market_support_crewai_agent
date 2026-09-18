@@ -1,25 +1,13 @@
-"""Evidence wrappers, adapter preflight, and evidence fact models."""
-
-from market_support_crewai_agent.runtime.evidence.models import (
-    EvidenceFact,
-    EvidenceFactType,
-    EvidenceFactValue,
-    EvidenceSourceType,
-    SourceMetadata,
-    evidence_facts_from_action_history,
-    evidence_facts_from_preflight,
-    fact_value,
-    find_fact,
+from market_support_crewai_agent.runtime.evidence.scope_authority import (
+    BusinessScopeAuthorityV1,
+    business_scope_authority_v1,
+    business_scope_hash_v1,
+    business_scope_ref_from_hash,
 )
 
 __all__ = [
-    "EvidenceFact",
-    "EvidenceFactType",
-    "EvidenceFactValue",
-    "EvidenceSourceType",
-    "SourceMetadata",
-    "evidence_facts_from_action_history",
-    "evidence_facts_from_preflight",
-    "fact_value",
-    "find_fact",
+    "BusinessScopeAuthorityV1",
+    "business_scope_authority_v1",
+    "business_scope_hash_v1",
+    "business_scope_ref_from_hash",
 ]

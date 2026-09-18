@@ -1,185 +1,118 @@
 from __future__ import annotations
 
-from typing import TypeAlias
-
-from market_support_crewai_agent.runtime.domain.policy import compile_policy
-from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
-from market_support_crewai_agent.runtime.llm.prompting.context import (
-    IntentGateResult,
-    PromptAssemblyContext,
+from market_support_crewai_agent.runtime.context.stage_inputs import (
+    build_planner_prompt_input_v1,
 )
-from market_support_crewai_agent.runtime.llm.prompting.router import (
+from market_support_crewai_agent.runtime.evidence.scope_authority import (
+    business_scope_authority_v1,
+)
+from market_support_crewai_agent.runtime.policy.manifest import (
+    PolicyManifestV2,
+    compile_policy_authority_core_v1,
+    policy_ledger_summary_v1,
+)
+from market_support_crewai_agent.runtime.prompts.router import (
     model_family_from_settings,
     route_intent,
-    select_prompt_program,
+    select_stage_input_prompt_program,
+    user_facing_fragment_ids,
 )
-from market_support_crewai_agent.schemas import ReplyRequest
-from market_support_crewai_agent.settings import Settings
-from tests.fixtures.xiaoyan_question_set import QUESTION_SET
-
-AvailableArtifactPayload: TypeAlias = dict[str, str | list[str]]
-RequestOverrideValue: TypeAlias = str | bool | list[AvailableArtifactPayload]
-PlannerCase: TypeAlias = tuple[str, str, dict[str, RequestOverrideValue]]
+from market_support_crewai_agent.settings_model import Settings
+from tests.helpers.planning import make_request
+from tests.unit.llm._stage_input_fixtures import stage_sources
 
 
-OLD_PLANNER_FRAGMENTS = {
-    "capability.material_pack",
-    "capability.weekly_report",
-    "capability.monthly_report",
-    "examples.material_pack",
-    "examples.report_scope",
-    "examples.knowledge_answer",
-    "examples.handoff",
-    "channel.bank_material_rules",
-    "examples.multi_artifact_clarification",
-}
-
-
-def make_request(message: str, **overrides: RequestOverrideValue) -> ReplyRequest:
-    payload: dict[str, RequestOverrideValue] = {
-        "context_id": "msg-1",
-        "conversation_key": "wecom:group-1:sender-1",
-        "group_id": "group-1",
-        "sender_id": "sender-1",
-        "message": message,
-        "is_group": True,
-        "group_name": "test group",
-        "dist_channel_name": "test channel",
-        "sender_nickname": "test user",
-        "available_artifacts": [
-            {"type": "material_pack", "options": ["中证A500", "中证1000", "中证500"]},
-            {"type": "weekly_report"},
-            {"type": "monthly_report"},
-        ],
-        "channel_type": "non_bank",
-    }
-    payload.update(overrides)
-    return ReplyRequest.model_validate(payload)
-
-
-
-
-def _question_set_hits(text: str) -> list[str]:
-    return [question.question for question in QUESTION_SET if question.question in text]
-
-def planner_program(
-    message: str,
-    **overrides: RequestOverrideValue,
-) -> tuple[IntentGateResult, PromptProgram]:
-    request = make_request(message, **overrides)
-    policy = compile_policy(request, doc_mcp_enabled=True)
+def _planner_program(message: str):
+    request = make_request(message=message)
+    scope = business_scope_authority_v1(request.business_scope)
+    policy = PolicyManifestV2.from_core(
+        compile_policy_authority_core_v1(request, scope),
+        policy_ledger_summary_v1((), 0),
+    )
     gate = route_intent(request, policy)
-    return gate, select_prompt_program(
-        PromptAssemblyContext(
-            stage="planner_intent",
-            model_family="ds_v4pro",
-            request=request,
-            policy=policy,
-            intent_gate=gate,
+    planner_source, _, _, _ = stage_sources(message)
+    program = select_stage_input_prompt_program(
+        build_planner_prompt_input_v1(planner_source),
+        "ds_v4pro",
+    )
+    return gate, program
+
+
+def test_route_intent_is_non_authoritative_audit_hint() -> None:
+    # Given: semantically different support messages.
+    first_gate, _ = _planner_program("发一下周报")
+    second_gate, _ = _planner_program("介绍下你们公司")
+
+    # When/Then: the deterministic audit hint does not choose product or action authority.
+    assert first_gate.artifact_hint == "unclear"
+    assert second_gate.artifact_hint == "unclear"
+    assert first_gate.outbound_action_hint is False
+    assert second_gate.outbound_action_hint is False
+    assert first_gate.confidence == 0.0
+    assert second_gate.confidence == 0.0
+
+
+def test_representative_messages_use_same_registered_group_program() -> None:
+    # Given: multiple user messages routed through the same scene and stage.
+    programs = tuple(
+        _planner_program(message)[1]
+        for message in (
+            "发一下周报",
+            "介绍下你们公司",
+            "请找销售老师",
+            "材料和周报都给我",
         )
     )
 
-
-def test_route_intent_is_non_authoritative_audit_hint():
-    gate, _ = planner_program("发一下中证1000材料")
-
-    assert gate.artifact_hint == "unclear"
-    assert gate.outbound_action_hint is False
-    assert gate.compliance_hint == "unknown"
-    assert gate.confidence == 0.0
-    assert gate.material_pack_option_count == 3
+    # When/Then: message content cannot change registered instructions or ceilings.
+    assert {program.program_id for program in programs} == {
+        "planner_intent.wecom_group.v1@1"
+    }
+    assert len({program.fragment_ids for program in programs}) == 1
+    assert len({program.static_bytes for program in programs}) == 1
+    assert all(program.static_bytes == program.baseline_bytes for program in programs)
 
 
-def test_representative_messages_use_same_universal_planner_fragments():
-    cases: list[PlannerCase] = [
-        ("material_send", "麻烦同步一下中证1000的一页通", {}),
-        ("weekly_report", "500最近回撤修复得怎么样", {}),
-        ("monthly_report", "11月表现怎么样", {}),
-        ("knowledge_answer", "月报里为什么没有年化收益率", {}),
-        ("smalltalk", "你是谁", {}),
-        ("refusal_phrase", "这个产品能保本吗", {}),
-        ("human_support", "帮我问下销售", {}),
-        ("multi_artifact", "材料和周报都给我", {}),
-        ("bank_material", "发一下中证1000材料", {"channel_type": "bank"}),
-    ]
-    programs = [planner_program(message, **overrides)[1] for _, message, overrides in cases]
-
-    expected = (
-        "base.planner_intent",
-        "model.ds_v4pro.structured",
-        "planner.intent_taxonomy",
-        "output.plan_spec_schema",
-        "compliance.reason_codes",
-    )
-    assert {program.fragment_ids for program in programs} == {expected}
-    for program in programs:
-        assert "planner.intent_taxonomy" in program.fragment_ids
-        assert not (OLD_PLANNER_FRAGMENTS & set(program.fragment_ids))
-
-
-def test_planner_prompt_fits_context_budget_for_default_fixture():
-    _, program = planner_program("发一下中证1000材料")
-
-    assert len(program.prompt_text) < 1_000_000
-    assert "Universal intent taxonomy for Xiaoyan market support." in program.prompt_text
-    assert "Capability registry JSON" in program.prompt_text
-    assert "material_pack.send" in program.prompt_text
-    assert "PlanSpec compact schema:" in program.prompt_text
-    assert "Canonical JSON schema:" not in program.prompt_text
-    assert '"$defs"' not in program.prompt_text
-
-
-def test_planner_prompt_keeps_artifact_vocabulary_when_send_capability_absent():
-    _, program = planner_program(
-        "材料包",
-        available_artifacts=[{"type": "weekly_report"}],
+def test_ds_v4pro_uses_new_precedence_source_and_one_scene_fragment() -> None:
+    # Given: the ds_v4pro group planner registration.
+    fragment_ids = user_facing_fragment_ids(
+        "planner_intent",
+        "ds_v4pro",
+        "group",
     )
 
-    assert "Known sales artifact vocabulary" in program.prompt_text
-    assert "材料包/material pack" in program.prompt_text
-    assert "absent capabilities are not selectable" in program.prompt_text
-    assert '"id": "material_pack.send"' not in program.prompt_text
-    assert "send_material_pack" not in program.prompt_text
+    # When/Then: it has the ds model fragment, new precedence source, and one scene.
+    assert "model.ds_v4pro.structured" in fragment_ids
+    assert "model.generic.structured" not in fragment_ids
+    assert fragment_ids.count("instruction.registered_over_untrusted_data.v1") == 1
+    assert tuple(value for value in fragment_ids if value.startswith("scene.")) == (
+        "scene.wecom_group.planner_intent.v1",
+    )
 
 
-def test_planner_prompt_documents_section_roles_without_fixture_examples():
-    _, program = planner_program("请按当前规则处理这个请求")
+def test_non_ds_families_reuse_generic_precedence_source_once() -> None:
+    # Given: every non-ds user-facing model family.
+    families = ("deepseek", "gpt", "claude", "generic")
 
-    assert "Planner stage roles:" in program.prompt_text
-    assert "base planner fragment" in program.prompt_text
-    assert "intent taxonomy fragment" in program.prompt_text
-    assert "Capability registry JSON" in program.prompt_text
-    assert "manifest-derived capability contracts" in program.prompt_text
-    assert "adapter resolve/preflight owns sendability" in program.prompt_text
-    assert "evidence contracts own allowed fact/source/artifact boundaries" in program.prompt_text
-    assert _question_set_hits(program.prompt_text) == []
-
-
-def test_planner_capability_registry_is_contract_context_not_few_shot_examples():
-    _, program = planner_program("请按当前规则处理这个请求")
-
-    assert '"capability_contracts"' in program.prompt_text
-    assert '"planner_guidance"' in program.prompt_text
-    assert '"evidence"' in program.prompt_text
-    assert "|pos=" not in program.prompt_text
-    assert "|neg=" not in program.prompt_text
-    assert "examples_positive" not in program.prompt_text
-    assert "examples_negative" not in program.prompt_text
+    # When/Then: each uses only the byte-frozen generic structured source.
+    for family in families:
+        fragment_ids = user_facing_fragment_ids(
+            "knowledge_composer",
+            family,
+            "direct",
+        )
+        assert fragment_ids.count("model.generic.structured") == 1
+        assert "model.ds_v4pro.structured" not in fragment_ids
+        assert "instruction.registered_over_untrusted_data.v1" not in fragment_ids
 
 
-def test_ds_v4pro_model_selects_ds_structured_fragment():
-    assert model_family_from_settings(Settings(llm_model="deepseek-v4-pro")) == "ds_v4pro"
-    _, program = planner_program("发一下中证1000材料")
-
-    assert "model.ds_v4pro.structured" in program.fragment_ids
-    assert "model.generic.structured" not in program.fragment_ids
-
-
-def test_planner_override_model_family_is_stage_scoped():
+def test_planner_override_model_family_is_stage_scoped() -> None:
+    # Given: distinct planner and composer model settings.
     settings = Settings(
         llm_model="deepseek-v4-pro",
         planner_llm_model="gemini-3-flash-preview",
     )
 
+    # When/Then: each stage derives its own registered model family.
     assert model_family_from_settings(settings) == "ds_v4pro"
     assert model_family_from_settings(settings, stage="planner_intent") == "generic"

@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
 from pydantic import Field, JsonValue
 
-from market_support_crewai_agent.runtime.domain.capabilities import CapabilityName
-from market_support_crewai_agent.runtime.domain.ontology import ArtifactType
-from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.schemas import OutboundActionType, StrictModel
+from market_support_crewai_agent.schemas.base import StrictModel
 
 GuardrailOutcome = Literal[
     "allow",
@@ -23,52 +19,10 @@ GuardrailPhase = Literal[
     "execution_tool",
     "output",
 ]
-DestinationType = Literal[
-    "none",
-    "current_channel",
-    "channel",
-    "strategy",
-    "unknown",
-]
-SensitivityLevel = Literal["public", "internal", "sensitive", "unknown"]
 GuardrailMetadata: TypeAlias = dict[str, JsonValue]
 
 HANDOFF_TEXT_METADATA_KEY = "handoff_text"
 HANDOFF_UNAVAILABLE_TEXT_METADATA_KEY = "handoff_unavailable_text"
-HANDOFF_REASON_METADATA_KEY = "handoff_reason"
-
-
-class RequestedScope(StrictModel):
-    """Structured user-request scope emitted by the planner."""
-
-    capability: CapabilityName | None = None
-    action: OutboundActionType | None = None
-    destination_type: DestinationType = "none"
-    destination_id: str | None = None
-    destination_name: str | None = None
-    artifact_type: ArtifactType = "unknown"
-    artifact_id: str | None = None
-    strategy_id: str | None = None
-    strategy_name: str | None = None
-    period: str | None = None
-    time_range_start: str | None = None
-    time_range_end: str | None = None
-    sensitivity: SensitivityLevel = "unknown"
-    requires_user_confirmation: bool = False
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-
-    @property
-    def has_destination(self) -> bool:
-        return self.destination_type not in {"none", "current_channel"}
-
-
-class SendScopePolicy(StrictModel):
-    allowed_capabilities: list[CapabilityName] = Field(default_factory=list)
-    allowed_artifact_types: list[ArtifactType] = Field(default_factory=list)
-    allowed_destinations: list[str] = Field(default_factory=list)
-    allowed_actions: list[OutboundActionType] = Field(default_factory=list)
-    required_user_confirmation: list[str] = Field(default_factory=list)
-    redaction_policy: GuardrailMetadata = Field(default_factory=dict)
 
 
 class GuardrailDecision(StrictModel):
@@ -86,21 +40,6 @@ class GuardrailDecision(StrictModel):
     @property
     def allowed(self) -> bool:
         return self.outcome == "allow"
-
-
-@dataclass(frozen=True, slots=True)
-class EvidenceSelection:
-    accepted: tuple[EvidenceFact, ...]
-    rejected: tuple[EvidenceFact, ...]
-    decisions: tuple[GuardrailDecision, ...]
-
-    @property
-    def has_evidence(self) -> bool:
-        return bool(self.accepted)
-
-
-def abstention_response_text() -> str:
-    return "老师，这个信息我这边暂时无法确认，先不回答避免信息不准确。"
 
 
 def make_decision(
