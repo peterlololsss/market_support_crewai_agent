@@ -1,268 +1,247 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, fields, is_dataclass
-from datetime import datetime
-from typing import Any, Literal
+from datetime import date
+from typing import Annotated, ClassVar, Final, Literal
 
-ContextBlockType = Literal[
-    "recent_verbatim",
-    "compacted_summary",
-    "large_result_preview",
-    "allowed_evidence",
-    "context_only",
-    "disallowed_evidence",
-    "app_state",
-    "current_task",
-    "output_schema",
-    "ephemeral",
+from pydantic import ConfigDict, Field, JsonValue, field_validator, model_validator
+
+from market_support_crewai_agent.runtime.context.business_view_models import (
+    BusinessFactsViewV1,
+    GuardrailDecisionViewV1,
+    ReportStateViewV1,
+    ResolvableStateViewV1,
+)
+from market_support_crewai_agent.runtime.context.common_view_models import (
+    BusinessScopeViewV1,
+    CurrentMessageViewV1,
+    EffectivePolicyViewV1,
+    HistoryTurnViewV1,
+    IntentGateViewV1,
+    MaterialPackOptionSummaryViewV1,
+    PendingClarificationViewV1,
+    RuntimeClockViewV1,
+    ScenePresentationViewV1,
+)
+from market_support_crewai_agent.runtime.context.evidence_view_models import (
+    EvidenceBooleanValueViewV1,
+    EvidenceContentValueViewV1,
+    EvidenceFactViewV1,
+    EvidenceIntegerValueViewV1,
+    EvidenceNullValueViewV1,
+    EvidenceNumberValueViewV1,
+    EvidenceScopeViewV1,
+    EvidenceStringValueViewV1,
+    EvidenceValueViewV1,
+)
+from market_support_crewai_agent.runtime.context.grounding_projection_context import (
+    GroundingProjectionContextV1,
+)
+from market_support_crewai_agent.runtime.context.plan_view_models import (
+    ActionIntentViewV1,
+    DistributionPlanScopeViewV1,
+    PlanScopeViewV1,
+    PlanTimeRangeViewV1,
+    UnscopedPlanScopeViewV1,
+    ValidatedPlanUnitViewV1,
+    ValidatedPlanViewV1,
+)
+from market_support_crewai_agent.runtime.context.recall_view_models import (
+    RecallPlannerViewV1,
+)
+from market_support_crewai_agent.runtime.context.report_view_models import (
+    ReportScopeMatchViewV1,
+    ReportScopeProductsViewV1,
+    ReportScopeProductViewV1,
+    ReportScopeSectionViewV1,
+    ReportScopeSummaryViewV1,
+)
+from market_support_crewai_agent.runtime.context.response_view_models import (
+    CandidateActionViewV1,
+    CandidateMentionViewV1,
+    CandidateReplyViewV1,
+    EffectiveOutputCeilingsViewV1,
+    PreflightFactViewV1,
+    ResponseDirectiveViewV1,
+)
+from market_support_crewai_agent.runtime.context.retry_view_models import (
+    ComposerRetryOverlayV1,
+    PlannerRetryOverlayV1,
+    PlanValidationIssueViewV1,
+)
+from market_support_crewai_agent.runtime.context.view_errors import (
+    ContextViewInvariantError,
+)
+from market_support_crewai_agent.runtime.policy.capabilities import ManifestRefV1
+from market_support_crewai_agent.schemas.base import StrictModel
+
+__all__ = [
+    "ActionIntentViewV1",
+    "BusinessFactsViewV1",
+    "BusinessScopeViewV1",
+    "CandidateActionViewV1",
+    "CandidateMentionViewV1",
+    "CandidateReplyViewV1",
+    "ComposerRetryOverlayV1",
+    "CurrentMessageViewV1",
+    "DistributionPlanScopeViewV1",
+    "EffectiveOutputCeilingsViewV1",
+    "EffectivePolicyViewV1",
+    "EvidenceBooleanValueViewV1",
+    "EvidenceContentValueViewV1",
+    "EvidenceFactViewV1",
+    "EvidenceIntegerValueViewV1",
+    "EvidenceNullValueViewV1",
+    "EvidenceNumberValueViewV1",
+    "EvidenceScopeViewV1",
+    "EvidenceStringValueViewV1",
+    "EvidenceValueViewV1",
+    "GroundingProjectionContextV1",
+    "GuardrailDecisionViewV1",
+    "HistoryTurnViewV1",
+    "IntentGateViewV1",
+    "MaterialPackOptionSummaryViewV1",
+    "PendingClarificationViewV1",
+    "PlanScopeViewV1",
+    "PlanTimeRangeViewV1",
+    "PlanValidationIssueViewV1",
+    "PlannerRetryOverlayV1",
+    "PreflightFactViewV1",
+    "RecallPlannerViewV1",
+    "ReportScopeMatchViewV1",
+    "ReportScopeProductViewV1",
+    "ReportScopeProductsViewV1",
+    "ReportScopeSectionViewV1",
+    "ReportScopeSummaryViewV1",
+    "ReportStateViewV1",
+    "ResolvableStateViewV1",
+    "ResponseDirectiveViewV1",
+    "RuntimeClockViewV1",
+    "ScenePresentationViewV1",
+    "UnscopedPlanScopeViewV1",
+    "ValidatedPlanUnitViewV1",
+    "ValidatedPlanViewV1",
 ]
-ProjectionAction = Literal["include", "exclude", "summarize", "preview", "redact"]
 
 
-@dataclass(frozen=True)
-class LargeResultPreview:
-    result_id: str
-    source_id: str
-    source_type: str
-    preview: str
-    original_char_count: int
-    preview_char_count: int
-    truncation_reason: str
-    reload_handle: str
-    artifact_type: str | None = None
-    fact_type: str | None = None
-    status: str | None = None
+class RecentExecutedActionSummaryViewV1(StrictModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
-    def to_prompt_dict(self) -> dict[str, Any]:
-        return _drop_empty(_json_safe(self))
+    contract_version: Literal["recent-action-summary-view.v1"] = (
+        "recent-action-summary-view.v1"
+    )
+    action_type: Literal[
+        "send_material_pack", "send_weekly_report", "send_monthly_report"
+    ]
+    status: Literal["executed"] = "executed"
+    artifact_type: Literal["material_pack", "weekly_report", "monthly_report"]
+    material_pack_option: str | None = Field(default=None, max_length=80)
+    period: str | None = Field(default=None, max_length=40)
+    report_date: str | None = Field(
+        default=None,
+        min_length=10,
+        max_length=10,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    age_seconds: int | None = Field(default=None, ge=0, le=2_592_000)
 
-
-@dataclass(frozen=True)
-class CompactedSpanSummary:
-    span_id: str
-    original_message_count: int
-    role_counts: dict[str, int]
-    summary: str
-    unresolved_items: list[str] = field(default_factory=list)
-    source_ids: list[str] = field(default_factory=list)
-    start_time: str | None = None
-    end_time: str | None = None
-
-    def to_prompt_dict(self) -> dict[str, Any]:
-        return _drop_empty(_json_safe(self))
-
-
-@dataclass(frozen=True)
-class RuntimeClock:
-    current_date: str
-    current_datetime: str
-    timezone: str
-    current_year: str
-    relative_years: dict[str, str]
-
-    def to_prompt_dict(self) -> dict[str, Any]:
-        return _drop_empty(_json_safe(self))
-
-
-@dataclass(frozen=True)
-class ContextBlock:
-    block_id: str
-    block_type: ContextBlockType
-    title: str
-    payload: Any
-    source_ids: list[str] = field(default_factory=list)
-    evidence_ids: list[str] = field(default_factory=list)
-    token_estimate: int = 0
-    included_reason: str = ""
-    redacted: bool = False
-    reload_handle: str | None = None
-
-    def to_prompt_dict(self) -> dict[str, Any]:
-        return _drop_empty(_json_safe(self))
-
-
-@dataclass(frozen=True)
-class ProjectionDecision:
-    source_id: str
-    decision: ProjectionAction
-    block_type: ContextBlockType
-    reason: str
-    original_char_count: int | None = None
-    projected_char_count: int | None = None
-
-    def to_prompt_dict(self) -> dict[str, Any]:
-        return _drop_empty(_json_safe(self))
-
-
-@dataclass(frozen=True)
-class ContextPressureEstimate:
-    token_budget: int
-    estimated_tokens_before: int
-    estimated_tokens_after: int
-    pressure_ratio: float
-    warning_threshold: float
-    hard_threshold: float
-    warning: bool
-    hard_blocked: bool
-
-    def to_prompt_dict(self) -> dict[str, Any]:
-        return _json_safe(self)
-
-
-@dataclass(frozen=True)
-class ContextProjectionPolicy:
-    recent_turns_verbatim_count: int = 4
-    max_history_message_chars_inline: int = 1200
-    max_evidence_chars_inline: int = 6000
-    # Answer evidence is small today and models have room; inline it unless it
-    # is truly pathological.
-    max_answer_evidence_chars_inline: int = 1_000_000
-    max_metadata_chars_inline: int = 2000
-    large_result_preview_chars: int = 1200
-    token_budget: int = 900_000
-    warning_threshold: float = 0.75
-    hard_threshold: float = 0.92
-    allow_history_as_evidence: bool = False
-    preserve_current_user_message: bool = True
-    preserve_runtime_state: bool = True
-    preserve_answerability: bool = True
-
+    @field_validator("material_pack_option", "period")
     @classmethod
-    def from_settings(cls, settings: object | None = None) -> "ContextProjectionPolicy":
-        if settings is None:
-            return cls()
-        return cls(
-            recent_turns_verbatim_count=int(
-                getattr(settings, "agent_context_recent_turns_verbatim_count", 4)
-            ),
-            max_history_message_chars_inline=int(
-                getattr(settings, "agent_context_max_history_message_chars_inline", 1200)
-            ),
-            max_evidence_chars_inline=int(
-                getattr(settings, "agent_context_max_evidence_chars_inline", 6000)
-            ),
-            max_answer_evidence_chars_inline=int(
-                getattr(settings, "agent_context_max_answer_evidence_chars_inline", 1_000_000)
-            ),
-            large_result_preview_chars=int(
-                getattr(settings, "agent_context_large_result_preview_chars", 1200)
-            ),
-            token_budget=int(
-                getattr(settings, "agent_context_token_budget", None)
-                or 900_000
-            ),
-            warning_threshold=float(
-                getattr(settings, "agent_context_warning_threshold", 0.75)
-            ),
-            hard_threshold=float(
-                getattr(settings, "agent_context_hard_threshold", 0.92)
-            ),
-        )
+    def _reject_control_characters(cls, value: str | None) -> str | None:
+        if value is not None and any(ord(character) < 32 for character in value):
+            raise ContextViewInvariantError("recent_action_summary_control_character")
+        return value
+
+    @field_validator("report_date")
+    @classmethod
+    def _validate_iso_report_date(cls, value: str | None) -> str | None:
+        if value is not None:
+            _ = date.fromisoformat(value)
+        return value
+
+    @model_validator(mode="after")
+    def _validate_action_artifact_binding(
+        self,
+    ) -> RecentExecutedActionSummaryViewV1:
+        expected_artifact_type = _ARTIFACT_TYPE_BY_ACTION[self.action_type]
+        if self.artifact_type != expected_artifact_type:
+            raise ContextViewInvariantError(
+                "recent_action_summary_artifact_type_mismatch"
+            )
+        if self.artifact_type == "material_pack":
+            if self.period is not None or self.report_date is not None:
+                raise ContextViewInvariantError(
+                    "recent_action_summary_report_metadata_forbidden"
+                )
+        elif self.material_pack_option is not None:
+            raise ContextViewInvariantError(
+                "recent_action_summary_material_option_forbidden"
+            )
+        return self
 
 
-@dataclass(frozen=True)
-class RuntimeAppState:
-    stage: str
-    request_metadata: dict[str, Any]
-    current_user_message: str
-    domain_context: dict[str, Any]
-    policy: dict[str, Any]
-    runtime_clock: RuntimeClock | None = None
-    current_goal: str | None = None
-    intent_gate: dict[str, Any] | None = None
-    execution_plan: dict[str, Any] | None = None
-    plan_validation: dict[str, Any] | None = None
-    preflight: Any | None = None
-    business_facts: dict[str, Any] | None = None
-    answerability_assessment: dict[str, Any] | None = None
-    guardrail_decisions: list[dict[str, Any]] = field(default_factory=list)
-    candidate_response: dict[str, Any] | None = None
-    alignment_attempt: int = 0
-    alignment_verdict: dict[str, Any] | None = None
-
-    def to_prompt_dict(self) -> dict[str, Any]:
-        return _drop_empty(_json_safe(self))
+_ = BusinessFactsViewV1.model_rebuild(
+    _types_namespace={
+        "RecentExecutedActionSummaryViewV1": RecentExecutedActionSummaryViewV1,
+    }
+)
 
 
-@dataclass(frozen=True)
-class ModelVisibleContext:
-    projection_id: str
-    stage: str
-    blocks: list[ContextBlock]
-    allowed_evidence_ids: list[str] = field(default_factory=list)
-    disallowed_evidence_ids: list[str] = field(default_factory=list)
-    context_only_source_ids: list[str] = field(default_factory=list)
-    decisions: list[ProjectionDecision] = field(default_factory=list)
-    pressure: ContextPressureEstimate | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-    contract_version: str = "model-visible-context"
+class UnitGroundingViewV1(StrictModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
-    def to_prompt_runtime_payload(self) -> dict[str, Any]:
-        return _drop_empty(
-            {
-                "contract_version": self.contract_version,
-                "projection_id": self.projection_id,
-                "stage": self.stage,
-                "allowed_evidence_ids": list(self.allowed_evidence_ids),
-                "disallowed_evidence_ids": list(self.disallowed_evidence_ids),
-                "context_only_source_ids": list(self.context_only_source_ids),
-                "blocks": [block.to_prompt_dict() for block in self.blocks],
-            }
-        )
-
-
-def stable_json(value: Any) -> str:
-    return json.dumps(
-        _json_safe(value),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
+    contract_version: Literal["unit-grounding-view.v1"] = "unit-grounding-view.v1"
+    unit_id: str = Field(min_length=1, max_length=120)
+    manifest_ref: ManifestRefV1
+    answerability: Literal[
+        "answer",
+        "send",
+        "clarify",
+        "abstain",
+        "refuse",
+        "handoff",
+        "smalltalk",
+        "no_reply",
+    ]
+    scope: PlanScopeViewV1
+    evidence_query: str | None = Field(default=None, max_length=200)
+    action_intents: tuple[ActionIntentViewV1, ...] = Field(default=(), max_length=3)
+    allowed_evidence_ids: tuple[
+        Annotated[str, Field(pattern=r"^eid1:[0-9a-f]{64}$")], ...
+    ] = Field(default=(), max_length=32)
+    allowed_evidence: tuple[EvidenceFactViewV1, ...] = Field(default=(), max_length=32)
+    business_facts: BusinessFactsViewV1
+    guardrail_decisions: tuple[GuardrailDecisionViewV1, ...] = Field(
+        default=(), max_length=32
     )
 
-
-def prompt_json(value: Any) -> str:
-    return json.dumps(_json_safe(value), ensure_ascii=False, indent=2, sort_keys=True)
-
-
-def _json_safe(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if hasattr(value, "model_dump"):
-        return _json_safe(value.model_dump(mode="json", exclude_none=True))
-    if hasattr(value, "to_prompt_dict") and not is_dataclass(value):
-        return _json_safe(value.to_prompt_dict())
-    if is_dataclass(value):
-        return {
-            item.name: _json_safe(getattr(value, item.name))
-            for item in fields(value)
-        }
-    if isinstance(value, dict):
-        output: dict[str, Any] = {}
-        for key, item in value.items():
-            text_key = str(key)
-            lowered = text_key.lower()
-            if lowered.endswith(("api_key", "secret", "token")):
-                continue
-            if text_key == "resolve_ref":
-                output["resolve_ref_available"] = bool(item)
-                continue
-            output[text_key] = _json_safe(item)
-        return output
-    if isinstance(value, (list, tuple, set, frozenset)):
-        return [_json_safe(item) for item in value]
-    return str(value)
+    @model_validator(mode="after")
+    def validate_evidence_binding(self) -> UnitGroundingViewV1:
+        expected_ids = tuple(fact.evidence_id for fact in self.allowed_evidence)
+        if self.allowed_evidence_ids != expected_ids:
+            raise ContextViewInvariantError(
+                "unit_grounding_view_evidence_binding_mismatch"
+            )
+        if len(set(expected_ids)) != len(expected_ids):
+            raise ContextViewInvariantError("unit_grounding_view_duplicate_evidence_id")
+        if self.business_facts.evidence_fact_count != len(self.allowed_evidence):
+            raise ContextViewInvariantError(
+                "unit_grounding_view_business_fact_count_mismatch"
+            )
+        return self
 
 
-def _drop_empty(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: _drop_empty(item)
-            for key, item in value.items()
-            if item not in (None, "", [], {})
-        }
-    if isinstance(value, list):
-        return [_drop_empty(item) for item in value]
-    return value
+def prompt_json(value: JsonValue) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+_ARTIFACT_TYPE_BY_ACTION: Final[
+    dict[
+        Literal["send_material_pack", "send_weekly_report", "send_monthly_report"],
+        Literal["material_pack", "weekly_report", "monthly_report"],
+    ]
+] = {
+    "send_material_pack": "material_pack",
+    "send_weekly_report": "weekly_report",
+    "send_monthly_report": "monthly_report",
+}

@@ -1,18 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from pydantic import Field, model_validator
 
-from market_support_crewai_agent.runtime.domain.business_facts import BusinessFacts
-from market_support_crewai_agent.runtime.domain.ontology import DomainContext
-from market_support_crewai_agent.runtime.domain.planning import ExecutionPlan
-from market_support_crewai_agent.runtime.evidence import EvidenceFact
-from market_support_crewai_agent.runtime.orchestration.decision import ResponseDirective
-from market_support_crewai_agent.runtime.validation.guardrail_types import (
-    GuardrailDecision,
+from market_support_crewai_agent.runtime.context.stage_inputs import (
+    SanitizedAlignmentVerifierInputV1,
 )
-from market_support_crewai_agent.schemas import ReplyRequest, ReplyResponse, StrictModel
+from market_support_crewai_agent.schemas.base import StrictModel
 
 AlignmentFailureCode = Literal[
     "none",
@@ -45,6 +41,14 @@ _REPORT_SCOPE_REFETCH_QUERIES: frozenset[str] = frozenset(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class AlignmentVerdictContractError(ValueError):
+    code: str
+
+    def __str__(self) -> str:
+        return self.code
+
+
 class ReplyAlignmentVerdict(StrictModel):
     contract_version: Literal["reply-alignment-verdict"] = "reply-alignment-verdict"
     aligned: bool
@@ -61,24 +65,26 @@ class ReplyAlignmentVerdict(StrictModel):
     def validate_shape(self):
         if self.aligned:
             if not self.safe_to_return:
-                raise ValueError("aligned verdicts must be safe_to_return")
-            if self.failure_code != "none" or self.remediation != "none":
-                raise ValueError(
-                    "aligned verdicts must use failure_code=none and remediation=none"
+                raise AlignmentVerdictContractError(
+                    "aligned_verdict_requires_safe_to_return"
                 )
-        if self.remediation in {"refetch_document_context", "refetch_report_scope"} and not (
-            self.refined_evidence_query or ""
-        ).strip():
-            raise ValueError(
-                f"{self.remediation} requires refined_evidence_query"
+            if self.failure_code != "none" or self.remediation != "none":
+                raise AlignmentVerdictContractError(
+                    "aligned_verdict_requires_none_failure_and_remediation"
+                )
+        if (
+            self.remediation in {"refetch_document_context", "refetch_report_scope"}
+            and not (self.refined_evidence_query or "").strip()
+        ):
+            raise AlignmentVerdictContractError(
+                "alignment_refetch_requires_refined_evidence_query"
             )
         if (
             self.remediation == "refetch_report_scope"
             and self.refined_evidence_query not in _REPORT_SCOPE_REFETCH_QUERIES
         ):
-            raise ValueError(
-                "refetch_report_scope requires refined_evidence_query to be "
-                "report_scope_products or report_scope_summary"
+            raise AlignmentVerdictContractError(
+                "alignment_report_refetch_query_not_allowed"
             )
         return self
 
@@ -86,44 +92,16 @@ class ReplyAlignmentVerdict(StrictModel):
 class ReplyAlignmentVerifier(Protocol):
     async def verify(
         self,
-        *,
-        request: ReplyRequest,
-        domain_context: DomainContext,
-        plan: ExecutionPlan,
-        directive: ResponseDirective,
-        evidence_facts: list[EvidenceFact],
-        business_facts: BusinessFacts,
-        response: ReplyResponse,
-        guardrail_decisions: list[GuardrailDecision] | None = None,
-        attempt: int = 0,
+        input_value: SanitizedAlignmentVerifierInputV1,
     ) -> ReplyAlignmentVerdict: ...
 
 
 class NoopReplyAlignmentVerifier:
     async def verify(
         self,
-        *,
-        request: ReplyRequest,
-        domain_context: DomainContext,
-        plan: ExecutionPlan,
-        directive: ResponseDirective,
-        evidence_facts: list[EvidenceFact],
-        business_facts: BusinessFacts,
-        response: ReplyResponse,
-        guardrail_decisions: list[GuardrailDecision] | None = None,
-        attempt: int = 0,
+        input_value: SanitizedAlignmentVerifierInputV1,
     ) -> ReplyAlignmentVerdict:
-        del (
-            request,
-            domain_context,
-            plan,
-            directive,
-            evidence_facts,
-            business_facts,
-            response,
-            guardrail_decisions,
-            attempt,
-        )
+        del input_value
         return ReplyAlignmentVerdict(
             aligned=True,
             safe_to_return=True,

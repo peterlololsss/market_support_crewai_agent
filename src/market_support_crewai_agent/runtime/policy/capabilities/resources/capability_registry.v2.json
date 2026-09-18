@@ -1,0 +1,924 @@
+{
+  "contract_version": "capability-registry-target.2026-07-18.1",
+  "manifests": [
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "unable_to_answer",
+          "clarification",
+          "human_handoff"
+        ],
+        "guidance": "If the material pack cannot be resolved, abstain or hand off instead of inventing a send.",
+        "requires_abstention_when_evidence_missing": true
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Return only the typed send_material_pack action after adapter resolve evidence."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [
+          "material_pack_resolvable"
+        ],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [
+          "material_pack_resolvable"
+        ],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [
+          "adapter_resolve"
+        ],
+        "forbidden_source_types": [
+          "adapter_report_scope",
+          "conversation_history",
+          "document_mcp"
+        ],
+        "required_artifact_types": [
+          "material_pack"
+        ],
+        "allowed_artifact_types": [
+          "material_pack"
+        ],
+        "required_scope_match": [],
+        "min_facts": 1,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:82e21202a6400619291c60c8e1023b2722d799196b18ea4807775d645600bf83",
+      "manifest_id": "material_pack.send",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "required",
+        "rules": [
+          {
+            "condition": "Use when the user clearly asks to send a material pack, one-pager, or open calendar. Also use for general product availability, distributed-products, available-products-list, or broad 'what products do you have' requests when the user does ",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use when the user clearly asks to send a material pack, one-pager, or open calendar. Also use for general product availability, distributed-products, available-products-list, or broad 'what products do you have' requests when the user does "
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema",
+        "required_runtime_input_present",
+        "required_evidence_present",
+        "evidence_artifact_type_allowed",
+        "forbidden_source_not_used",
+        "abstention_correctness"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "unable_to_answer",
+          "clarification",
+          "human_handoff"
+        ],
+        "guidance": "If the weekly report cannot be resolved, abstain or hand off.",
+        "requires_abstention_when_evidence_missing": true
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Return only the typed send_weekly_report action after adapter resolve evidence."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [
+          "weekly_report_resolvable"
+        ],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [
+          "weekly_report_resolvable"
+        ],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [
+          "adapter_resolve"
+        ],
+        "forbidden_source_types": [
+          "adapter_report_scope",
+          "conversation_history",
+          "document_mcp"
+        ],
+        "required_artifact_types": [
+          "weekly_report"
+        ],
+        "allowed_artifact_types": [
+          "weekly_report"
+        ],
+        "required_scope_match": [],
+        "min_facts": 1,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:d15ba6fa8d484b93d76af65c6a15283bd2792034337b1c2f962610a45c902baf",
+      "manifest_id": "weekly_report.send",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "required",
+        "rules": [
+          {
+            "condition": "Use when the user clearly asks to send the weekly report. Treat the weekly report as this week's valuation/performance artifact, not as the owner of every FAQ containing performance words. Also use for named public product/strategy current ",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use when the user clearly asks to send the weekly report. Treat the weekly report as this week's valuation/performance artifact, not as the owner of every FAQ containing performance words. Also use for named public product/strategy current "
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema",
+        "required_runtime_input_present",
+        "required_evidence_present",
+        "evidence_artifact_type_allowed",
+        "forbidden_source_not_used",
+        "abstention_correctness"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "unable_to_answer",
+          "clarification",
+          "human_handoff"
+        ],
+        "guidance": "If the monthly report cannot be resolved, abstain or hand off.",
+        "requires_abstention_when_evidence_missing": true
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Return only the typed send_monthly_report action after adapter resolve evidence."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [
+          "monthly_report_resolvable"
+        ],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [
+          "monthly_report_resolvable"
+        ],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [
+          "adapter_resolve"
+        ],
+        "forbidden_source_types": [
+          "adapter_report_scope",
+          "conversation_history",
+          "document_mcp"
+        ],
+        "required_artifact_types": [
+          "monthly_report"
+        ],
+        "allowed_artifact_types": [
+          "monthly_report"
+        ],
+        "required_scope_match": [],
+        "min_facts": 1,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:72726ef0044ffb5e75e429c21bf236bd5c2d5cf44b68720ab68a8c5213770e10",
+      "manifest_id": "monthly_report.send",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "required",
+        "rules": [
+          {
+            "condition": "Use when the user clearly asks to send the monthly report.",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use when the user clearly asks to send the monthly report."
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema",
+        "required_runtime_input_present",
+        "required_evidence_present",
+        "evidence_artifact_type_allowed",
+        "forbidden_source_not_used",
+        "abstention_correctness"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "unable_to_answer",
+          "clarification"
+        ],
+        "guidance": "If sales mention cannot be resolved, return unable_to_answer.",
+        "requires_abstention_when_evidence_missing": true
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Mention only adapter-resolved sales/support targets."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [
+          "sales_mention_resolvable"
+        ],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [
+          "sales_mention_resolvable"
+        ],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [
+          "adapter_resolve"
+        ],
+        "forbidden_source_types": [],
+        "required_artifact_types": [
+          "adapter_context"
+        ],
+        "allowed_artifact_types": [
+          "adapter_context"
+        ],
+        "required_scope_match": [],
+        "min_facts": 1,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:4efb0d4f5dffd5219855b0459f123c167907a6d84cd7a791d3f88fd7270ee7b2",
+      "manifest_id": "sales.handoff",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "condition": "Use when the user asks for human sales/support help, add-friend/add-WeChat/private-chat routing, or a named person.",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use when the user asks for human sales/support help, add-friend/add-WeChat/private-chat routing, or a named person."
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema",
+        "required_runtime_input_present",
+        "required_evidence_present",
+        "evidence_artifact_type_allowed",
+        "forbidden_source_not_used",
+        "abstention_correctness"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "clarification"
+        ],
+        "guidance": "",
+        "requires_abstention_when_evidence_missing": false
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Ask one concise clarification and do not propose actions."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [],
+        "forbidden_source_types": [],
+        "required_artifact_types": [],
+        "allowed_artifact_types": [],
+        "required_scope_match": [],
+        "min_facts": 0,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "clarify",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:73b2b12a9b87d5b3427c0f96963afdae06326bf27acf434a0e864fcd180c1c20",
+      "manifest_id": "general.clarification",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "condition": "Use only when user wording leaves the requested artifact type or material-pack option ambiguous. Prefer no outbound action unless the user clearly asks to send.",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use only when user wording leaves the requested artifact type or material-pack option ambiguous. Prefer no outbound action unless the user clearly asks to send."
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "unable_to_answer"
+        ],
+        "guidance": "",
+        "requires_abstention_when_evidence_missing": false
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "State inability concisely and do not invent facts."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [],
+        "forbidden_source_types": [],
+        "required_artifact_types": [],
+        "allowed_artifact_types": [],
+        "required_scope_match": [],
+        "min_facts": 0,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:73d295a65f1991373e7fc77ee3d33b08d8ae0949f9e6e9fd919c689825a9e34e",
+      "manifest_id": "general.abstention",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "condition": "Use when the request is understood but required evidence is absent.",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use when the request is understood but required evidence is absent."
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "unable_to_answer"
+        ],
+        "guidance": "",
+        "requires_abstention_when_evidence_missing": false
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Use the harness refusal text and do not propose actions."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [],
+        "forbidden_source_types": [],
+        "required_artifact_types": [],
+        "allowed_artifact_types": [],
+        "required_scope_match": [],
+        "min_facts": 0,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:3aa1cfbf4bd978e97c4fdf06f4212c10be6cfb5b0792c35135f651b8b27fa78a",
+      "manifest_id": "general.refusal",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "condition": "Use for requests that compliance policy requires refusing.",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use for requests that compliance policy requires refusing."
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "answer"
+        ],
+        "guidance": "",
+        "requires_abstention_when_evidence_missing": false
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Answer briefly from request metadata and policy only."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [],
+        "forbidden_source_types": [],
+        "required_artifact_types": [],
+        "allowed_artifact_types": [],
+        "required_scope_match": [],
+        "min_facts": 0,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "ignore",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:fad4d53f5f22a7aed0d9e8f53274e7884086069be088fca7b8e2774b4075328d",
+      "manifest_id": "general.smalltalk",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "condition": "Use for greetings, thanks, self-introduction, or help/capability questions.",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use for greetings, thanks, self-introduction, or help/capability questions."
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "no_reply"
+        ],
+        "guidance": "",
+        "requires_abstention_when_evidence_missing": false
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "legacy.compose",
+          "text": "Return no_reply with empty text, mentions, and actions."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [],
+        "forbidden_source_types": [],
+        "required_artifact_types": [],
+        "allowed_artifact_types": [],
+        "required_scope_match": [],
+        "min_facts": 0,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "ignore",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:c6dc2bdf267bc6a4003a1122956ef3995f3ef79db698ac9f8c3bda01992fd6f8",
+      "manifest_id": "general.no_reply",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "condition": "Use only when the message should not receive a visible reply.",
+            "effect": "select",
+            "rule_id": "legacy.select"
+          }
+        ],
+        "summary": "Use only when the message should not receive a visible reply."
+      },
+      "source_legacy_version": "2026-06-16.1",
+      "verifier_primitives": [
+        "output_schema"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "requires_abstention_when_evidence_missing": true,
+        "abstention_reply_kinds": [
+          "unable_to_answer",
+          "clarification"
+        ],
+        "guidance": "If weekly_report product-list evidence is absent, abstain."
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "product_list.compose",
+          "text": "State only products admitted from the weekly_report report product-list evidence."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [
+          "report_scope_products"
+        ],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [
+          "report_scope_products"
+        ],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [
+          "adapter_report_scope"
+        ],
+        "forbidden_source_types": [
+          "adapter_resolve",
+          "document_mcp"
+        ],
+        "required_artifact_types": [
+          "weekly_report"
+        ],
+        "allowed_artifact_types": [
+          "weekly_report"
+        ],
+        "required_scope_match": [],
+        "min_facts": 1,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:8ce98533f779432a5666148bf38dfd3f428620a16b6f3e7d701d4cf127f1695f",
+      "manifest_id": "weekly_report.product_list",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "summary": "Use only when the user explicitly asks which products are included in the weekly_report report.",
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "rule_id": "product_list.select",
+            "condition": "Use only when the user explicitly asks which products are included in the weekly_report report.",
+            "effect": "select"
+          }
+        ]
+      },
+      "source_legacy_version": null,
+      "verifier_primitives": [
+        "output_schema",
+        "required_evidence_present",
+        "evidence_artifact_type_allowed",
+        "forbidden_source_not_used",
+        "abstention_correctness"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "requires_abstention_when_evidence_missing": true,
+        "abstention_reply_kinds": [
+          "unable_to_answer",
+          "clarification"
+        ],
+        "guidance": "If monthly_report product-list evidence is absent, abstain."
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "product_list.compose",
+          "text": "State only products admitted from the monthly_report report product-list evidence."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [
+          "report_scope_products"
+        ],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [
+          "report_scope_products"
+        ],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [
+          "adapter_report_scope"
+        ],
+        "forbidden_source_types": [
+          "adapter_resolve",
+          "document_mcp"
+        ],
+        "required_artifact_types": [
+          "monthly_report"
+        ],
+        "allowed_artifact_types": [
+          "monthly_report"
+        ],
+        "required_scope_match": [],
+        "min_facts": 1,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:affe8bad9d43ef4f21d0ebf58281193855c5c221c705ffc70a0cfa4542826645",
+      "manifest_id": "monthly_report.product_list",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "summary": "Use only when the user explicitly asks which products are included in the monthly_report report.",
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "rule_id": "product_list.select",
+            "condition": "Use only when the user explicitly asks which products are included in the monthly_report report.",
+            "effect": "select"
+          }
+        ]
+      },
+      "source_legacy_version": null,
+      "verifier_primitives": [
+        "output_schema",
+        "required_evidence_present",
+        "evidence_artifact_type_allowed",
+        "forbidden_source_not_used",
+        "abstention_correctness"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "requires_abstention_when_evidence_missing": true,
+        "abstention_reply_kinds": [
+          "unable_to_answer",
+          "clarification"
+        ],
+        "guidance": "If admitted internal company knowledge evidence is missing, abstain."
+      },
+      "composer_constraints": [
+        {
+          "constraint_id": "internal_knowledge.compose",
+          "text": "State only facts supported by admitted internal company knowledge evidence."
+        }
+      ],
+      "evidence_contract": {
+        "required_fact_types": [
+          "document_context"
+        ],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [
+          "document_context"
+        ],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [
+          "approved_static_knowledge",
+          "document_mcp"
+        ],
+        "forbidden_source_types": [],
+        "required_artifact_types": [
+          "document_context"
+        ],
+        "allowed_artifact_types": [
+          "document_context"
+        ],
+        "required_scope_match": [],
+        "min_facts": 1,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:dda31e67dea5961a92fc53a0eaa4f3a08d9f7f3446bc1c3353dc22701b5126cf",
+      "manifest_id": "answer_internal_company_knowledge",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "summary": "Use for questions answerable from explicitly granted internal company knowledge.",
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "rule_id": "internal_knowledge.select",
+            "condition": "Use for questions answerable from explicitly granted internal company knowledge.",
+            "effect": "select"
+          }
+        ]
+      },
+      "source_legacy_version": null,
+      "verifier_primitives": [
+        "output_schema",
+        "required_evidence_present",
+        "evidence_artifact_type_allowed",
+        "forbidden_source_not_used",
+        "abstention_correctness"
+      ]
+    },
+    {
+      "abstention_policy": {
+        "abstention_reply_kinds": [
+          "human_handoff"
+        ],
+        "guidance": "",
+        "requires_abstention_when_evidence_missing": false
+      },
+      "composer_constraints": [],
+      "evidence_contract": {
+        "required_fact_types": [],
+        "any_of_fact_types": [],
+        "allowed_fact_types": [],
+        "forbidden_fact_types": [],
+        "allowed_source_types": [],
+        "forbidden_source_types": [],
+        "required_artifact_types": [],
+        "allowed_artifact_types": [],
+        "required_scope_match": [],
+        "min_facts": 0,
+        "allow_history": false,
+        "history_constraints": {
+          "max_turns": null,
+          "max_age_seconds": null,
+          "allowed_roles": []
+        },
+        "fallback_policy": "abstain",
+        "citation_required": false,
+        "provenance_required": true,
+        "citation_requirements": [],
+        "stale_data_policy": {
+          "max_age_seconds": null,
+          "on_stale": "allow",
+          "require_observed_at": false
+        },
+        "notes": ""
+      },
+      "expected_content_hash": "cmh1:500ee2bb7dbc9a843c41ab42a4bc8342b709765baac735dfb6139af4db3c8c7d",
+      "manifest_id": "general.handoff",
+      "manifest_version": "2026-07-18.1",
+      "selection_contract": {
+        "outbound_intent": "forbidden",
+        "rules": [
+          {
+            "condition": "direct user explicitly asks for a human or support colleague",
+            "effect": "select",
+            "rule_id": "direct.select"
+          }
+        ],
+        "summary": "direct user explicitly asks for a human or support colleague"
+      },
+      "source_legacy_version": null,
+      "verifier_primitives": [
+        "output_schema"
+      ]
+    }
+  ]
+}

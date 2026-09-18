@@ -1,115 +1,236 @@
 from __future__ import annotations
 
-import asyncio
-import json
-from types import SimpleNamespace
+import os
+from dataclasses import replace
 
-from market_support_crewai_agent.runtime.llm.prompting.assembler import PromptProgram
-from market_support_crewai_agent.runtime.llm.prompting.profiles import prompt_profile_by_stage
-from market_support_crewai_agent.runtime.orchestration.crewai_io import (
-    coerce_plan_spec,
-    plan_spec_error_summary,
+import pytest
+from pydantic import BaseModel
+
+from market_support_crewai_agent.runtime.context.stage_inputs import (
+    build_planner_prompt_input_v1,
+)
+from market_support_crewai_agent.runtime.integrations.crewai.contracts import (
+    CrewAICompletionValueV1,
+    CrewAIKickoffOutputV1,
+    CrewAITransportInvariantError,
+)
+from market_support_crewai_agent.runtime.integrations.crewai.io import (
     run_crewai_kickoff,
 )
-from tests.helpers.reply_contract import make_weekly_plan_spec
+from market_support_crewai_agent.runtime.planning.plan_spec import PlanSpec
+from market_support_crewai_agent.runtime.planning.planner_llm import (
+    run_planner_kickoff_with_retry,
+)
+from market_support_crewai_agent.runtime.prompts.context import (
+    render_prompt_context_layers,
+)
+from market_support_crewai_agent.runtime.prompts.invocation_journal import (
+    TurnLlmInvocationJournalV1,
+)
+from market_support_crewai_agent.runtime.prompts.provider_errors import (
+    ProviderInvocationError,
+)
+from tests.helpers.crewai_adapter import (
+    make_agent_adapter,
+    make_completion_agent_adapter,
+    make_llm_adapter,
+)
+from tests.helpers.reply_contract_plan_fixtures import make_weekly_plan_spec
+from tests.unit.llm._stage_input_fixtures import stage_sources
+from tests.unit.orchestration._crewai_io_support import planner_program, run_async
 
 
-def test_run_crewai_kickoff_uses_gemini_structured_schema(caplog):
-    class FakeModels:
-        def generate_content(self, *, model, contents, config):
-            self.model = model
-            self.contents = contents
-            self.config = config
-            return SimpleNamespace(
-                text=make_weekly_plan_spec().model_dump_json(),
-                usage_metadata=None,
+class ProviderTestError(RuntimeError):
+    pass
+
+
+def test_run_crewai_kickoff_keeps_response_format_for_default_provider() -> None:
+    response_formats: list[type[BaseModel]] = []
+
+    def completion(response_format: type[BaseModel]) -> CrewAICompletionValueV1:
+        response_formats.append(response_format)
+        return "{}"
+
+    agent = make_completion_agent_adapter(completion, model="model")
+    _ = run_async(
+        lambda: run_crewai_kickoff(agent, planner_program(), timeout_seconds=1)
+    )
+
+    assert response_formats == [PlanSpec]
+
+
+def test_planner_retry_threads_turn_journal_into_real_kickoff() -> None:
+    agent = make_completion_agent_adapter(
+        lambda _response_format: make_weekly_plan_spec(),
+        model="fake-planner",
+    )
+    planner_source, _, _, _ = stage_sources("请发一下周报")
+    planner_input = build_planner_prompt_input_v1(planner_source)
+    strict_runtime = render_prompt_context_layers(planner_input)["runtime"].strip()
+    program = replace(
+        planner_program(), prompt_text=f"<runtime>\n{strict_runtime}\n</runtime>"
+    )
+    journal = TurnLlmInvocationJournalV1()
+
+    _, executions = run_async(
+        lambda: run_planner_kickoff_with_retry(
+            agent,
+            program,
+            planner_input=planner_input,
+            timeout_seconds=1,
+            retry_attempts=0,
+            base_delay_seconds=0,
+            journal=journal,
+        )
+    )
+
+    assert len(executions) == 1
+    assert len(journal.rows) == 1
+    assert journal.rows[0].status == "success"
+    assert journal.rows[0].stage_kind == "planner_intent"
+    assert journal.rows[0].prh1 is not None
+    assert journal.rows[0].output_digest is not None
+
+
+def test_run_crewai_kickoff_closes_reservation_when_provider_fails() -> None:
+    def fail_provider(_response_format: type[BaseModel]) -> CrewAICompletionValueV1:
+        raise ProviderTestError("provider failed")
+
+    agent = make_completion_agent_adapter(
+        fail_provider,
+        model="fake-planner",
+        base_url="https://provider.invalid/v1",
+    )
+    journal = TurnLlmInvocationJournalV1()
+
+    with pytest.raises(
+        ProviderInvocationError,
+        match="^provider_transport_unavailable$",
+    ) as raised:
+        _ = run_async(
+            lambda: run_crewai_kickoff(
+                agent,
+                planner_program(),
+                timeout_seconds=1,
+                journal=journal,
             )
+        )
 
-    class FakeClient:
-        def __init__(self):
-            self.models = FakeModels()
-
-    class FakeLlm:
-        provider = "gemini"
-        model = "gemini-3-flash-preview"
-        temperature = 0.1
-        top_p = None
-        top_k = None
-        max_output_tokens = 6000
-        stop_sequences = []
-        thinking_config = None
-
-        def __init__(self):
-            self.client = FakeClient()
-
-        def _get_sync_client(self):
-            return self.client
-
-    class FakeAgent:
-        role = "planner"
-        llm = FakeLlm()
-
-    agent = FakeAgent()
-
-    caplog.set_level("INFO", logger="market_support_crewai_agent.runtime.orchestration.crewai_io")
-    result, _ = asyncio.run(run_crewai_kickoff(agent, _program(), timeout_seconds=10))
-
-    config = agent.llm.client.models.config
-    assert config.response_mime_type == "application/json"
-    assert config.response_json_schema["properties"]["plan_units"]["type"] == "array"
-    assert result.pydantic is not None
-    assert "stage=planner_intent mode=gemini_structured" in caplog.text
-    assert "model=gemini-3-flash-preview" in caplog.text
+    assert len(journal.rows) == 1
+    assert journal.rows[0].status == "transport_error"
+    assert journal.rows[0].error_code == "provider_transport_unavailable"
+    assert journal.rows[0].provider_id == "openai_compatible"
+    assert raised.value.__cause__ is None
 
 
-def test_run_crewai_kickoff_keeps_response_format_for_default_provider():
-    class FakeAgent:
-        llm = SimpleNamespace(provider="openai")
+def test_run_crewai_kickoff_classifies_non_string_provider_output() -> None:
+    agent = make_completion_agent_adapter(
+        lambda _response_format: 7,
+        model="fake-planner",
+    )
+    journal = TurnLlmInvocationJournalV1()
 
-        async def kickoff_async(self, prompt, **kwargs):
-            self.kwargs = kwargs
-            return SimpleNamespace(raw="{}", pydantic=None, agent_role="", usage_metrics=None)
-
-    agent = FakeAgent()
-
-    asyncio.run(run_crewai_kickoff(agent, _program(), timeout_seconds=1))
-
-    assert agent.kwargs["response_format"].__name__ == "PlanSpec"
-
-
-def test_plan_spec_allows_missing_evidence_contract_ref():
-    payload = make_weekly_plan_spec().model_dump(mode="json")
-    payload["plan_units"][0].pop("evidence_contract_ref", None)
-    payload["plan_units"][0]["evidence_contract"] = None
-    result = SimpleNamespace(
-        pydantic=None,
-        raw=json.dumps(payload, ensure_ascii=False),
+    _ = run_async(
+        lambda: run_crewai_kickoff(
+            agent,
+            planner_program(),
+            timeout_seconds=1,
+            journal=journal,
+        )
     )
 
-    assert coerce_plan_spec(result) is not None
-    assert plan_spec_error_summary(result) == ""
+    assert journal.rows[0].status == "output_contract_error"
+    assert journal.rows[0].error_code == "provider_output_type"
 
 
-def test_plan_spec_error_summary_names_invalid_unit_path():
-    payload = make_weekly_plan_spec().model_dump(mode="json")
-    payload["plan_units"][0].pop("selected_capability_id", None)
-    result = SimpleNamespace(
-        pydantic=None,
-        raw=json.dumps(payload, ensure_ascii=False),
+def test_run_crewai_kickoff_stdio_violation_closes_journal() -> None:
+    def noisy_provider(_response_format: type[BaseModel]) -> CrewAICompletionValueV1:
+        _ = os.write(2, b"crewai-stdio-sentinel")
+        return make_weekly_plan_spec()
+
+    agent = make_completion_agent_adapter(noisy_provider, model="fake-planner")
+    journal = TurnLlmInvocationJournalV1()
+
+    with pytest.raises(
+        ProviderInvocationError,
+        match="^direct_provider_stdio_violation$",
+    ):
+        _ = run_async(
+            lambda: run_crewai_kickoff(
+                agent,
+                planner_program(),
+                timeout_seconds=1,
+                journal=journal,
+            )
+        )
+
+    assert journal.rows[0].status == "transport_error"
+    assert journal.rows[0].error_code == "direct_provider_stdio_violation"
+
+
+def test_run_crewai_kickoff_rejects_direct_scene_before_agent_dispatch() -> None:
+    dispatched_prompts: list[str] = []
+
+    def forbidden_dispatch(
+        prompt: str,
+        response_format: type[BaseModel],
+    ) -> CrewAIKickoffOutputV1:
+        del response_format
+        dispatched_prompts.append(prompt)
+        return CrewAIKickoffOutputV1(raw="{}", pydantic=None)
+
+    agent = make_agent_adapter(on_prompt=forbidden_dispatch)
+    direct_program = replace(
+        planner_program(),
+        program_id="planner_intent.wecom_direct.v1@1",
+        scene_key="wecom_direct.v1",
+        scene_contract_id="scene.wecom_direct.planner_intent.v1",
+        scene_contract_version="2026-07-15.1",
     )
 
-    summary = plan_spec_error_summary(result)
+    with pytest.raises(
+        CrewAITransportInvariantError,
+        match="^crewai_direct_scene_forbidden$",
+    ):
+        _ = run_async(
+            lambda: run_crewai_kickoff(agent, direct_program, timeout_seconds=1)
+        )
 
-    assert "plan_units.0" in summary
-    assert "selected_capability_id" in summary
+    assert dispatched_prompts == []
 
 
-def _program():
-    return PromptProgram(
-        profile=prompt_profile_by_stage("planner_intent"),
-        fragment_ids=(),
-        prompt_text="{}",
-        prompt_hash="hash",
-        fragment_hashes={},
-        layers=(),
+def test_run_crewai_kickoff_fails_closed_when_capture_is_unavailable() -> None:
+    dispatched_prompts: list[str] = []
+
+    def forbidden_dispatch(
+        prompt: str,
+        response_format: type[BaseModel],
+    ) -> CrewAIKickoffOutputV1:
+        del response_format
+        dispatched_prompts.append(prompt)
+        return CrewAIKickoffOutputV1(raw="{}", pydantic=None)
+
+    agent = make_agent_adapter(
+        llm=make_llm_adapter(provider="openai", model="fake-planner"),
+        on_prompt=forbidden_dispatch,
     )
+    journal = TurnLlmInvocationJournalV1()
+
+    with pytest.raises(
+        ProviderInvocationError,
+        match="^provider_transport_unavailable$",
+    ):
+        _ = run_async(
+            lambda: run_crewai_kickoff(
+                agent,
+                planner_program(),
+                timeout_seconds=1,
+                journal=journal,
+            )
+        )
+
+    assert dispatched_prompts == []
+    assert len(journal.rows) == 1
+    assert journal.rows[0].status == "transport_error"
+    assert journal.rows[0].error_code == "provider_transport_unavailable"
+    assert journal.rows[0].prh1 is None

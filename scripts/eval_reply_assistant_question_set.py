@@ -31,6 +31,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from market_support_crewai_agent.runtime.identity import VerifiedRequestEnvelopeV1
+
 # Make the repo root importable so the labeled fixture under tests/ resolves
 # when this script is run directly (pytest handles this itself).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -40,7 +42,6 @@ from tests.fixtures.assistant_question_set import (  # noqa: E402
     QUESTION_SET,
     Question,
 )
-
 
 MAX_PARALLEL = 4
 _THREAD_LOCAL = threading.local()
@@ -55,11 +56,11 @@ class FakePreflightService:
         resolve_material_pack_options=None,
     ):
         del canonical_context
-        from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
+        from market_support_crewai_agent.runtime.integrations.adapter.preflight import (
             AdapterPreflightItem,
             AdapterPreflightSnapshot,
         )
-        from market_support_crewai_agent.schemas import AdapterResolveResult
+        from market_support_crewai_agent.schemas.adapter import AdapterResolveResult
 
         resolve_material_pack_options = resolve_material_pack_options or {}
         requested = resolve_types or [
@@ -200,7 +201,9 @@ def _post_reply(client: TestClient, payload: dict) -> tuple[int, str, list, str]
 def _thread_client(app) -> TestClient:
     client = getattr(_THREAD_LOCAL, "client", None)
     if client is None:
-        client = TestClient(app)
+        api_key = os.getenv("MARKET_AGENT_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else None
+        client = TestClient(app, headers=headers)
         _THREAD_LOCAL.client = client
     return client
 
@@ -341,7 +344,7 @@ def main() -> None:
         original_build_reply = server_main.build_reply
         fake_preflight = FakePreflightService()
 
-        async def fake_build_reply(request):
+        async def fake_build_reply(request: VerifiedRequestEnvelopeV1):
             return await original_build_reply(request, preflight_service=fake_preflight)
 
         server_main.build_reply = fake_build_reply

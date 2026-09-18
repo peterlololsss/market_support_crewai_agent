@@ -1,0 +1,1 @@
+Audience context: this request comes from one individual in a WeCom direct conversation. Use optional principal_name only to interpret how that individual is being addressed; never infer or mention a group or shared audience.

@@ -30,11 +30,11 @@ class FakePreflightService:
         resolve_material_pack_options=None,
     ):
         del canonical_context
-        from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
+        from market_support_crewai_agent.runtime.integrations.adapter.preflight import (
             AdapterPreflightItem,
             AdapterPreflightSnapshot,
         )
-        from market_support_crewai_agent.schemas import AdapterResolveResult
+        from market_support_crewai_agent.schemas.adapter import AdapterResolveResult
 
         resolve_material_pack_options = resolve_material_pack_options or {}
         requested = resolve_types or [
@@ -58,7 +58,9 @@ class FakePreflightService:
                             "reason_code": "ok",
                             "candidates": _material_pack_options(request),
                             "channel_type": request.channel_type,
-                            "available_artifacts": _available_artifacts_payload(request),
+                            "available_artifacts": _available_artifacts_payload(
+                                request
+                            ),
                             "material_pack_option": material_pack_option,
                             "resolved_at": 1,
                             "resolve_ref": f"{resolve_type}:eval-ref",
@@ -84,7 +86,9 @@ class FakePreflightService:
 
 
 def _request(message: str, **overrides):
-    from market_support_crewai_agent.schemas import ReplyRequest
+    from market_support_crewai_agent.schemas.conversation import ReplyRequestV2
+
+    ReplyRequest = ReplyRequestV2
 
     payload = {
         "context_id": "real-action-eval-1",
@@ -122,10 +126,11 @@ def _material_pack_options(request) -> list[str]:
 
 
 async def _run_scenario(name: str, request):
+    from market_support_crewai_agent.runtime.service import CrewAIReplyRuntime
     from market_support_crewai_agent.runtime.state.action_ledger import ActionLedger
-    from market_support_crewai_agent.runtime.state.audit import AuditStore
-    from market_support_crewai_agent.runtime.state.conversation_store import ConversationStore
-    from market_support_crewai_agent.runtime.orchestration.runtime import CrewAIReplyRuntime
+    from market_support_crewai_agent.runtime.state.conversation_store import (
+        ConversationStore,
+    )
     from market_support_crewai_agent.settings import get_settings
 
     runtime = CrewAIReplyRuntime(
@@ -133,7 +138,6 @@ async def _run_scenario(name: str, request):
         conversation_store=ConversationStore(),
         action_ledger=ActionLedger(),
         preflight_service=FakePreflightService(),
-        audit_store=AuditStore(),
     )
     response = await runtime.reply(request)
     return {
@@ -186,7 +190,10 @@ async def main() -> None:
     print(json.dumps(results, ensure_ascii=False, indent=2))
     failures = _validate_results(results)
     if failures:
-        print(json.dumps({"failures": failures}, ensure_ascii=False, indent=2), file=sys.stderr)
+        print(
+            json.dumps({"failures": failures}, ensure_ascii=False, indent=2),
+            file=sys.stderr,
+        )
         raise SystemExit(1)
 
 
@@ -196,7 +203,10 @@ def _validate_results(results: list[dict]) -> list[dict]:
 
     weekly = by_name.get("weekly_report_action", {})
     weekly_response = weekly.get("response", {})
-    if _action_types(weekly_response) != ["send_weekly_report"] or weekly_response.get("reply", {}).get("text") != "":
+    if (
+        _action_types(weekly_response) != ["send_weekly_report"]
+        or weekly_response.get("reply", {}).get("text") != ""
+    ):
         failures.append(
             {
                 "scenario": "weekly_report_action",

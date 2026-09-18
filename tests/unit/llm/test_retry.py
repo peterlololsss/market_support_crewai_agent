@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 
-from market_support_crewai_agent.runtime.llm.retry import RetryPolicy, run_with_retry
+from market_support_crewai_agent.runtime.integrations.crewai.retry import (
+    RetryPolicy,
+    run_with_retry,
+)
 
 
 def test_retry_policy_uses_exponential_delay_with_cap():

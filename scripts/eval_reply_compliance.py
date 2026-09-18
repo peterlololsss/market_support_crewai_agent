@@ -94,7 +94,9 @@ def main() -> None:
 
     _load_dotenv()
 
-    from market_support_crewai_agent.runtime.domain.compliance_policy import refusal_text_for_reason
+    from market_support_crewai_agent.runtime.policy.compliance import (
+        refusal_text_for_reason,
+    )
     from market_support_crewai_agent.server.main import app
 
     selected_names = set(args.case or [case.name for case in EVAL_CASES])

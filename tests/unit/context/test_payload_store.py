@@ -1,31 +1,44 @@
 from __future__ import annotations
 
-from market_support_crewai_agent.runtime.context.payload_store import ContextPayloadStore
+from market_support_crewai_agent.runtime.context.payload_store import (
+    ScopedContextPayloadStoreV1,
+)
+from tests.helpers.reply_contract_requests import make_state_key
 
 
 def test_payload_store_uses_stable_handles_and_retains_metadata():
-    store = ContextPayloadStore(max_payloads=2)
+    state_key = make_state_key()
+    store = ScopedContextPayloadStoreV1(
+        conversation_ttl_seconds=60,
+        direct_audit_ttl_seconds=60,
+        max_payloads=2,
+    )
 
-    handle = store.put("payload", {"source_id": "doc-1"})
-    same = store.put("payload", {"source_id": "doc-1"})
+    handle = store.put(state_key, "payload", metadata={"source_id": "doc-1"})
+    stored = store.get(state_key, handle)
 
-    assert handle == same
-    assert handle.startswith("ctx-payload:")
-    assert store.get(handle) == {
-        "payload": "payload",
-        "metadata": {"source_id": "doc-1"},
-    }
+    assert handle.value.startswith("cpv1:")
+    assert stored is not None
+    assert stored.payload == "payload"
+    assert stored.metadata == {"source_id": "doc-1"}
     assert store.count() == 1
 
 
 def test_payload_store_is_bounded():
-    store = ContextPayloadStore(max_payloads=1)
+    state_key = make_state_key()
+    store = ScopedContextPayloadStoreV1(
+        conversation_ttl_seconds=60,
+        direct_audit_ttl_seconds=60,
+        max_payloads=1,
+    )
 
-    first = store.put("first", {})
-    second = store.put("second", {})
+    first = store.put(state_key, "first", metadata={})
+    second = store.put(state_key, "second", metadata={})
 
-    assert store.get(first) is None
-    assert store.get(second)["payload"] == "second"
+    assert store.get(state_key, first) is None
+    second_payload = store.get(state_key, second)
+    assert second_payload is not None
+    assert second_payload.payload == "second"
     assert store.count() == 1
     store.clear()
     assert store.count() == 0

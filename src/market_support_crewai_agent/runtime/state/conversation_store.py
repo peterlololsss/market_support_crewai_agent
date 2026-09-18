@@ -5,12 +5,15 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Callable, Literal
 
-from market_support_crewai_agent.runtime.domain.sources.metadata import (
+from market_support_crewai_agent.runtime.evidence.sources.metadata import (
     SourceMetadata,
     source_metadata_for_conversation_message,
 )
-from market_support_crewai_agent.settings import Settings
-
+from market_support_crewai_agent.runtime.identity import (
+    ConversationStateKey,
+    state_key_ref,
+)
+from market_support_crewai_agent.settings_model import Settings
 
 ConversationRole = Literal["user", "assistant"]
 
@@ -55,7 +58,7 @@ class ConversationStore:
         self._max_sessions = max_sessions
         self._cleanup_interval = timedelta(seconds=cleanup_interval_seconds)
         self._now_factory = now_factory or (lambda: datetime.now(timezone.utc))
-        self._sessions: dict[str, _ConversationSession] = {}
+        self._sessions: dict[ConversationStateKey, _ConversationSession] = {}
         self._lock = RLock()
         self._next_cleanup_at = self._now() + self._cleanup_interval
 
@@ -70,22 +73,22 @@ class ConversationStore:
             ),
         )
 
-    def get_recent(self, conversation_key: str) -> list[ConversationMessage]:
+    def get_recent(self, state_key: ConversationStateKey) -> list[ConversationMessage]:
         """Return a copy of recent messages for an active conversation."""
         with self._lock:
             now = self._now()
             self._cleanup_if_due_locked(now)
-            session = self._sessions.get(conversation_key)
+            session = self._sessions.get(state_key)
             if session is None:
                 return []
             if session.expires_at <= now:
-                del self._sessions[conversation_key]
+                del self._sessions[state_key]
                 return []
             return list(session.messages)
 
     def save_turn(
         self,
-        conversation_key: str,
+        state_key: ConversationStateKey,
         user_content: str,
         assistant_content: str,
     ) -> None:
@@ -93,14 +96,14 @@ class ConversationStore:
         with self._lock:
             now = self._now()
             self._cleanup_if_due_locked(now)
-            session = self._sessions.get(conversation_key)
+            session = self._sessions.get(state_key)
             if session is None or session.expires_at <= now:
                 session = _ConversationSession(
                     last_active_at=now,
                     expires_at=now + self._ttl,
                     messages=[],
                 )
-                self._sessions[conversation_key] = session
+                self._sessions[state_key] = session
 
             session.messages.extend(
                 [
@@ -109,7 +112,7 @@ class ConversationStore:
                         user_content,
                         now,
                         source_metadata_for_conversation_message(
-                            conversation_key=conversation_key,
+                            conversation_key=state_key_ref(state_key),
                             role="user",
                             created_at=now,
                         ),
@@ -119,7 +122,7 @@ class ConversationStore:
                         assistant_content,
                         now,
                         source_metadata_for_conversation_message(
-                            conversation_key=conversation_key,
+                            conversation_key=state_key_ref(state_key),
                             role="assistant",
                             created_at=now,
                         ),
@@ -130,7 +133,7 @@ class ConversationStore:
                 session.messages = session.messages[-self._max_messages :]
             session.last_active_at = now
             session.expires_at = now + self._ttl
-            self._enforce_session_cap_locked(preserve_key=conversation_key)
+            self._enforce_session_cap_locked(preserve_key=state_key)
 
     def cleanup_expired(self) -> int:
         """Remove expired sessions immediately and return the deletion count."""
@@ -157,7 +160,7 @@ class ConversationStore:
             del self._sessions[key]
         return len(expired_keys)
 
-    def _enforce_session_cap_locked(self, preserve_key: str) -> None:
+    def _enforce_session_cap_locked(self, preserve_key: ConversationStateKey) -> None:
         while len(self._sessions) > self._max_sessions:
             candidates = (
                 (key, session)
@@ -166,7 +169,7 @@ class ConversationStore:
             )
             oldest = min(
                 candidates,
-                key=lambda item: (item[1].last_active_at, item[0]),
+                key=lambda item: (item[1].last_active_at, state_key_ref(item[0])),
                 default=None,
             )
             if oldest is None:

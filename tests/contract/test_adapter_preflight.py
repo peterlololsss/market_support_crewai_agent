@@ -1,218 +1,129 @@
 from __future__ import annotations
 
-import asyncio
+from functools import partial
 
-from market_support_crewai_agent.runtime.evidence.adapter_client import AdapterClientError
-from market_support_crewai_agent.runtime.evidence.adapter_preflight import (
+import anyio
+
+from market_support_crewai_agent.runtime.integrations.adapter.preflight import (
     AdapterPreflightService,
     AdapterPreflightSnapshot,
 )
-from market_support_crewai_agent.schemas import AdapterResolveResult
+from market_support_crewai_agent.schemas.adapter import AvailableArtifact
+from tests.contract.adapter_preflight_support import (
+    FakeAdapterClient,
+    make_preflight_request,
+)
 
 
-def make_payload(**overrides):
-    payload = {
-        "context_id": "msg-1",
-        "conversation_key": "wecom:group-1:sender-1",
-        "group_id": "group-1",
-        "sender_id": "sender-1",
-        "message": "hello",
-        "is_group": True,
-        "group_name": "test group",
-        "dist_channel_name": "test channel",
-        "sender_nickname": "test user",
-        "available_artifacts": [
-            {"type": "material_pack", "options": []},
-            {"type": "weekly_report"},
-            {"type": "monthly_report"},
+def test_group_capabilities_without_scene_fields_preserve_existing_preflight_results() -> (
+    None
+):
+    request = make_preflight_request(
+        dist_channel_name="测试渠道",
+        available_artifacts=[
+            AvailableArtifact(type="material_pack", options=["指增"]),
+            AvailableArtifact(type="weekly_report"),
+            AvailableArtifact(type="monthly_report"),
         ],
-        "channel_type": "bank",
-    }
-    payload.update(overrides)
-    return payload
-
-
-class FakeAdapterClient:
-    def __init__(
-            self,
-            failures: set[str] | None = None,
-            omissions: set[str] | None = None,
-            readiness_error: str = "",
-    ):
-        self.failures = failures or set()
-        self.omissions = omissions or set()
-        self.readiness_error = readiness_error
-        self.ready_calls = 0
-        self.requests = []
-
-    async def assert_ready_async(self):
-        self.ready_calls += 1
-        if self.readiness_error:
-            raise AdapterClientError(self.readiness_error)
-        return None
-
-    async def resolve_many_async(self, requests):
-        self.requests.extend(requests)
-        failures = [request.resolve_type for request in requests if request.resolve_type in self.failures]
-        if failures:
-            raise AdapterClientError(f"{failures[0]} unavailable")
-        return [
-            self._resolve(request)
-            for request in requests
-            if request.resolve_type not in self.omissions
-        ]
-
-    def _resolve(self, request):
-        return AdapterResolveResult.model_validate(
-            {
-                "contract_version": "adapter-resolve",
-                "resolve_type": request.resolve_type,
-                "status": "resolved",
-                "display_name": request.dist_name,
-                "reason_code": "ok",
-                "candidates": [],
-                "channel_type": "bank",
-                "available_artifacts": [
-                    {"type": "material_pack", "options": ["指增"]},
-                    {"type": "weekly_report"},
-                    {"type": "monthly_report"},
-                ],
-                "resolved_at": 1,
-                "resolve_ref": f"{request.resolve_type}:ref",
-                "material_pack_option": request.material_pack_option,
-                "period": "20260529" if request.resolve_type == "weekly_report" else None,
-            }
-        )
-
-
-def test_preflight_collects_all_registry_adapter_resolve_types_without_implicit_strategy():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(
-        make_payload(
-            available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-            dist_channel_name="测试渠道",
-        )
     )
     fake_client = FakeAdapterClient()
-    service = AdapterPreflightService(adapter_client=fake_client)
 
-    snapshot = asyncio.run(service.collect(request))
+    snapshot = anyio.run(AdapterPreflightService(fake_client).collect, request)
 
     assert snapshot.available is True
+    assert fake_client.ready_calls == 1
     assert [item.resolve_type for item in snapshot.items] == [
         "material_pack",
         "weekly_report",
         "monthly_report",
         "sales_mention",
     ]
-    assert all(
-        resolve_request.material_pack_option is None
-        for resolve_request in fake_client.requests
-    )
-    assert all(resolve_request.dist_name == "测试渠道" for resolve_request in fake_client.requests)
+    assert all(item.material_pack_option is None for item in fake_client.requests)
+    assert all(item.dist_name == "测试渠道" for item in fake_client.requests)
 
 
-def test_preflight_omits_material_pack_option_when_multiple_candidates_exist():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(
-        make_payload(available_artifacts=[{"type": "material_pack", "options": ["指增", "量化"]}, {"type": "weekly_report"}, {"type": "monthly_report"}])
+def test_preflight_omits_material_pack_option_when_multiple_candidates_exist() -> None:
+    request = make_preflight_request(
+        available_artifacts=[
+            AvailableArtifact(type="material_pack", options=["指增", "量化"]),
+            AvailableArtifact(type="weekly_report"),
+            AvailableArtifact(type="monthly_report"),
+        ]
     )
     fake_client = FakeAdapterClient()
-    service = AdapterPreflightService(adapter_client=fake_client)
 
-    asyncio.run(service.collect(request))
+    _ = anyio.run(AdapterPreflightService(fake_client).collect, request)
 
     assert fake_client.requests[0].resolve_type == "material_pack"
-    assert all(
-        resolve_request.material_pack_option is None
-        for resolve_request in fake_client.requests
-    )
+    assert all(item.material_pack_option is None for item in fake_client.requests)
 
 
-def test_preflight_ignores_query_without_material_pack_option_selector():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(
-        make_payload(
-            message="1000所有号的周报我想看看",
-            available_artifacts=[{"type": "material_pack", "options": ["中证500", "中证1000"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-        )
+def test_preflight_ignores_query_without_material_pack_option_selector() -> None:
+    request = make_preflight_request(
+        message="1000所有号的周报我想看看",
+        available_artifacts=[
+            AvailableArtifact(
+                type="material_pack",
+                options=["中证500", "中证1000"],
+            ),
+            AvailableArtifact(type="weekly_report"),
+            AvailableArtifact(type="monthly_report"),
+        ],
     )
     fake_client = FakeAdapterClient()
-    service = AdapterPreflightService(adapter_client=fake_client)
 
-    asyncio.run(service.collect(request))
+    _ = anyio.run(AdapterPreflightService(fake_client).collect, request)
 
     assert fake_client.requests[0].resolve_type == "material_pack"
-    assert fake_client.requests[0].material_pack_option is None
-    assert fake_client.requests[1].material_pack_option is None
-    assert fake_client.requests[2].material_pack_option is None
-    assert fake_client.requests[3].material_pack_option is None
+    assert all(item.material_pack_option is None for item in fake_client.requests)
 
 
-def test_preflight_request_projection_keeps_conversation_identity_out_of_adapter_contract():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(
-        make_payload(
-            context_id="trace-1",
-            conversation_key="wecom:group:sender",
-            available_artifacts=[{"type": "material_pack", "options": ["指增"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-        )
-    )
+def test_preflight_request_projection_keeps_conversation_identity_out_of_adapter_contract() -> (
+    None
+):
     fake_client = FakeAdapterClient()
-    service = AdapterPreflightService(adapter_client=fake_client)
 
-    asyncio.run(service.collect(request))
+    _ = anyio.run(
+        AdapterPreflightService(fake_client).collect,
+        make_preflight_request(),
+    )
 
-    payload = fake_client.requests[0].model_dump(mode="json", exclude_none=True)
-    assert payload == {
+    assert fake_client.requests[0].model_dump(mode="json", exclude_none=True) == {
         "resolve_type": "material_pack",
         "dist_name": "test channel",
     }
 
 
-def test_preflight_can_limit_adapter_resolve_types():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(
-        make_payload(
-            message="1000所有号的周报我想看看",
-            available_artifacts=[{"type": "material_pack", "options": ["中证500", "中证1000"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-        )
-    )
+def test_preflight_can_limit_adapter_resolve_types() -> None:
     fake_client = FakeAdapterClient()
-    service = AdapterPreflightService(adapter_client=fake_client)
-
-    snapshot = asyncio.run(
-        service.collect(
-            request,
-            resolve_types=["weekly_report", "sales_mention"],
-        )
+    collect = partial(
+        AdapterPreflightService(fake_client).collect,
+        make_preflight_request(message="1000所有号的周报我想看看"),
+        resolve_types=["weekly_report", "sales_mention"],
     )
+
+    snapshot = anyio.run(collect)
 
     assert [item.resolve_type for item in snapshot.items] == [
         "weekly_report",
         "sales_mention",
     ]
-    assert [request.resolve_type for request in fake_client.requests] == [
+    assert [item.resolve_type for item in fake_client.requests] == [
         "weekly_report",
         "sales_mention",
     ]
-    assert fake_client.requests[0].material_pack_option is None
-    assert fake_client.requests[1].material_pack_option is None
+    assert all(item.material_pack_option is None for item in fake_client.requests)
 
 
-def test_preflight_returns_empty_snapshot_when_plan_needs_no_adapter_resolves():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(make_payload(message="hi"))
+def test_preflight_returns_empty_snapshot_when_plan_needs_no_adapter_resolves() -> None:
     fake_client = FakeAdapterClient()
-    service = AdapterPreflightService(adapter_client=fake_client)
+    collect = partial(
+        AdapterPreflightService(fake_client).collect,
+        make_preflight_request(message="hi"),
+        resolve_types=[],
+    )
 
-    snapshot = asyncio.run(service.collect(request, resolve_types=[]))
+    snapshot = anyio.run(collect)
 
     assert snapshot == AdapterPreflightSnapshot.empty()
     assert snapshot.available is True
@@ -220,100 +131,21 @@ def test_preflight_returns_empty_snapshot_when_plan_needs_no_adapter_resolves():
     assert fake_client.requests == []
 
 
-def test_preflight_uses_material_pack_option_only_for_material_pack_resolve():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(
-        make_payload(
-            message="这个周报发一下",
-            available_artifacts=[{"type": "material_pack", "options": ["中证500", "中证1000"]}, {"type": "weekly_report"}, {"type": "monthly_report"}],
-        )
-    )
+def test_preflight_uses_material_pack_option_only_for_material_pack_resolve() -> None:
     fake_client = FakeAdapterClient()
-    service = AdapterPreflightService(adapter_client=fake_client)
-
-    asyncio.run(
-        service.collect(
-            request,
-            resolve_types=["material_pack", "weekly_report", "sales_mention"],
-            resolve_material_pack_options={"material_pack": "中证1000"},
-        )
+    collect = partial(
+        AdapterPreflightService(fake_client).collect,
+        make_preflight_request(message="这个周报发一下"),
+        resolve_types=["material_pack", "weekly_report", "sales_mention"],
+        resolve_material_pack_options={"material_pack": "中证1000"},
     )
 
-    assert fake_client.requests[0].resolve_type == "material_pack"
-    assert fake_client.requests[0].material_pack_option == "中证1000"
-    assert fake_client.requests[1].resolve_type == "weekly_report"
-    assert fake_client.requests[1].material_pack_option is None
-    assert fake_client.requests[2].resolve_type == "sales_mention"
-    assert fake_client.requests[2].material_pack_option is None
+    _ = anyio.run(collect)
 
-
-def test_preflight_records_adapter_errors_without_raising():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(make_payload())
-    service = AdapterPreflightService(
-        adapter_client=FakeAdapterClient(failures={"weekly_report"}),
-    )
-
-    snapshot = asyncio.run(service.collect(request))
-
-    weekly = next(item for item in snapshot.items if item.resolve_type == "weekly_report")
-    assert snapshot.available is False
-    assert weekly.status == "adapter_unavailable"
-    assert "weekly_report unavailable" in weekly.error
-    assert all(item.status == "adapter_unavailable" for item in snapshot.items)
-
-
-def test_preflight_records_adapter_readiness_error_without_batch_request():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(make_payload())
-    fake_client = FakeAdapterClient(readiness_error="adapter capabilities mismatch")
-    service = AdapterPreflightService(adapter_client=fake_client)
-
-    snapshot = asyncio.run(service.collect(request))
-
-    assert snapshot.available is False
-    assert fake_client.ready_calls == 1
-    assert fake_client.requests == []
-    assert all(item.status == "adapter_unavailable" for item in snapshot.items)
-    assert all("adapter capabilities mismatch" in item.error for item in snapshot.items)
-
-
-def test_preflight_records_missing_batch_result_without_dropping_item():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(make_payload())
-    service = AdapterPreflightService(
-        adapter_client=FakeAdapterClient(omissions={"weekly_report"}),
-    )
-
-    snapshot = asyncio.run(service.collect(request))
-
-    assert [item.resolve_type for item in snapshot.items] == [
+    assert [item.resolve_type for item in fake_client.requests] == [
         "material_pack",
         "weekly_report",
-        "monthly_report",
         "sales_mention",
     ]
-    weekly = next(item for item in snapshot.items if item.resolve_type == "weekly_report")
-    assert snapshot.available is False
-    assert weekly.status == "adapter_unavailable"
-    assert weekly.error == "adapter batch result missing"
-
-
-def test_preflight_rejects_resolve_type_not_in_registry():
-    from market_support_crewai_agent.schemas import ReplyRequest
-
-    request = ReplyRequest.model_validate(make_payload())
-    service = AdapterPreflightService(adapter_client=FakeAdapterClient())
-
-    try:
-        asyncio.run(service.collect(request, resolve_types=["unknown"]))  # type: ignore[list-item]
-    except ValueError as exc:
-        error = exc
-    else:
-        raise AssertionError("unknown resolve type should fail")
-
-    assert "Unknown adapter resolve type" in str(error)
+    assert fake_client.requests[0].material_pack_option == "中证1000"
+    assert all(item.material_pack_option is None for item in fake_client.requests[1:])

@@ -1,0 +1,366 @@
+from __future__ import annotations
+
+# noqa: SIZE_OK - reviewed immutable catalog rows are kept atomic for manifest audit.
+from pydantic import ConfigDict, Field, ValidationError, model_validator
+
+from market_support_crewai_agent.runtime.policy.capabilities import (
+    CAPABILITY_MANIFEST_REGISTRY,
+    ManifestRefV1,
+)
+from market_support_crewai_agent.schemas.base import StrictModel
+
+APPROVED_STATIC_MANIFEST_REF = ManifestRefV1(
+    manifest_id="answer_internal_company_knowledge",
+    manifest_version="2026-07-18.1",
+)
+
+
+class _FrozenCatalogModel(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ApprovedImageAsset(_FrozenCatalogModel):
+    asset_id: str = Field(min_length=1, max_length=160)
+    marker_filename: str = Field(pattern=r"^[\w.-]+\.png$", max_length=160)
+    title: str = Field(min_length=1, max_length=160)
+    semantic_purpose: str = Field(min_length=1, max_length=600)
+    usage_notes: str = Field(default="", max_length=600)
+
+    @property
+    def marker(self) -> str:
+        return f"%%{self.marker_filename}%%"
+
+
+class ApprovedKnowledgeEntry(_FrozenCatalogModel):
+    entry_id: str = Field(pattern=r"^[a-z0-9_]+$", max_length=160)
+    manifest_ref: ManifestRefV1
+    title: str = Field(min_length=1, max_length=160)
+    approved_answer: str = Field(min_length=1, max_length=20_000)
+    semantic_purpose: str = Field(min_length=1, max_length=600)
+    user_request_examples: tuple[str, ...] = Field(default=(), max_length=20)
+    image_asset_ids: tuple[str, ...] = Field(default=(), max_length=8)
+
+    @model_validator(mode="after")
+    def validate_manifest_binding(self) -> ApprovedKnowledgeEntry:
+        manifest = CAPABILITY_MANIFEST_REGISTRY.find(self.manifest_ref.manifest_id)
+        if (
+            self.manifest_ref != APPROVED_STATIC_MANIFEST_REF
+            or manifest is None
+            or manifest.manifest_version != self.manifest_ref.manifest_version
+        ):
+            raise ValueError("approved_static_manifest_ref_invalid")  # noqa: GENERIC_ERR_OK
+        return self
+
+    def to_document_context(self, selected_image_asset_ids: tuple[str, ...]) -> str:
+        answer = self.approved_answer
+        selected_assets = set(selected_image_asset_ids)
+        for asset_id in self.image_asset_ids:
+            asset = _APPROVED_IMAGE_ASSETS_BY_ID.get(asset_id)
+            if asset is None or asset_id in selected_assets:
+                continue
+            answer = answer.replace(asset.marker, "").strip()
+        if not answer.strip():
+            return ""
+        return f"Q：{self.title}\nA：{answer.strip()}"
+
+
+APPROVED_IMAGE_ASSETS: tuple[ApprovedImageAsset, ...] = (
+    ApprovedImageAsset(
+        asset_id="company_public_account_qr",
+        marker_filename="comp_wx_qr_code.png",
+        title="示例资本公众号二维码",
+        semantic_purpose="Use only when the user asks for the company's WeChat public account, QR code, or where to follow official public-account content.",
+    ),
+    ApprovedImageAsset(
+        asset_id="alpha_beta_comparison_chart",
+        marker_filename="alpha_beta_comparison.png",
+        title="超额收益与指数收益示意图",
+        semantic_purpose="Use only when the user asks to understand alpha/超额收益 versus beta/指数收益.",
+    ),
+    ApprovedImageAsset(
+        asset_id="quant_difference_chart",
+        marker_filename="quant_difference.png",
+        title="量化投资与主观投资区别图",
+        semantic_purpose="Use only when the user asks about differences between quantitative and discretionary investment.",
+    ),
+    ApprovedImageAsset(
+        asset_id="company_shareholders_chart",
+        marker_filename="company_shareholders.png",
+        title="示例股权结构图",
+        semantic_purpose="Use only when the user asks about Example Capital ownership, shareholders, or equity structure.",
+    ),
+    ApprovedImageAsset(
+        asset_id="sh000985_weights_chart",
+        marker_filename="SH000985_weights.png",
+        title="中证全指权重分布图",
+        semantic_purpose="Use only when the user asks about CSI All Share constituent or market-cap weight distribution.",
+    ),
+    ApprovedImageAsset(
+        asset_id="sh000985_features_chart",
+        marker_filename="SH000985_features.png",
+        title="中证全指指数特征图",
+        semantic_purpose="Use only when the user asks about CSI All Share style, characteristics, or historical behavior.",
+    ),
+    ApprovedImageAsset(
+        asset_id="sh000985_constituents_chart",
+        marker_filename="SH000985_constituents.png",
+        title="中证全指成分股说明图",
+        semantic_purpose="Use only when the user asks what CSI All Share includes or how constituents are selected.",
+    ),
+    ApprovedImageAsset(
+        asset_id="company_historical_aum_chart",
+        marker_filename="company_historical_aum.png",
+        title="公司历史规模趋势图",
+        semantic_purpose="Use only when the user asks for historical company AUM or scale trend data.",
+    ),
+    ApprovedImageAsset(
+        asset_id="indice_comparison_chart",
+        marker_filename="indice_comparison.png",
+        title="中证1000与其他指数比较图",
+        semantic_purpose="Use only when the user asks why choose CSI 1000 index enhancement or compares CSI 1000 with CSI 500/沪深300.",
+    ),
+)
+
+_APPROVED_IMAGE_ASSETS_BY_ID = {
+    asset.asset_id: asset for asset in APPROVED_IMAGE_ASSETS
+}
+_APPROVED_IMAGE_ASSETS_BY_MARKER_FILENAME = {
+    asset.marker_filename: asset for asset in APPROVED_IMAGE_ASSETS
+}
+
+
+APPROVED_KNOWLEDGE: tuple[ApprovedKnowledgeEntry, ...] = (
+    ApprovedKnowledgeEntry(
+        entry_id="company_public_account",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="公众号二维码",
+        semantic_purpose="Answer requests for Example Capital's official WeChat public account, QR code, or where to follow public education articles.",
+        user_request_examples=(
+            "示例公众号二维码",
+            "你们有微信公众号吗？",
+            "从微信上面能搜到你们吗？",
+            "想关注一下你们的微信公众号",
+            "你们这些科普文章可以从哪里找到？",
+        ),
+        approved_answer=(
+            "%%comp_wx_qr_code.png%%\n"
+            "欢迎搜索【示例资本】或扫描二维码关注示例资本公众号，获取更多资讯。\n"
+            "https://www.example.com/wechat-public-account"
+        ),
+        image_asset_ids=("company_public_account_qr",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="company_basic_contact",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="联系方式",
+        semantic_purpose="Answer requests for Example Capital's company name, office address, website, or basic contact information.",
+        user_request_examples=(
+            "示例资本地址在哪里",
+            "示例资本网址是什么",
+            "示例资本公众号是什么",
+        ),
+        approved_answer=(
+            "公司名称：上海示例资本\n"
+            "地址：上海市示例区示例路1号示例大厦1楼\n"
+            "网址：http://www.example.com/\n"
+            "公众号：%%comp_wx_qr_code.png%%"
+        ),
+        image_asset_ids=("company_public_account_qr",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="double_layer_structure",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="代销产品双层结构",
+        semantic_purpose="Explain why bank-distributed products use a trust-plan/private-fund double-layer structure.",
+        user_request_examples=(
+            "产品为什么要设置双层结构？",
+            "为什么我从银行买的不是基金而是信托计划？",
+            "我不能从银行直接买你们的基金产品吗？",
+            "我不想要双层结构行不行？",
+        ),
+        approved_answer="因为按照监管规定银行不可以直接代销私募基金，所以实际上是银行代销信托计划，信托计划可以投向阳光私募基金。",
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="alpha_beta_comparison",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="超额收益与指数收益",
+        semantic_purpose="Answer conceptual requests about alpha/超额收益 versus beta/指数收益.",
+        user_request_examples=(
+            "超额收益是什么？",
+            "超额收益与指数收益的区别",
+            "什么叫超额收益？",
+            "超额收益与指数收益差很多吗？",
+            "有哪些因素会影响到超额收益呢？",
+        ),
+        approved_answer="%%alpha_beta_comparison.png%%",
+        image_asset_ids=("alpha_beta_comparison_chart",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="quant_difference",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="量化投资和主观投资区别",
+        semantic_purpose="Answer requests comparing quantitative investment and discretionary/subjective investment.",
+        user_request_examples=(
+            "量化投资和主观投资有什么区别？",
+            "量化与主观最大的不同是什么？",
+            "主观多头和你们的策略差异很大吗？",
+        ),
+        approved_answer="%%quant_difference.png%%",
+        image_asset_ids=("quant_difference_chart",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="company_shareholders",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="示例股权结构",
+        semantic_purpose="Answer requests for Example Capital's shareholder composition or equity structure chart.",
+        user_request_examples=(
+            "你们公司的股权结构是什么？",
+            "示例的股东情况是什么样的？",
+            "示例的股东构成是什么样的？",
+            "示例的股权图是什么样的？",
+        ),
+        approved_answer="%%company_shareholders.png%%",
+        image_asset_ids=("company_shareholders_chart",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="sh000985_weights",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="中证全指权重分布",
+        semantic_purpose="Answer requests about CSI All Share weight distribution across major size/index buckets or stock universe.",
+        user_request_examples=(
+            "全指中有多少沪深300的股票？",
+            "全指中有多少中证500的股票？",
+            "全指中有多少中证1000的股票？",
+            "全指中小市值的股票占比多不多？",
+            "你们中证全指指数增强策略的选股域是什么？",
+            "示例中证全指指数增强策略持有多少支股票？",
+        ),
+        approved_answer=(
+            "%%SH000985_weights.png%%\n"
+            "中证全指的权重分布如下图，中证全指指增持仓会与下述权重相似。数据截止至2025.12.31。"
+        ),
+        image_asset_ids=("sh000985_weights_chart",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="sh000985_features",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="中证全指指数特征",
+        semantic_purpose="Answer requests about CSI All Share style, characteristics, differences, or past performance summary.",
+        user_request_examples=(
+            "中证全指指数的是什么风格？",
+            "中证全指指数有哪些特征？",
+            "中证全指指数与其他指数有什么不同？",
+            "中证全指指数的介绍有吗？",
+            "全指指数过往表现有吗？",
+        ),
+        approved_answer=(
+            "中证全指指数风格更为均衡，4000+成分股涵盖了A股市场上大、中、小不同市值的股票，"
+            "兼具价值、平衡、成长的不同特征，在过去7年大小盘风格轮动过程中展现出相对更加稳定的收益率表现情况。\n"
+            "%%SH000985_features.png%%"
+        ),
+        image_asset_ids=("sh000985_features_chart",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="sh000985_constituents",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="中证全指成分股说明",
+        semantic_purpose="Answer requests for what CSI All Share is, what it includes, or how constituents are selected.",
+        user_request_examples=(
+            "中证全指指数是什么？",
+            "什么是中证全指指数？",
+            "中证全指包含哪些股票？",
+            "中证全指是不是所有的股票都包括了？",
+        ),
+        approved_answer=(
+            "中证全指指数成分股数量众多，它在A股市场所有股票的基础上剔除了ST、*ST，科创板上市不足一年，"
+            "北交所上市不足两年和其他上市不足三个月的股票（其中，针对其他上市不足三个月的股票，"
+            "除非该证券自上市以来日均总市值排在前 30 位），其成分股选择方式使得中证全指指数极具市场代表性，"
+            "能够更旗帜鲜明地代表A股市场的整体表现。\n"
+            "%%SH000985_constituents.png%%"
+        ),
+        image_asset_ids=("sh000985_constituents_chart",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="company_historical_aum",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="公司历史规模数据",
+        semantic_purpose="Answer requests for historical Example Capital company scale, AUM, or annual scale trend data.",
+        user_request_examples=(
+            "是否有咱们公司成立以来每年整体规模增长的趋势数据呢？",
+            "有历史的规模数据吗？",
+            "每年规模的趋势数据发一下可以吗？",
+            "历史规模数据可以发一下吗？",
+            "请问示例过往几年到现在的规模大致是怎样发展的？",
+        ),
+        approved_answer=(
+            "在咱们ppt当中有哈，供参考。行业规模数据为估算数据，我司不确保该等数据的真实准确完整\n"
+            "%%company_historical_aum.png%%"
+        ),
+        image_asset_ids=("company_historical_aum_chart",),
+    ),
+    ApprovedKnowledgeEntry(
+        entry_id="indice_comparison",
+        manifest_ref=APPROVED_STATIC_MANIFEST_REF,
+        title="中证1000与其他指数比较",
+        semantic_purpose="Answer requests comparing CSI 1000 index enhancement with CSI 500, HS300, or other index enhancement strategies.",
+        user_request_examples=(
+            "分别分析一下中证500指数和中证1000指数",
+            "为什么投资者应该选择中证1000指数增强？",
+            "中证1000指增策略与其他策略相比好在哪儿？",
+            "比起300的话，中证1000指数增强有什么优势呢？",
+            "比起500的话，中证1000指数增强有什么优势呢？",
+        ),
+        approved_answer=(
+            "中证1000指数成分股具有更为分散、风格偏向中小盘、交易活跃、波动性高等特征，并且机构投资者交易占比更低，"
+            "因此纠正股票错误定价的力量更小，这可以给量化机构带来更多的交易机会，因此中证1000指数增强策略具备更为丰厚的超额收益水平。\n"
+            "%%indice_comparison.png%%\n"
+            "目前市场上对标中证500指数的量化策略规模较大，因此中证500指数增强策略的竞争相对更加激烈，"
+            "致使超额收益有所衰减，而对标中证1000指数的量化策略规模较小，中证1000指数增强策略还有较大的扩容空间。"
+        ),
+        image_asset_ids=("indice_comparison_chart",),
+    ),
+)
+
+_APPROVED_KNOWLEDGE_BY_ID = {entry.entry_id: entry for entry in APPROVED_KNOWLEDGE}
+
+
+def approved_image_markers() -> frozenset[str]:
+    return frozenset(asset.marker_filename for asset in APPROVED_IMAGE_ASSETS)
+
+
+def approved_image_asset_by_marker(filename: str) -> ApprovedImageAsset | None:
+    return _APPROVED_IMAGE_ASSETS_BY_MARKER_FILENAME.get(filename)
+
+
+def entry_image_assets(
+    entry: ApprovedKnowledgeEntry,
+) -> tuple[ApprovedImageAsset, ...]:
+    return tuple(
+        _APPROVED_IMAGE_ASSETS_BY_ID[asset_id]
+        for asset_id in entry.image_asset_ids
+        if asset_id in _APPROVED_IMAGE_ASSETS_BY_ID
+    )
+
+
+def validated_catalog_manifest_ref(
+    entry: ApprovedKnowledgeEntry,
+) -> ManifestRefV1 | None:
+    value = getattr(entry, "manifest_ref", None)
+    if value is None:
+        return None
+    try:
+        payload = value.model_dump(mode="json", exclude_none=False)
+    except AttributeError:
+        return None
+    try:
+        manifest_ref = ManifestRefV1.model_validate(payload)
+    except ValidationError:
+        return None
+    manifest = CAPABILITY_MANIFEST_REGISTRY.find(manifest_ref.manifest_id)
+    if (
+        manifest_ref != APPROVED_STATIC_MANIFEST_REF
+        or manifest is None
+        or manifest.manifest_version != manifest_ref.manifest_version
+    ):
+        return None
+    return manifest_ref

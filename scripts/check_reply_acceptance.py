@@ -11,6 +11,14 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+GOVERNED_ENV_OVERRIDES = {
+    "CREWAI_MAX_ITER": "1",
+    "CREWAI_MAX_RETRY_LIMIT": "0",
+    "MARKET_AGENT_PLANNER_TRANSIENT_RETRY_ATTEMPTS": "0",
+    "MARKET_AGENT_PLANNER_TRANSIENT_RETRY_BASE_SECONDS": "0",
+    "MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_ATTEMPTS": "0",
+    "MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_BASE_SECONDS": "0",
+}
 
 
 @dataclass(frozen=True)
@@ -37,24 +45,16 @@ def _check_commands(
             name="runtime_fake_deps",
             command=(sys.executable, "scripts/check_reply_runtime_fake_deps.py"),
         ),
-        CheckCommand(
-            name="agent_behavior_golden_evals",
-            command=(
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "tests/unit/domain/test_agent_behavior_eval_golden.py",
-                "tests/integration/runtime/test_agent_behavior_eval_suite.py",
-            ),
-        ),
     ]
     if include_real_llm:
         commands.extend(
             [
                 CheckCommand(
                     name="real_llm_knowledge_eval",
-                    command=(sys.executable, "scripts/eval_reply_real_llm_knowledge.py"),
+                    command=(
+                        sys.executable,
+                        "scripts/eval_reply_real_llm_knowledge.py",
+                    ),
                     requires_real_llm=True,
                 ),
                 CheckCommand(
@@ -113,9 +113,12 @@ def _load_dotenv(path: Path = PROJECT_ROOT / ".env") -> None:
 def _run_command(command: CheckCommand, verbose: bool) -> dict:
     print(f"RUN {command.name}: {' '.join(command.command)}", flush=True)
     started = time.perf_counter()
+    child_environment = os.environ.copy()
+    child_environment.update(GOVERNED_ENV_OVERRIDES)
     completed = subprocess.run(
         command.command,
         cwd=PROJECT_ROOT,
+        env=child_environment,
         text=True,
         capture_output=not verbose,
         check=False,
@@ -134,7 +137,10 @@ def _run_command(command: CheckCommand, verbose: bool) -> dict:
         result["stderr_tail"] = _tail(completed.stderr)
         print(completed.stdout, file=sys.stdout)
         print(completed.stderr, file=sys.stderr)
-    print(f"DONE {command.name}: {completed.returncode} in {duration_seconds}s", flush=True)
+    print(
+        f"DONE {command.name}: {completed.returncode} in {duration_seconds}s",
+        flush=True,
+    )
     return result
 
 

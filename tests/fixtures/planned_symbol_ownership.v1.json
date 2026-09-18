@@ -1,0 +1,645 @@
+{
+  "contract_version": "planned-symbol-ownership.v1",
+  "rows": [
+    {
+      "symbol": "PromptStaticBudgetV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/budgets.py",
+      "target_todo": 1,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PromptStaticBudgetRegistryV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/budgets.py",
+      "target_todo": 1,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "load_prompt_static_budgets",
+      "path": "src/market_support_crewai_agent/runtime/prompts/budgets.py",
+      "target_todo": 1,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ReplyRequestV2",
+      "path": "src/market_support_crewai_agent/schemas/conversation.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "AvailableArtifactV2",
+      "path": "src/market_support_crewai_agent/schemas/conversation.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "AuthenticatedAdapterCallerV1",
+      "path": "src/market_support_crewai_agent/runtime/identity/models.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "VerifiedConversationIdentityV1",
+      "path": "src/market_support_crewai_agent/runtime/identity/models.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "KernelReplyRequestV1",
+      "path": "src/market_support_crewai_agent/runtime/identity/models.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PolicyRequestKernelV1",
+      "path": "src/market_support_crewai_agent/runtime/identity/models.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "VerifiedRequestEnvelopeV1",
+      "path": "src/market_support_crewai_agent/runtime/identity/models.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "policy_request_kernel_v1",
+      "path": "src/market_support_crewai_agent/runtime/identity/normalizer.py",
+      "target_todo": 2,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ConversationStateKey",
+      "path": "src/market_support_crewai_agent/runtime/identity/models.py",
+      "target_todo": 2,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "SanitizedAdapterResultV1",
+      "path": "src/market_support_crewai_agent/schemas/feedback_sanitization.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ActionLedgerRecordV2",
+      "path": "src/market_support_crewai_agent/runtime/state/effect_records.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "TurnAdmissionSnapshotV1",
+      "path": "src/market_support_crewai_agent/runtime/state/transaction_records.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CoordinatorStateRootV1",
+      "path": "src/market_support_crewai_agent/runtime/state/coordinator_state.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ReplyStateJournalV2",
+      "path": "src/market_support_crewai_agent/runtime/state/coordinator_state.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "LlmInvocationAuditProposalV1",
+      "path": "src/market_support_crewai_agent/runtime/state/audit_program_records.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "GroupProgramAuditV2",
+      "path": "src/market_support_crewai_agent/runtime/state/audit_program_records.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "DirectProgramAuditV2",
+      "path": "src/market_support_crewai_agent/runtime/state/audit_program_records.py",
+      "target_todo": 3,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "BusinessScopeAuthorityV1",
+      "path": "src/market_support_crewai_agent/runtime/evidence/scope_authority.py",
+      "target_todo": 4,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CanonicalDecimalStringV1",
+      "path": "src/market_support_crewai_agent/runtime/evidence/canonical_values.py",
+      "target_todo": 4,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "EvidencePayloadCanonicalV1",
+      "path": "src/market_support_crewai_agent/runtime/evidence/canonical_values.py",
+      "target_todo": 4,
+      "kind": "alias",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "EvidenceCommandCacheKeyV1",
+      "path": "src/market_support_crewai_agent/runtime/evidence/canonical_commands.py",
+      "target_todo": 4,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ScopedContextPayloadStoreV1",
+      "path": "src/market_support_crewai_agent/runtime/context/payload_store.py",
+      "target_todo": 4,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PayloadHandleV1",
+      "path": "src/market_support_crewai_agent/runtime/context/payload_store.py",
+      "target_todo": 4,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ManifestRefV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/definitions.py",
+      "target_todo": 5,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CapabilityManifestV2",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/definitions.py",
+      "target_todo": 5,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CapabilityEvidenceContractV2",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/definitions.py",
+      "target_todo": 5,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CapabilityRegistryV2",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/registry.py",
+      "target_todo": 5,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PlanSpecEvidenceContractV1",
+      "path": "src/market_support_crewai_agent/runtime/planning/plan_spec.py",
+      "target_todo": 5,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "DistributionPlanDomainScopeV2",
+      "path": "src/market_support_crewai_agent/runtime/planning/plan_spec.py",
+      "target_todo": 6,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "UnscopedPlanDomainScopeV2",
+      "path": "src/market_support_crewai_agent/runtime/planning/plan_spec.py",
+      "target_todo": 6,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PlanDomainScopeV2",
+      "path": "src/market_support_crewai_agent/runtime/planning/plan_spec.py",
+      "target_todo": 6,
+      "kind": "alias",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ExecutionPlanTimeRangeV1",
+      "path": "src/market_support_crewai_agent/runtime/planning/models.py",
+      "target_todo": 6,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CanonicalEvidenceFactV1",
+      "path": "src/market_support_crewai_agent/runtime/evidence/canonical_models.py",
+      "target_todo": 6,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PolicyAuthorityCoreV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/manifest_models.py",
+      "target_todo": 6,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PolicyManifestV2",
+      "path": "src/market_support_crewai_agent/runtime/policy/manifest_models.py",
+      "target_todo": 6,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "RecallCandidateViewV1",
+      "path": "src/market_support_crewai_agent/runtime/recall/outcome_models.py",
+      "target_todo": 8,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "RecallBranchOutcomeV1",
+      "path": "src/market_support_crewai_agent/runtime/recall/outcome_models.py",
+      "target_todo": 8,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ApprovedStaticShortcutPayloadV1",
+      "path": "src/market_support_crewai_agent/runtime/recall/turn_state.py",
+      "target_todo": 8,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "RecallOutcomeV1",
+      "path": "src/market_support_crewai_agent/runtime/recall/outcome_models.py",
+      "target_todo": 8,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "RecallTurnStateV1",
+      "path": "src/market_support_crewai_agent/runtime/recall/turn_state.py",
+      "target_todo": 8,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "UnitGroundingViewV1",
+      "path": "src/market_support_crewai_agent/runtime/context/models.py",
+      "target_todo": 9,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PlannerPromptInputV1",
+      "path": "src/market_support_crewai_agent/runtime/context/stage_inputs.py",
+      "target_todo": 9,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "KnowledgeComposerPromptInputV1",
+      "path": "src/market_support_crewai_agent/runtime/context/stage_inputs.py",
+      "target_todo": 9,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "SmalltalkComposerPromptInputV1",
+      "path": "src/market_support_crewai_agent/runtime/context/stage_inputs.py",
+      "target_todo": 9,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "AlignmentVerifierPromptInputV1",
+      "path": "src/market_support_crewai_agent/runtime/context/stage_inputs.py",
+      "target_todo": 9,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "SanitizedAlignmentVerifierInputV1",
+      "path": "src/market_support_crewai_agent/runtime/context/stage_inputs.py",
+      "target_todo": 9,
+      "kind": "alias",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "LlmHealthProbeInputV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/auxiliary_contracts.py",
+      "target_todo": 9,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "LlmHealthProbeOutputV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/auxiliary_contracts.py",
+      "target_todo": 9,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ScenePresentationContractV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/registry.py",
+      "target_todo": 13,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "frh1",
+      "path": "src/market_support_crewai_agent/runtime/hashing.py",
+      "target_todo": 13,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PromptBuildMetadataV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/program_models.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "AgentExecutionSpecV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/program_models.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PromptProgramV2",
+      "path": "src/market_support_crewai_agent/runtime/prompts/program_models.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "DirectProviderSynthesisV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/program_models.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ProviderTargetConfigV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/program_models.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ProviderOutputCaptureV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/program_models.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "DirectProviderFatalStateV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/program_models.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "TurnLlmInvocationJournalV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/invocation_journal.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "TurnSelectorOutcomeCacheV1",
+      "path": "src/market_support_crewai_agent/runtime/prompts/invocation_journal.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "DirectSafeProviderTransportV1",
+      "path": "src/market_support_crewai_agent/runtime/integrations/crewai/io.py",
+      "target_todo": 14,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CapabilityViewAuthorityV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/prompt_projection.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "CapabilityViewBindingError",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ModelEvidenceContractV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PlannerCapabilityViewV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ComposerCapabilityViewV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "VerifierPostconditionV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "VerifierCapabilityViewV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "PlannerCapabilityViewSetV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "ComposerCapabilityViewSetV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "VerifierCapabilityViewSetV1",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "capability_view_hash",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/views.py",
+      "target_todo": 7,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "project_capability_view_set",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/prompt_projection.py",
+      "target_todo": 7,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "capability_view_serialized_bytes",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/prompt_projection.py",
+      "target_todo": 7,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "validate_capability_view_budget",
+      "path": "src/market_support_crewai_agent/runtime/policy/capabilities/prompt_projection.py",
+      "target_todo": 7,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "DeploymentIdentityError",
+      "path": "src/market_support_crewai_agent/runtime/identity/deployment.py",
+      "target_todo": 15,
+      "kind": "class",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "validate_deployment_identity",
+      "path": "src/market_support_crewai_agent/runtime/identity/deployment.py",
+      "target_todo": 15,
+      "kind": "function",
+      "expected_count": 1,
+      "status": "migrated"
+    },
+    {
+      "symbol": "assert_scene_compatible",
+      "path": "src/market_support_crewai_agent/runtime/integrations/adapter/client.py",
+      "target_todo": 15,
+      "kind": "method",
+      "expected_count": 1,
+      "status": "migrated"
+    }
+  ]
+}
