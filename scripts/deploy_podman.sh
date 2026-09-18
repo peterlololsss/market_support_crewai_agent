@@ -78,6 +78,12 @@ DOC_MCP_BASE_URL="$(env_value MARKET_AGENT_DOC_MCP_BASE_URL "$DEFAULT_DOC_MCP_BA
 PLANNER_LLM_BASE_URL="$(env_value MARKET_AGENT_PLANNER_LLM_BASE_URL "$DEFAULT_PLANNER_LLM_BASE_URL")"
 ADAPTER_API_KEY="$(env_value MARKET_AGENT_ADAPTER_API_KEY "")"
 APP_API_KEY="$(env_value MARKET_AGENT_API_KEY "")"
+DEPLOYMENT_TENANT_REF="$(env_value MARKET_AGENT_DEPLOYMENT_TENANT_REF "")"
+INTERNAL_DM_ENABLED="$(env_value MARKET_AGENT_INTERNAL_DM_ENABLED "false")"
+
+[[ "$APP_API_KEY" =~ [^[:space:]] ]] || die "MARKET_AGENT_API_KEY must be nonblank"
+[[ "$DEPLOYMENT_TENANT_REF" =~ ^tenant:[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$ ]] || \
+  die "MARKET_AGENT_DEPLOYMENT_TENANT_REF must be a canonical tenant ref"
 
 adapter_headers=()
 if [[ -n "$ADAPTER_API_KEY" ]]; then
@@ -111,10 +117,7 @@ podman run -d \
   -p "$HOST_PORT:$APP_PORT" \
   "$IMAGE_NAME" >/dev/null
 
-app_headers=()
-if [[ -n "$APP_API_KEY" ]]; then
-  app_headers=(-H "X-API-Key: ${APP_API_KEY}")
-fi
+app_headers=(-H "X-API-Key: ${APP_API_KEY}")
 
 health_url="http://127.0.0.1:$HOST_PORT/health"
 for _ in $(seq 1 30); do
@@ -125,12 +128,31 @@ for _ in $(seq 1 30); do
 done
 require_2xx "agent health" "$health_url"
 
-reply_payload='{"conversation_key":"deploy-smoke","group_id":"deploy-smoke-group","sender_id":"deploy-smoke-user","message":"Hello, reply with one short sentence that the service is online.","is_group":true,"context_id":"deploy-smoke","group_name":"deploy-smoke-group","dist_channel_name":"deploy-smoke-channel","sender_nickname":"deploy-smoke-user","available_artifacts":[],"channel_type":"unknown","allowed_read_capabilities":[]}'
 reply_url="http://127.0.0.1:$HOST_PORT/reply"
-if ! curl -fsS --max-time 180 "${app_headers[@]}" -H "Content-Type: application/json" "$reply_url" --data "$reply_payload" >/dev/null; then
+
+group_reply_payload="$(cat <<JSON
+{"contract_version":"reply-request.v2","request_id":"req:deploy-group-smoke","message":"服务连通性检查，请简短回答。","context_id":"ctx:deploy-group-smoke","identity":{"contract_version":"conversation-identity.v1","surface":"wecom","scene":"group","tenant_ref":"$DEPLOYMENT_TENANT_REF","group_ref":"group:deploy-smoke","principal_ref":"principal:deploy-smoke"},"presentation":{"contract_version":"group-presentation.v1","conversation_name":"deployment smoke","principal_name":"deployment smoke"},"business_scope":{"kind":"distribution","dist_channel_name":"deployment smoke","channel_type":"unknown","available_artifacts":[]},"grants":{"contract_version":"principal-grants.v1","read_capabilities":[],"outbound_actions":[],"mention_types":[]}}
+JSON
+)"
+if ! curl -fsS --max-time 180 "${app_headers[@]}" -H "Content-Type: application/json" "$reply_url" --data "$group_reply_payload" >/dev/null; then
   podman logs --tail 120 "$CONTAINER_NAME" >&2 || true
-  die "safe /reply smoke failed"
+  die "safe group /reply smoke failed"
 fi
+
+case "${INTERNAL_DM_ENABLED,,}" in
+  true|1|yes|on)
+    direct_reply_payload="$(cat <<JSON
+{"contract_version":"reply-request.v2","request_id":"req:deploy-direct-smoke","message":"请介绍内部支持服务。","context_id":"ctx:deploy-direct-smoke","identity":{"contract_version":"conversation-identity.v1","surface":"wecom","scene":"direct","tenant_ref":"$DEPLOYMENT_TENANT_REF","direct_thread_ref":"direct:deploy-smoke","principal_ref":"principal:deploy-smoke"},"presentation":{"contract_version":"direct-presentation.v1","principal_name":"deployment smoke"},"business_scope":{"kind":"unscoped"},"grants":{"contract_version":"principal-grants.v1","read_capabilities":["query_internal_company_info"],"outbound_actions":[],"mention_types":[]}}
+JSON
+)"
+    if ! curl -fsS --max-time 180 "${app_headers[@]}" -H "Content-Type: application/json" "$reply_url" --data "$direct_reply_payload" >/dev/null; then
+      podman logs --tail 120 "$CONTAINER_NAME" >&2 || true
+      die "safe direct /reply smoke failed"
+    fi
+    ;;
+  false|0|no|off|"") ;;
+  *) die "MARKET_AGENT_INTERNAL_DM_ENABLED has an invalid boolean value" ;;
+esac
 
 echo "deployed: http://$HOST_IP:$HOST_PORT"
 echo "health:   http://$HOST_IP:$HOST_PORT/health"

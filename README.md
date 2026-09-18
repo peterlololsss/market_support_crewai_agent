@@ -7,14 +7,17 @@ External CrewAI runtime service for the existing WeCom bot.
 - FastAPI transport layer.
 - `GET /health`.
 - `POST /reply`.
-- CrewAI runtime boundary.
-- Typed request/response schema.
-- In-memory conversation history keyed by `conversation_key`.
+- One shared CrewAI Reply Harness runtime for direct and group traffic.
+- Versioned `reply-request.v2` request schema and typed response schema.
+- In-memory conversation history keyed by verified conversation identity.
 - Adapter preflight/resolve before outbound action proposals.
 - Adapter-confirmed action feedback ledger with a 24h in-memory TTL for “just sent” semantics.
 
 The runtime returns one `ReplyResponse`: primary reply semantics plus typed outbound action proposals. The WeCom
 adapter owns message execution, final action validation, and execution authorization.
+
+`/health` is liveness only. It returns the process-level service response without checking adapter compatibility,
+deployment identity, model availability, or internal-DM readiness.
 
 ## Run locally
 
@@ -47,7 +50,7 @@ Port:      23003 -> 8000
 
 远端 `.env` 必须已存在于 `/opt/market-support-agent/.env`。脚本会先检查 adapter、Document MCP、planner LLM proxy 连通性，再构建镜像、替换同名容器，并只执行 `/health` 和不含发送意图的安全 `/reply` smoke。
 
-如果 SSH 用户不是默认的 `assistant`，用：
+如果 SSH 用户不是默认的 `deploy`，用：
 
 ```powershell
 $env:REMOTE="your-user@10.0.0.12"; powershell -ExecutionPolicy Bypass -File .\scripts\deploy_remote_podman.ps1
@@ -93,15 +96,9 @@ Run the core acceptance check suite:
 uv run --extra dev python scripts/check_reply_acceptance.py
 ```
 
-This default suite uses fake external dependencies and includes the deterministic agent behavior golden evals. Add
-`--include-real-llm` when provider credentials and network access are available. Add `--include-live-adapter` only after
-starting the assistant adapter fixture.
-
-Run only the capability/evidence/domain correctness evals:
-
-```bash
-uv run --extra dev python -m pytest -q tests/unit/domain/test_agent_behavior_eval_golden.py tests/integration/runtime/test_agent_behavior_eval_suite.py
-```
+The default suite runs three offline checks: the semantic keyword guard, prompt registry validation, and the fake-dependency
+runtime. Add `--include-real-llm` when provider credentials and network access are available. Add `--include-live-adapter`
+only after starting the assistant adapter fixture.
 
 Run the harness pipeline without external LLM or adapter credentials:
 
@@ -170,12 +167,14 @@ MARKET_AGENT_PLANNER_LLM_PROVIDER=
 MARKET_AGENT_PLANNER_LLM_MODEL=
 MARKET_AGENT_PLANNER_LLM_API_KEY=
 CREWAI_VERBOSE=false
-CREWAI_MAX_ITER=5
+CREWAI_MAX_ITER=1
 CREWAI_MAX_EXECUTION_TIME=120
-CREWAI_MAX_RETRY_LIMIT=2
-MARKET_AGENT_PLANNER_TRANSIENT_RETRY_ATTEMPTS=1
-MARKET_AGENT_PLANNER_TRANSIENT_RETRY_BASE_SECONDS=0.5
+CREWAI_MAX_RETRY_LIMIT=0
+MARKET_AGENT_PLANNER_TRANSIENT_RETRY_ATTEMPTS=0
+MARKET_AGENT_PLANNER_TRANSIENT_RETRY_BASE_SECONDS=0
 ```
+
+These iteration and retry values are fixed governance controls. Startup rejects any other or malformed value. Alignment action caps must not exceed `MARKET_AGENT_REPLY_ALIGNMENT_MAX_TOTAL_REMEDIATIONS`; the configured shared-iteration formula is checked against the 18-dispatch ceiling.
 
 ## LLM health notifications
 
@@ -188,8 +187,8 @@ MARKET_AGENT_LLM_HEALTH_FAILURE_INTERVAL_SECONDS=60
 MARKET_AGENT_LLM_HEALTH_DAILY_REPORT_TIME=09:00
 MARKET_AGENT_LLM_HEALTH_TIMEZONE=Asia/Shanghai
 MARKET_AGENT_LLM_HEALTH_WARNING_COOLDOWN_SECONDS=900
-MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_ATTEMPTS=1
-MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_BASE_SECONDS=1
+MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_ATTEMPTS=0
+MARKET_AGENT_LLM_HEALTH_PROBE_RETRY_BASE_SECONDS=0
 MARKET_AGENT_LLM_HEALTH_PROBE_TIMEOUT_SECONDS=20
 MARKET_AGENT_FEISHU_APP_ID=
 MARKET_AGENT_FEISHU_APP_SECRET=
@@ -208,20 +207,11 @@ AGENT_CONVERSATION_MAX_SESSIONS=5000
 AGENT_CONVERSATION_CLEANUP_INTERVAL_SECONDS=300
 ```
 
-## Context projection configuration
+## Model input boundaries
 
-Before each planner/composer/verifier model call, runtime state is projected into a bounded `ModelVisibleContext`.
-
-```bash
-AGENT_CONTEXT_RECENT_TURNS_VERBATIM_COUNT=4
-AGENT_CONTEXT_MAX_HISTORY_MESSAGE_CHARS_INLINE=1200
-AGENT_CONTEXT_MAX_EVIDENCE_CHARS_INLINE=6000
-AGENT_CONTEXT_MAX_ANSWER_EVIDENCE_CHARS_INLINE=1000000
-AGENT_CONTEXT_LARGE_RESULT_PREVIEW_CHARS=1200
-AGENT_CONTEXT_TOKEN_BUDGET=900000
-AGENT_CONTEXT_WARNING_THRESHOLD=0.75
-AGENT_CONTEXT_HARD_THRESHOLD=0.92
-```
+Each planner, composer, and verifier call receives one frozen role-specific stage DTO. The DTO schemas bound history,
+evidence, policy, plan, retry, and candidate-response views before prompt assembly. Static prompt resources are governed
+separately by the registered prompt-program budgets.
 
 ## Reply alignment and trace configuration
 
@@ -243,6 +233,11 @@ MARKET_AGENT_ADAPTER_API_KEY=
 MARKET_AGENT_ADAPTER_TIMEOUT_SECONDS=5
 ```
 
+Authenticated adapter calls reject every redirect and require the response origin to match the configured origin.
+Use `https://` for normal deployments. `http://` is accepted only for literal loopback, RFC1918, or link-local
+addresses; this compatibility mode must stay on an authenticated private or encrypted tunnel network. Hostnames over
+cleartext HTTP, public IP addresses, URL userinfo, fragments, and non-HTTP schemes fail closed at client construction.
+
 ## Document MCP configuration
 
 Document MCP access is configured separately from CrewAI agent prompts. It is disabled by default and is used only
@@ -262,69 +257,159 @@ The current document MCP server responds as streamable HTTP on `/mcp`, requires 
 and exposes wrapper-only tools `list_products` and `get_documents`. When the selector returns valid document IDs, the
 wrapper fetches only those documents. If selection is unsure, it falls back to the bounded baseline/broad read.
 
-## Incoming request authentication
+## V2 admission configuration
 
-Incoming request authentication is optional for local development. Configure this when the assistant gateway should
-authenticate `/reply` and `/actions/feedback`.
+`MARKET_AGENT_API_KEY` is mandatory for `/reply` and `/actions/feedback`. `MARKET_AGENT_DEPLOYMENT_TENANT_REF` is mandatory
+for every `reply-request.v2` and `action-feedback.v2` event. The settings may remain blank only for a liveness-only process;
+v2 traffic then fails closed instead of entering the runtime.
+
+`MARKET_AGENT_INTERNAL_DM_ENABLED` defaults to `false`. A direct turn also requires a valid direct-audit HMAC key, an
+adapter API key, and a compatible authenticated adapter capability response before any reply reservation or state work.
 
 ```bash
 MARKET_AGENT_API_KEY=shared-secret
+MARKET_AGENT_DEPLOYMENT_TENANT_REF=tenant:primary
+MARKET_AGENT_INTERNAL_DM_ENABLED=false
+MARKET_AGENT_DIRECT_AUDIT_HMAC_KEY=replace-with-a-32-to-64-byte-url-safe-key
+MARKET_AGENT_ADAPTER_API_KEY=adapter-shared-secret
 ```
 
-When configured, requests include either `Authorization: Bearer <key>` or `X-API-Key: <key>`. This matches assistant's
-`market_agent_api_key` setting.
+Requests include either `Authorization: Bearer <key>` or `X-API-Key: <key>`. The request identity's `tenant_ref` must
+exactly equal the configured deployment tenant; callers cannot select or switch the deployment tenant.
 
 ## Public service contract
 
-`POST /reply` requires:
+`POST /reply` accepts only the versioned `reply-request.v2` request contract. The scene-aware harness does not provide a
+legacy request wrapper, compatibility bridge, or legacy/v2 route union; unversioned legacy payloads are rejected at the
+request boundary before stateful runtime work or model-visible calls.
 
-```text
-conversation_key
-group_id
-sender_id
-message
-is_group
+The wire scene values remain `direct` and `group`. The operational aliases are prose only: `internal_dm` means
+`identity.scene="direct"`, and `external_group` means `identity.scene="group"`. Do not send either alias as a field or
+scene value.
+
+Group request example:
+
+```json
+{
+  "contract_version": "reply-request.v2",
+  "request_id": "req:group-message-001",
+  "message": "请发一下周报",
+  "context_id": "ctx:origin-message-001",
+  "identity": {
+    "contract_version": "conversation-identity.v1",
+    "surface": "wecom",
+    "scene": "group",
+    "tenant_ref": "tenant:primary",
+    "group_ref": "group:opaque-001",
+    "principal_ref": "principal:opaque-001"
+  },
+  "presentation": {
+    "contract_version": "group-presentation.v1",
+    "conversation_name": "Example group",
+    "principal_name": "Example user"
+  },
+  "business_scope": {
+    "kind": "distribution",
+    "dist_channel_name": "示例券商",
+    "channel_type": "non_bank",
+    "available_artifacts": [
+      {"type": "weekly_report", "options": []}
+    ]
+  },
+  "grants": {
+    "contract_version": "principal-grants.v1",
+    "read_capabilities": ["resolve_weekly_report", "resolve_sales_mention"],
+    "outbound_actions": ["send_weekly_report"],
+    "mention_types": ["sales"]
+  }
+}
 ```
 
-For group-chat requests, the gateway sends `conversation_key` as `wecom:{group_id}:{sender_id}`. `context_id` is
-optional and only used for tracing.
+Direct reply-only request example:
+
+```json
+{
+  "contract_version": "reply-request.v2",
+  "request_id": "req:direct-message-001",
+  "message": "介绍一下公司",
+  "context_id": "ctx:origin-message-002",
+  "identity": {
+    "contract_version": "conversation-identity.v1",
+    "surface": "wecom",
+    "scene": "direct",
+    "tenant_ref": "tenant:primary",
+    "direct_thread_ref": "direct:opaque-001",
+    "principal_ref": "principal:opaque-001"
+  },
+  "presentation": {
+    "contract_version": "direct-presentation.v1",
+    "principal_name": "Example user"
+  },
+  "business_scope": {"kind": "unscoped"},
+  "grants": {
+    "contract_version": "principal-grants.v1",
+    "read_capabilities": ["query_internal_company_info"],
+    "outbound_actions": [],
+    "mention_types": []
+  }
+}
+```
+
+Required v2 identity fields:
+
+```text
+contract_version=reply-request.v2
+request_id
+message
+identity.contract_version=conversation-identity.v1
+identity.surface=wecom
+identity.scene=group|direct
+identity.tenant_ref
+identity.group_ref or identity.direct_thread_ref
+identity.principal_ref
+presentation
+business_scope
+grants.contract_version=principal-grants.v1
+grants.read_capabilities
+grants.outbound_actions
+grants.mention_types
+```
+
+`context_id` is optional and used for tracing and replay correlation. Raw `conversation_key`, `group_id`, `sender_id`,
+and `is_group` inputs are legacy-only fields and are not accepted by the v2 boundary.
+
+Direct requests are reply-only and unscoped. `read_capabilities` may be empty or exactly
+`["query_internal_company_info"]`; the documented example explicitly opts into that internal-knowledge grant. Direct
+recall is off, and direct responses cannot carry actions, sales mentions, media markers/bindings, or adapter business
+resolves. External-group requests remain distribution-scoped and principal-scoped: two principals in one group do not
+share history or state. Group actions remain typed proposals, and the adapter retains final validation, authorization,
+execution, outbox reliability, and feedback authority.
 
 The public runtime response is `ReplyResponse { reply, actions }`. The adapter executes `reply` and typed outbound
 action proposals after its own validation.
 
+The external adapter release is a production prerequisite for internal DM. Keep
+`MARKET_AGENT_INTERNAL_DM_ENABLED=false` until the deployed adapter's authenticated, read-only capability check advertises
+the required direct scene, contract versions, and matching tenant. This repository does not claim that production DM
+is active; production DM remains disabled until that external proof passes.
+
 ## Documentation map
 
-- `AGENTS.md`: short operational contract for coding agents.
-- `docs/agent-architecture.md`: current agent architecture, capability registry, DomainContext, PlanSpec, EvidenceContract, guardrails, answerability, and prompt layers.
-- `docs/add-a-capability.md`: manifest-first capability extension guide with a full example.
-- `docs/domain-model.md`: 渠道/策略/产品/材料包/周报/月报 hierarchy, artifact distinctions, and source precedence.
-- `docs/guardrails.md`: input, retrieval/evidence, execution/tool, output, input-scope, and audit reason-code guidance.
-- `docs/keyword-matching-cleanup.md`: banned semantic matching patterns and CI enforcement.
-- `docs/support_reply_harness/README.md`: harness doc index and active source-of-truth map.
-- `docs/support_reply_harness/adr/0001-support-reply-harness.md`: architecture decision record.
-- `docs/support_reply_harness/architecture.md`: runtime shape, source hierarchy, and internal concepts.
-- `docs/support_reply_harness/guardrails.md`: deterministic guardrail pipeline and validator behavior.
-- `docs/support_reply_harness/eval_plan.md`: regression, adversarial, and golden eval plan.
-- `docs/support_reply_harness/roadmap.md`: historical phased implementation plan.
-- `docs/support_reply_harness/next_session.md`: immediate coding-session handoff.
-- `docs/support_reply_harness/reference/agent_prompt_hygiene.md`: prompt/context hygiene for Codex-style coding agents.
-- `docs/adapter/assistant_adapter_contract.md`: assistant WeCom adapter contract and live eval commands.
-- `docs/capability-registry.md`: manifest schema and extension path for planner/verifier capability metadata.
-- `docs/prompts.md`: prompt registry, layer, snapshot, and extension rules.
+Human docs are grouped by functionality:
 
-## Current module ownership
+- `docs/README.md`: documentation index.
+- `docs/engineering-principles.md`: architecture decision, contract boundaries, source-of-truth order, and implementation, test, and deployment policies.
+- `docs/architecture.md`: runtime flow, domain model, source precedence, and module map.
+- `docs/capabilities-and-prompts.md`: capability registry, PlanSpec boundary, prompt assembly, and extension workflow.
+- `docs/safety-and-evals.md`: guardrail pipeline, selector rules, and eval/test commands.
+- `docs/adapter/assistant_adapter_contract.md`: assistant WeCom adapter contract and live eval commands.
+
+## Module map
 
 ```text
-src/market_support_crewai_agent/server/main.py                 FastAPI routes only
-src/market_support_crewai_agent/schemas.py                     HTTP and action contracts
-src/market_support_crewai_agent/runtime/orchestration/          reply runtime, decisions, rendering
-src/market_support_crewai_agent/runtime/validation/             input/reply/action/alignment validators
-src/market_support_crewai_agent/runtime/evidence/               adapter/document evidence wrappers and facts
-src/market_support_crewai_agent/runtime/knowledge/              approved static knowledge catalog and selector
-src/market_support_crewai_agent/runtime/domain/                 capabilities, policy, planning, canonical facts
-src/market_support_crewai_agent/runtime/llm/                    prompt assembly, routing, profiles, resources
-src/market_support_crewai_agent/runtime/state/                  conversation, ledger, and audit state
+src/market_support_crewai_agent/server/            FastAPI app, routes, lifespan, auth, adapter compatibility
+src/market_support_crewai_agent/schemas/           public HTTP/action DTOs
+src/market_support_crewai_agent/runtime/           support reply harness runtime
 ```
 
-Add new runtime-only harness modules under the relevant `src/market_support_crewai_agent/runtime/` package described in `AGENTS.md` and
-`docs/support_reply_harness/next_session.md`.
+For detailed runtime ownership, read `docs/architecture.md`.

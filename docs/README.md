@@ -1,25 +1,19 @@
-# Documentation Index
+# Documentation
 
-Use `../AGENTS.md` as the short repo-wide coding contract. The files below provide task-specific detail.
+These docs explain the service shape, operational surface, and extension workflow. They are grouped by functionality, not by implementation history.
 
-## Core References
+## Read This First
 
-- `adapter/assistant_adapter_contract.md` - WeCom adapter request, preflight, action, and feedback contract.
-- `agent-architecture.md` - current manifest-first agent architecture and source-boundary flow.
-- `add-a-capability.md` - manifest-first capability extension guide with a complete example.
-- `domain-model.md` - 渠道/策略/产品/材料包/周报/月报 hierarchy and source precedence.
-- `guardrails.md` - input, retrieval/evidence, execution, output, and audit guardrails.
-- `prompts.md` - prompt registry, layer model, and snapshot rules.
-- `keyword-matching-cleanup.md` - banned semantic matching patterns and CI guard.
-- `support_reply_harness/README.md` - support reply harness overview and working plan.
-- `support_reply_harness/next_session.md` - current handoff and next implementation steps.
-- `reference/crewai_agents_reference.md` - generated CrewAI reference retained for runtime/API work.
+- `../README.md` - local run commands, configuration, deployment, and the public `/reply` contract.
+- `engineering-principles.md` - the architecture decision, contract boundaries, source-of-truth order, and implementation, test, and deployment policies.
+- `architecture.md` - runtime flow, domain model, source precedence, and module map.
+- `capabilities-and-prompts.md` - how capabilities, planner contracts, and prompt assembly fit together.
+- `safety-and-evals.md` - guardrail pipeline, selector rules, and regression/eval commands.
+- `adapter/assistant_adapter_contract.md` - external assistant WeCom adapter contract.
 
-## Support Reply Harness
+## Update Rules
 
-- `support_reply_harness/architecture.md` - harness architecture.
-- `support_reply_harness/guardrails.md` - postcondition validation behavior.
-- `support_reply_harness/eval_plan.md` - evaluation plan.
-- `support_reply_harness/roadmap.md` - historical implementation roadmap.
-- `support_reply_harness/adr/0001-support-reply-harness.md` - architecture decision record.
-- `support_reply_harness/reference/agent_prompt_hygiene.md` - prompt and documentation hygiene notes.
+- Keep each doc organized by functionality, not by implementation history.
+- Prefer links to code owners over repeated explanations.
+- Remove stale handoff notes when the implementation lands.
+- Keep adapter-facing behavior in the adapter contract or root `README.md`, not scattered across docs.
