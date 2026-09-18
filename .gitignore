@@ -24,3 +24,8 @@ build/
 *.egg-info/
 .coverage
 htmlcov/
+
+# Local planning, evidence, and code-graph state
+.omo/
+.codegraph
+.ruff_cache/
