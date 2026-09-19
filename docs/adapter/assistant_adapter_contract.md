@@ -1,4 +1,4 @@
-# Assistant WeCom Current Adapter Contract
+# WeCom Adapter Contract
 
 Last updated: 2026-07-20.
 

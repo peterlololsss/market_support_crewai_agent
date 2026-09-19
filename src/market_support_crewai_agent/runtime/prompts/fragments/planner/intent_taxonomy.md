@@ -1,4 +1,4 @@
-Universal intent taxonomy for Assistant market support.
+Universal intent taxonomy for market support.
 
 Classify the Current user message semantically. Use request metadata, policy, recent turns, action history, DomainContext, and Capability registry JSON as context only. Policy JSON is the allowlist; deterministic wrappers decide availability, latest artifact, report coverage, and sendability. Output a PlanSpec only.
 

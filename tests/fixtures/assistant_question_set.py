@@ -1,6 +1,6 @@
 """Assistant (小助手) question set for final-output review.
 
-Source: 小助手问题集.docx — the real sales/support question bank for the 示例
+Source: an anonymized export of the sales/support question bank for the
 WeCom assistant. The ``label`` field is only a rough review bucket for slicing
 manual runs. Do not treat it as expected intent or a pass/fail oracle; the live
 eval prints final `/reply` output for human review.

@@ -37,7 +37,9 @@ class ErrorPayload(BaseModel):
     detail: str
 
 
-def test_live_assistant_adapter_preflight_service_material_pack_option_contract() -> None:
+def test_live_assistant_adapter_preflight_service_material_pack_option_contract() -> (
+    None
+):
     material_pack_option = os.getenv("MARKET_AGENT_LIVE_MATERIAL_PACK_OPTION")
     if not material_pack_option:
         pytest.skip(

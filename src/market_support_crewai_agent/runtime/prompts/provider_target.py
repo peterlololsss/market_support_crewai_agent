@@ -31,7 +31,11 @@ def normalize_provider_id(provider: str) -> ProviderIdV1:
         case "gemini" | "google" | "google-genai" | "google_genai":
             return "gemini"
         case (
-            "openai" | "deepseek" | "internal-gateway" | "openai-compatible" | "openai_compatible"
+            "openai"
+            | "deepseek"
+            | "internal-gateway"
+            | "openai-compatible"
+            | "openai_compatible"
         ):
             return "openai_compatible"
         case _:

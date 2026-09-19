@@ -2,120 +2,120 @@
   "contract_version": "prompt-static-budgets.v1",
   "rows": [
     {
-      "allowed_max_bytes": 27608,
-      "baseline_bytes": 25098,
+      "allowed_max_bytes": 27715,
+      "baseline_bytes": 25195,
       "model_family": "ds_v4pro",
       "program_id": "planner_intent.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26526,
-      "baseline_bytes": 24114,
+      "allowed_max_bytes": 26633,
+      "baseline_bytes": 24211,
       "model_family": "deepseek",
       "program_id": "planner_intent.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26526,
-      "baseline_bytes": 24114,
+      "allowed_max_bytes": 26633,
+      "baseline_bytes": 24211,
       "model_family": "gpt",
       "program_id": "planner_intent.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26526,
-      "baseline_bytes": 24114,
+      "allowed_max_bytes": 26633,
+      "baseline_bytes": 24211,
       "model_family": "claude",
       "program_id": "planner_intent.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26526,
-      "baseline_bytes": 24114,
+      "allowed_max_bytes": 26633,
+      "baseline_bytes": 24211,
       "model_family": "generic",
       "program_id": "planner_intent.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 14437,
-      "baseline_bytes": 13124,
+      "allowed_max_bytes": 14453,
+      "baseline_bytes": 13139,
       "model_family": "ds_v4pro",
       "program_id": "knowledge_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13354,
-      "baseline_bytes": 12140,
+      "allowed_max_bytes": 13371,
+      "baseline_bytes": 12155,
       "model_family": "deepseek",
       "program_id": "knowledge_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13354,
-      "baseline_bytes": 12140,
+      "allowed_max_bytes": 13371,
+      "baseline_bytes": 12155,
       "model_family": "gpt",
       "program_id": "knowledge_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13354,
-      "baseline_bytes": 12140,
+      "allowed_max_bytes": 13371,
+      "baseline_bytes": 12155,
       "model_family": "claude",
       "program_id": "knowledge_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13354,
-      "baseline_bytes": 12140,
+      "allowed_max_bytes": 13371,
+      "baseline_bytes": 12155,
       "model_family": "generic",
       "program_id": "knowledge_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 6764,
-      "baseline_bytes": 5740,
+      "allowed_max_bytes": 6775,
+      "baseline_bytes": 5751,
       "model_family": "ds_v4pro",
       "program_id": "smalltalk_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5780,
-      "baseline_bytes": 4756,
+      "allowed_max_bytes": 5791,
+      "baseline_bytes": 4767,
       "model_family": "deepseek",
       "program_id": "smalltalk_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5780,
-      "baseline_bytes": 4756,
+      "allowed_max_bytes": 5791,
+      "baseline_bytes": 4767,
       "model_family": "gpt",
       "program_id": "smalltalk_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5780,
-      "baseline_bytes": 4756,
+      "allowed_max_bytes": 5791,
+      "baseline_bytes": 4767,
       "model_family": "claude",
       "program_id": "smalltalk_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5780,
-      "baseline_bytes": 4756,
+      "allowed_max_bytes": 5791,
+      "baseline_bytes": 4767,
       "model_family": "generic",
       "program_id": "smalltalk_composer.wecom_group.v1@1",
       "scene_key": "wecom_group.v1",
@@ -162,120 +162,120 @@
       "stage": "alignment_verifier"
     },
     {
-      "allowed_max_bytes": 27625,
-      "baseline_bytes": 25113,
+      "allowed_max_bytes": 27731,
+      "baseline_bytes": 25210,
       "model_family": "ds_v4pro",
       "program_id": "planner_intent.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26542,
-      "baseline_bytes": 24129,
+      "allowed_max_bytes": 26649,
+      "baseline_bytes": 24226,
       "model_family": "deepseek",
       "program_id": "planner_intent.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26542,
-      "baseline_bytes": 24129,
+      "allowed_max_bytes": 26649,
+      "baseline_bytes": 24226,
       "model_family": "gpt",
       "program_id": "planner_intent.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26542,
-      "baseline_bytes": 24129,
+      "allowed_max_bytes": 26649,
+      "baseline_bytes": 24226,
       "model_family": "claude",
       "program_id": "planner_intent.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 26542,
-      "baseline_bytes": 24129,
+      "allowed_max_bytes": 26649,
+      "baseline_bytes": 24226,
       "model_family": "generic",
       "program_id": "planner_intent.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "planner_intent"
     },
     {
-      "allowed_max_bytes": 14472,
-      "baseline_bytes": 13156,
+      "allowed_max_bytes": 14489,
+      "baseline_bytes": 13171,
       "model_family": "ds_v4pro",
       "program_id": "knowledge_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13390,
-      "baseline_bytes": 12172,
+      "allowed_max_bytes": 13406,
+      "baseline_bytes": 12187,
       "model_family": "deepseek",
       "program_id": "knowledge_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13390,
-      "baseline_bytes": 12172,
+      "allowed_max_bytes": 13406,
+      "baseline_bytes": 12187,
       "model_family": "gpt",
       "program_id": "knowledge_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13390,
-      "baseline_bytes": 12172,
+      "allowed_max_bytes": 13406,
+      "baseline_bytes": 12187,
       "model_family": "claude",
       "program_id": "knowledge_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 13390,
-      "baseline_bytes": 12172,
+      "allowed_max_bytes": 13406,
+      "baseline_bytes": 12187,
       "model_family": "generic",
       "program_id": "knowledge_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "knowledge_composer"
     },
     {
-      "allowed_max_bytes": 6768,
-      "baseline_bytes": 5744,
+      "allowed_max_bytes": 6779,
+      "baseline_bytes": 5755,
       "model_family": "ds_v4pro",
       "program_id": "smalltalk_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5784,
-      "baseline_bytes": 4760,
+      "allowed_max_bytes": 5795,
+      "baseline_bytes": 4771,
       "model_family": "deepseek",
       "program_id": "smalltalk_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5784,
-      "baseline_bytes": 4760,
+      "allowed_max_bytes": 5795,
+      "baseline_bytes": 4771,
       "model_family": "gpt",
       "program_id": "smalltalk_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5784,
-      "baseline_bytes": 4760,
+      "allowed_max_bytes": 5795,
+      "baseline_bytes": 4771,
       "model_family": "claude",
       "program_id": "smalltalk_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",
       "stage": "smalltalk_composer"
     },
     {
-      "allowed_max_bytes": 5784,
-      "baseline_bytes": 4760,
+      "allowed_max_bytes": 5795,
+      "baseline_bytes": 4771,
       "model_family": "generic",
       "program_id": "smalltalk_composer.wecom_direct.v1@1",
       "scene_key": "wecom_direct.v1",

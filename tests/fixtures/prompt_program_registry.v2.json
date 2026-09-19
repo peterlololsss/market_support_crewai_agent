@@ -24,7 +24,7 @@
       "sources": [
         {"fragment_id": "model.generic.structured", "frh1": "frh1:e31305463e5609f8c16a0851e73c186357942efe1b0b3a0b52e2c7910b238948", "layer": "stable", "model_families": ["claude", "deepseek", "generic", "gpt"], "priority": 20, "purpose": "instruction_precedence", "template_name": "model/generic_structured.md"},
         {"fragment_id": "instruction.registered_over_untrusted_data.v1", "frh1": "frh1:91e257301b99e42dc5a1e97c6db71e821312a501568d120e029b20c2e06756e0", "layer": "stable", "model_families": ["ds_v4pro"], "priority": 25, "purpose": "instruction_precedence", "template_name": "guardrail/registered_over_untrusted_data.md"},
-        {"fragment_id": "scene.wecom_group.knowledge_composer.v1", "frh1": "frh1:3303106b0dee70354cde61a52b8454be72a55ca700f230f52a1a64e7f73de414", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_group/knowledge_composer.md"}
+        {"fragment_id": "scene.wecom_group.knowledge_composer.v1", "frh1": "frh1:87d1cdd6bc70dca4d9de3c39581d6867d6299b815840f1ebbe61069c45e87f87", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_group/knowledge_composer.md"}
       ],
       "stage": "knowledge_composer",
       "status": "active"
@@ -38,7 +38,7 @@
       "sources": [
         {"fragment_id": "model.generic.structured", "frh1": "frh1:e31305463e5609f8c16a0851e73c186357942efe1b0b3a0b52e2c7910b238948", "layer": "stable", "model_families": ["claude", "deepseek", "generic", "gpt"], "priority": 20, "purpose": "instruction_precedence", "template_name": "model/generic_structured.md"},
         {"fragment_id": "instruction.registered_over_untrusted_data.v1", "frh1": "frh1:91e257301b99e42dc5a1e97c6db71e821312a501568d120e029b20c2e06756e0", "layer": "stable", "model_families": ["ds_v4pro"], "priority": 25, "purpose": "instruction_precedence", "template_name": "guardrail/registered_over_untrusted_data.md"},
-        {"fragment_id": "scene.wecom_group.smalltalk_composer.v1", "frh1": "frh1:c78cfdbbee7cdfd7579877534b2203892108b72ce5bb9cf6b07b1d1fc8c82a2e", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_group/smalltalk_composer.md"}
+        {"fragment_id": "scene.wecom_group.smalltalk_composer.v1", "frh1": "frh1:38948e609145b61c4f7fc9caf482c6c35783058ef94549321b44757d5c0ceced", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_group/smalltalk_composer.md"}
       ],
       "stage": "smalltalk_composer",
       "status": "active"
@@ -80,7 +80,7 @@
       "sources": [
         {"fragment_id": "model.generic.structured", "frh1": "frh1:e31305463e5609f8c16a0851e73c186357942efe1b0b3a0b52e2c7910b238948", "layer": "stable", "model_families": ["claude", "deepseek", "generic", "gpt"], "priority": 20, "purpose": "instruction_precedence", "template_name": "model/generic_structured.md"},
         {"fragment_id": "instruction.registered_over_untrusted_data.v1", "frh1": "frh1:91e257301b99e42dc5a1e97c6db71e821312a501568d120e029b20c2e06756e0", "layer": "stable", "model_families": ["ds_v4pro"], "priority": 25, "purpose": "instruction_precedence", "template_name": "guardrail/registered_over_untrusted_data.md"},
-        {"fragment_id": "scene.wecom_direct.knowledge_composer.v1", "frh1": "frh1:3a600855ec8f83f22418e649c5d09f6e7b81a3e72c52072b4bd024c6230b8662", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_direct/knowledge_composer.md"}
+        {"fragment_id": "scene.wecom_direct.knowledge_composer.v1", "frh1": "frh1:5573a010927b84ebbb6b110dcec0fc13baa36450387714e3180b856d4292ccb5", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_direct/knowledge_composer.md"}
       ],
       "stage": "knowledge_composer",
       "status": "active"
@@ -94,7 +94,7 @@
       "sources": [
         {"fragment_id": "model.generic.structured", "frh1": "frh1:e31305463e5609f8c16a0851e73c186357942efe1b0b3a0b52e2c7910b238948", "layer": "stable", "model_families": ["claude", "deepseek", "generic", "gpt"], "priority": 20, "purpose": "instruction_precedence", "template_name": "model/generic_structured.md"},
         {"fragment_id": "instruction.registered_over_untrusted_data.v1", "frh1": "frh1:91e257301b99e42dc5a1e97c6db71e821312a501568d120e029b20c2e06756e0", "layer": "stable", "model_families": ["ds_v4pro"], "priority": 25, "purpose": "instruction_precedence", "template_name": "guardrail/registered_over_untrusted_data.md"},
-        {"fragment_id": "scene.wecom_direct.smalltalk_composer.v1", "frh1": "frh1:8a27914155f2348c7cc980e2525199504c360fe7395b9a39e0b9824973f9f39d", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_direct/smalltalk_composer.md"}
+        {"fragment_id": "scene.wecom_direct.smalltalk_composer.v1", "frh1": "frh1:66a3d21fb925629b8eff7d7c592008b91890ff8e3cf16572e08fcda9394745cf", "layer": "stable", "model_families": ["claude", "deepseek", "ds_v4pro", "generic", "gpt"], "priority": 120, "purpose": "scene_presentation", "template_name": "scene/wecom_direct/smalltalk_composer.md"}
       ],
       "stage": "smalltalk_composer",
       "status": "active"

@@ -1,1 +1,1 @@
-Write privately to the current individual as Assistant. Address only that individual, never use group-addressing language or imply a shared audience, and keep the response concise for direct-chat reading.
+Write privately to the current individual as the assistant. Address only that individual, never use group-addressing language or imply a shared audience, and keep the response concise for direct-chat reading.

@@ -93,7 +93,8 @@ def main() -> None:
     )
     parser.add_argument("--material-pack-options", default="")
     parser.add_argument(
-        "--llm-timeout-seconds", default=os.getenv("MARKET_AGENT_LLM_TIMEOUT_SECONDS", "90")
+        "--llm-timeout-seconds",
+        default=os.getenv("MARKET_AGENT_LLM_TIMEOUT_SECONDS", "90"),
     )
     parser.add_argument(
         "--llm-max-tokens", default=os.getenv("MARKET_AGENT_LLM_MAX_TOKENS", "6000")

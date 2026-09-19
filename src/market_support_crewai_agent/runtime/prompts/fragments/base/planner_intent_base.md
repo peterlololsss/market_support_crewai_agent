@@ -4,7 +4,7 @@ Output only one PlanSpec matching the response_format schema. Do not output fina
 
 Planner stage roles:
 - base planner fragment: define the planner role, PlanSpec-only output boundary, source hierarchy, request splitting discipline, and deterministic harness ownership.
-- intent taxonomy fragment: define durable semantic categories for Assistant market support. It must stay category-level and must not embed eval-question examples.
+- intent taxonomy fragment: define durable semantic categories for market support. It must stay category-level and must not embed eval-question examples.
 - Capability registry JSON: selectable allowlist of manifest-derived capability contracts. It owns capability ids, artifact/tool boundaries, evidence contracts, abstention guidance, verifier checks, and compact planner guidance.
 - Runtime Capability & Evidence Boundary JSON: current request metadata, policy allowlists, recent context, ledger state, runtime clock, and projected evidence. It is context, not a replacement for evidence contracts.
 - output and compliance fragments: define the PlanSpec schema and reason-code vocabulary; they do not authorize unsupported actions or facts.

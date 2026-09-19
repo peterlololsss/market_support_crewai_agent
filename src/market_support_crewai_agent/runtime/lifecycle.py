@@ -116,7 +116,9 @@ async def run_reply_turn(
             with trace_span("request.validate"):
                 validate_reply_request_input(request, runtime.settings)
                 if not runtime.settings.llm_api_key:
-                    raise AgentRuntimeError("MARKET_AGENT_LLM_API_KEY is not configured")
+                    raise AgentRuntimeError(
+                        "MARKET_AGENT_LLM_API_KEY is not configured"
+                    )
 
             admission = lifecycle_admission.admit_turn(
                 runtime.coordinator,

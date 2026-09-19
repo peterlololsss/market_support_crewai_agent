@@ -26,7 +26,7 @@ ENV_TEMPLATES = (
     ROOT / ".env.example",
     ROOT / "deploy/market-support-crewai-agent.env.example",
 )
-SETTINGS_ENV_PREFIXES = ("AGENT_", "CREWAI_", "MARKET_AGENT_", "MARKET_AGENT_")
+SETTINGS_ENV_PREFIXES = ("AGENT_", "CREWAI_", "MARKET_AGENT_")
 JSON_FENCE: re.Pattern[str] = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
 JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
 AVAILABLE_ARTIFACTS = TypeAdapter(list[AvailableArtifact])

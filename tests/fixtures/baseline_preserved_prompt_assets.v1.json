@@ -13,7 +13,7 @@
     },
     {
       "path": "tests/snapshots/prompts/planner_intent_ds_v4pro.txt",
-      "sha256": "3459fb54d878cddd37a5fde258d50d634e64c7ee742369be72f856e9ae4c0886",
+      "sha256": "8e83e3238a91a359901115c479f764f8829a4eca4c48d4515db1d534dcd83ad9",
       "status": "baseline_preserved_dead_asset"
     }
   ]

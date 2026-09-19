@@ -205,11 +205,11 @@ def test_state_key_fields_and_known_csk1_audit_references_are_frozen() -> None:
     )
     assert (
         state_key_ref(group)
-        == "csk1:dc52e6e4ea05acf823a145d13ab49baccae95afc18c96f5df202ae4c4a9372be"
+        == "csk1:11406a27a97f2768aedbd60957e1ac283d7e0d12871676ac2ed1f8532ee3b161"
     )
     assert (
         state_key_ref(direct)
-        == "csk1:f932c573ab40ac720bb1dcb7bd9009949570bf2ea79354f51998f1bcef9b11ae"
+        == "csk1:040c2eace70b0a9d12a9bfa8e91b7cb6d49072831f7d874ffd00c9cb7f934970"
     )
 
 
