@@ -5,13 +5,20 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Final, Protocol, Self
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, build_opener
+from urllib.request import Request
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from market_support_crewai_agent.runtime.identity import KernelReplyRequestV1
+from market_support_crewai_agent.runtime.integrations.http_safety import (
+    ResponseTooLargeError,
+    read_bounded,
+    redirect_rejecting_opener,
+)
 
 MCP_ACCEPT_HEADER: Final = "application/json, text/event-stream"
+_MAX_RESPONSE_BYTES: Final = 32 * 1024 * 1024
+_MAX_ERROR_DETAIL_BYTES: Final = 512
 JsonMap = dict[str, JsonValue]
 _JSON_VALUE_ADAPTER: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
 
@@ -38,14 +45,16 @@ class _DocumentMcpResponse(Protocol):
         traceback: TracebackType | None,
     ) -> bool | None: ...
 
-    def read(self) -> bytes: ...
+    def geturl(self) -> str: ...
+
+    def read(self, amt: int, /) -> bytes: ...
 
 
 class _DocumentMcpOpener(Protocol):
     def open(self, fullurl: Request, *, timeout: float) -> _DocumentMcpResponse: ...
 
 
-_DOCUMENT_MCP_OPENER: _DocumentMcpOpener = build_opener()
+_DOCUMENT_MCP_OPENER: _DocumentMcpOpener = redirect_rejecting_opener()
 
 
 def document_mcp_request_body(method: str, params: JsonMap) -> bytes:
@@ -61,7 +70,13 @@ def read_document_mcp_response(http_request: Request, *, timeout: float) -> str:
         timeout=timeout,
     )
     with response_context as response:
-        return response.read().decode("utf-8", errors="replace")
+        if response.geturl() != http_request.full_url:
+            raise DocumentMcpError("document MCP response URL mismatch")
+        try:
+            body = read_bounded(response, _MAX_RESPONSE_BYTES)
+        except ResponseTooLargeError:
+            raise DocumentMcpError("document MCP response exceeds size limit") from None
+        return body.decode("utf-8", errors="replace")
 
 
 def parse_mcp_result(raw: str) -> JsonMap:
@@ -147,7 +162,11 @@ def json_list_from_value(value: JsonValue | None) -> list[JsonValue]:
 
 def document_mcp_transport_error(exc: HTTPError | URLError) -> DocumentMcpError:
     if isinstance(exc, HTTPError):
-        detail = exc.read().decode("utf-8", errors="replace")
+        if 300 <= exc.code < 400:
+            exc.close()
+            return DocumentMcpError("document MCP redirect rejected")
+        detail = exc.read(_MAX_ERROR_DETAIL_BYTES).decode("utf-8", errors="replace")
+        exc.close()
         return DocumentMcpError(f"document MCP returned HTTP {exc.code}: {detail}")
     return DocumentMcpError(f"document MCP request failed: {exc}")
 

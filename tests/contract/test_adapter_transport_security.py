@@ -4,6 +4,9 @@ from urllib.request import Request
 
 import pytest
 
+from market_support_crewai_agent.runtime.integrations.adapter import (
+    transport as adapter_transport,
+)
 from market_support_crewai_agent.runtime.integrations.adapter.transport import (
     AdapterClientError,
 )
@@ -51,6 +54,23 @@ def test_adapter_client_rejects_same_origin_redirect_before_second_request() -> 
             _ = adapter_client(f"http://127.0.0.1:{server.server_port}").capabilities()
 
     assert SameOriginRedirectHandler.paths == ["/adapter/capabilities"]
+
+
+def test_adapter_client_rejects_response_larger_than_byte_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    CapabilityHandler.paths = []
+    CapabilityHandler.authorizations = []
+    monkeypatch.setattr(adapter_transport, "_MAX_RESPONSE_BYTES", 64)
+
+    with running_server(CapabilityHandler) as server:
+        with pytest.raises(
+            AdapterClientError,
+            match="^adapter response exceeds size limit$",
+        ):
+            _ = adapter_client(f"http://127.0.0.1:{server.server_port}").capabilities()
+
+    assert CapabilityHandler.paths == ["/adapter/capabilities"]
 
 
 @pytest.mark.parametrize(

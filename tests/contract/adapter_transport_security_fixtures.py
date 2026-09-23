@@ -144,8 +144,8 @@ class FakeResponse:
     def geturl(self) -> str:
         return self.response_url
 
-    def read(self) -> bytes:
-        return CAPABILITIES_BODY
+    def read(self, amt: int, /) -> bytes:
+        return CAPABILITIES_BODY[:amt]
 
 
 def install_fake_response(

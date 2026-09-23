@@ -3,12 +3,17 @@ from __future__ import annotations
 import ipaddress
 from collections.abc import Mapping
 from dataclasses import dataclass
-from email.message import Message
 from types import MappingProxyType, TracebackType
-from typing import IO, Final, Literal, NewType, Protocol, Self, override
+from typing import Final, Literal, NewType, Protocol, Self
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from urllib.request import Request
+
+from market_support_crewai_agent.runtime.integrations.http_safety import (
+    ResponseTooLargeError,
+    read_bounded,
+    redirect_rejecting_opener,
+)
 
 _RFC1918_NETWORKS: Final = (
     ipaddress.ip_network("10.0.0.0/8"),
@@ -23,6 +28,7 @@ _SCHEME_DEFAULT_PORTS: Final[Mapping[str, tuple[_AdapterScheme, int]]] = (
 _HEADER_VALUE_MIN_CODEPOINT: Final = 32
 _HEADER_VALUE_MAX_CODEPOINT: Final = 255
 _HEADER_VALUE_DELETE_CODEPOINT: Final = 127
+_MAX_RESPONSE_BYTES: Final = 4 * 1024 * 1024
 
 
 class AdapterClientError(RuntimeError):
@@ -93,31 +99,14 @@ class _AdapterResponse(Protocol):
 
     def geturl(self) -> str: ...
 
-    def read(self) -> bytes: ...
+    def read(self, amt: int, /) -> bytes: ...
 
 
 class _AdapterOpener(Protocol):
     def open(self, fullurl: Request, *, timeout: float) -> _AdapterResponse: ...
 
 
-class _RejectRedirectHandler(HTTPRedirectHandler):
-    @override
-    def redirect_request(
-        self,
-        req: Request,
-        fp: IO[bytes],
-        code: int,
-        msg: str,
-        headers: Message,
-        newurl: str,
-    ) -> Request | None:
-        raise HTTPError(req.full_url, code, msg, headers, fp)
-
-
-_REDIRECT_REJECTING_OPENER: Final[_AdapterOpener] = build_opener(
-    ProxyHandler({}),
-    _RejectRedirectHandler(),
-)
+_REDIRECT_REJECTING_OPENER: Final[_AdapterOpener] = redirect_rejecting_opener()
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +150,9 @@ class AdapterTransport:
                 )
                 if response_origin != self.endpoint.origin:
                     raise AdapterClientError("adapter response origin mismatch")
-                return response.read().decode("utf-8")
+                return read_bounded(response, _MAX_RESPONSE_BYTES).decode("utf-8")
+        except ResponseTooLargeError:
+            raise AdapterClientError("adapter response exceeds size limit") from None
         except HTTPError as exc:
             status_code = exc.code
             exc.close()

@@ -63,8 +63,9 @@ class ErrorDocumentClient:
 
 
 class FakeDocumentMcpResponse:
-    def __init__(self, body: str) -> None:
+    def __init__(self, body: str, url: str) -> None:
         self.body: str = body
+        self.url: str = url
 
     def __enter__(self) -> Self:
         return self
@@ -78,8 +79,11 @@ class FakeDocumentMcpResponse:
         del exc_type, exc_value, traceback
         return None
 
-    def read(self) -> bytes:
-        return self.body.encode("utf-8")
+    def geturl(self) -> str:
+        return self.url
+
+    def read(self, amt: int, /) -> bytes:
+        return self.body.encode("utf-8")[:amt]
 
 
 class FakeDocumentMcpOpener:
@@ -87,8 +91,8 @@ class FakeDocumentMcpOpener:
         self.bodies: list[str] = list(bodies)
 
     def open(self, fullurl: Request, *, timeout: float) -> FakeDocumentMcpResponse:
-        del fullurl, timeout
-        return FakeDocumentMcpResponse(self.bodies.pop(0))
+        del timeout
+        return FakeDocumentMcpResponse(self.bodies.pop(0), fullurl.full_url)
 
 
 def _tool_response(payload: str) -> str:
