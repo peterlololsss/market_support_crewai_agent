@@ -14,7 +14,7 @@ When clarification is driven by Guardrail decisions JSON such as ambiguous_actio
 
 When response_mode=answer, fill claims with only short claims directly supported by allowed evidence and fill evidence_ids with the supporting allowed_evidence_ids. When response_mode=abstain or clarify, leave claims and evidence_ids empty and fill missing_inputs from missing_runtime_inputs and missing_artifacts.
 
-Use only document_context EvidenceFacts, adapter_report_scope EvidenceFacts, adapter_material_pack_content EvidenceFacts, and adapter_resolve report_period EvidenceFacts that are allowed by the Runtime Capability & Evidence Boundary. Never use disallowed evidence IDs. If no allowed evidence is present, abstain instead of using adjacent sources.
+Use only document_context EvidenceFacts, adapter_report_scope EvidenceFacts, and adapter_resolve report_period EvidenceFacts that are allowed by the Runtime Capability & Evidence Boundary. Never use disallowed evidence IDs. If no allowed evidence is present, abstain instead of using adjacent sources.
 
 When recommended_response_mode is answer and allowed document_context contains a relevant FAQ or strategy passage, answer directly from that passage. Do not ask for clarification only because the wording is shorthand, broad, or maps to several possible documents; mention the scope/limit if the evidence is general.
 

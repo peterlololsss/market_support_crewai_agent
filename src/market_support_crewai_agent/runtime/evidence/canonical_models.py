@@ -18,7 +18,6 @@ from market_support_crewai_agent.runtime.hashing import (
 
 CanonicalEvidenceFactTypeV1 = Literal[
     "material_pack_resolvable",
-    "material_pack_open_calendar",
     "weekly_report_resolvable",
     "monthly_report_resolvable",
     "sales_mention_resolvable",
@@ -34,7 +33,6 @@ CanonicalEvidenceFactTypeV1 = Literal[
 CanonicalEvidenceSourceTypeV1 = Literal[
     "adapter_resolve",
     "adapter_report_scope",
-    "adapter_material_pack_content",
     "action_ledger",
     "document_mcp",
     "approved_static_knowledge",

@@ -199,11 +199,7 @@ def _source_context_type(
         return "history_summary"
     if source == "user_upload":
         return "user_message"
-    if source in {
-        "adapter_resolve",
-        "adapter_report_scope",
-        "adapter_material_pack_content",
-    }:
+    if source in {"adapter_resolve", "adapter_report_scope"}:
         if artifact in {"material_pack", "weekly_report", "monthly_report"}:
             return "current_artifact"
         return "adapter_context"
