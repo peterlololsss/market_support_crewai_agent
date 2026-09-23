@@ -116,6 +116,60 @@ def test_reply_auth_and_schema_precedence_before_tenant_work(
     assert calls == Counter()
 
 
+_LEGACY_REPLY_PAYLOAD = {
+    "conversation_key": "wecom:g:s",
+    "group_id": "g",
+    "sender_id": "s",
+    "message": "hello",
+    "is_group": True,
+    "group_name": "g",
+    "dist_channel_name": "d",
+    "sender_nickname": "s",
+    "available_artifacts": [],
+    "channel_type": "bank",
+}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        _LEGACY_REPLY_PAYLOAD,
+        {**make_v2_payload(), "contract_version": "reply-request.v1"},
+        make_v2_payload(
+            identity={
+                "contract_version": "conversation-identity.v1",
+                "surface": "wecom",
+                "scene": "group",
+                "tenant_ref": "tenant:test",
+                "group_ref": "group:contract-probe",
+                "principal_ref": "principal:sender-1",
+            }
+        ),
+    ),
+    ids=("legacy-payload", "unknown-version", "reserved-probe-group"),
+)
+def test_reply_rejects_retired_or_reserved_payloads_with_zero_work(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, object],
+) -> None:
+    calls = _install_reply_zero_work_spies(monkeypatch)
+    settings = Settings(api_key="secret", deployment_tenant_ref="tenant:test")
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
+
+    response = TestClient(main.app).post(
+        "/reply",
+        json=payload,
+        headers={"X-API-Key": "secret"},
+    )
+
+    assert response.status_code == 422
+    assert ErrorEnvelope.model_validate_json(response.content).detail == ErrorDetail(
+        code="invalid_request_contract"
+    )
+    assert calls == Counter()
+
+
 @pytest.mark.parametrize(
     ("configured_tenant_ref", "expected_status", "expected_code"),
     (
