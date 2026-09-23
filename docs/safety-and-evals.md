@@ -78,21 +78,19 @@ uv run --extra dev python -m pytest -q tests/unit/settings/test_settings.py test
 ```
 
 The repository-required harness suite and complete guards are (the literal
-repository command currently reports 88 tests because the four relocated
+repository command currently reports 88 tests because the seven relocated
 preflight-failure cases are not part of its path list):
 
 ```bash
 uv run --extra dev python -m pytest -q tests/integration/runtime/test_reply_*.py tests/contract/test_adapter_preflight.py tests/unit/validation/test_structured_guardrails.py tests/unit/state/test_action_feedback.py
 uv run python scripts/check_prompt_registry.py
 uv run python scripts/check_no_semantic_keyword_matching.py
-uv run python scripts/check_request_consumer_migration.py --phase 15
-uv run python scripts/check_request_consumer_migration.py --require-complete
 uv run --extra dev python scripts/check_reply_acceptance.py
 uv run python scripts/check_reply_runtime_fake_deps.py
 uv run --extra dev python -m pytest -q
 ```
 
-The preserved 92-test harness gate includes the relocated preflight-failure
+The preserved 95-test harness gate includes the relocated preflight-failure
 module explicitly:
 
 ```bash

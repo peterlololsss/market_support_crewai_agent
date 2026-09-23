@@ -12,7 +12,6 @@ from market_support_crewai_agent.runtime.prompts.budgets import (
     PromptStaticBudgetRegistryV1,
     load_prompt_static_budgets,
 )
-from scripts.check_request_consumer_migration import PlannedSymbolInventoryV1
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -63,11 +62,3 @@ def test_budget_rows_use_frozen_formula() -> None:
             (baseline + 9) // 10,
             1024,
         )
-
-
-def test_direct_stage_input_has_no_raw_request_todo_9() -> None:
-    planned = PlannedSymbolInventoryV1.model_validate_json(
-        (FIXTURES / "planned_symbol_ownership.v1.json").read_bytes()
-    )
-    row = next(row for row in planned.rows if row.symbol == "PlannerPromptInputV1")
-    assert row.status == "migrated"

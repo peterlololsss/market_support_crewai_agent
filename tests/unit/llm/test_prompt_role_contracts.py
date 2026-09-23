@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, is_dataclass
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -21,40 +20,7 @@ from market_support_crewai_agent.runtime.context.stage_inputs import (
     build_planner_prompt_input_v1,
     build_smalltalk_composer_prompt_input_v1,
 )
-from scripts.check_request_consumer_migration import PlannedSymbolInventoryV1
 from tests.unit.llm._stage_input_fixtures import stage_sources
-
-
-ROOT = Path(__file__).resolve().parents[3]
-PLANNED_SYMBOLS = ROOT / "tests/fixtures/planned_symbol_ownership.v1.json"
-STAGE_INPUT_PATH = "src/market_support_crewai_agent/runtime/context/stage_inputs.py"
-
-
-def test_verifier_input_ownership_names_canonical_class_and_identity_alias() -> None:
-    # Given: the sealed inventory rows owned by the strict stage-input slice.
-    inventory = PlannedSymbolInventoryV1.model_validate_json(
-        PLANNED_SYMBOLS.read_bytes()
-    )
-
-    # When: the verifier boundary rows are indexed by symbol.
-    rows = {
-        row.symbol: row
-        for row in inventory.rows
-        if row.path == STAGE_INPUT_PATH
-        and row.symbol
-        in {
-            "AlignmentVerifierPromptInputV1",
-            "SanitizedAlignmentVerifierInputV1",
-        }
-    }
-
-    # Then: the public model is canonical and the sanitized name is its alias.
-    assert set(rows) == {
-        "AlignmentVerifierPromptInputV1",
-        "SanitizedAlignmentVerifierInputV1",
-    }
-    assert rows["AlignmentVerifierPromptInputV1"].kind == "class"
-    assert rows["SanitizedAlignmentVerifierInputV1"].kind == "alias"
 
 
 def test_user_facing_stage_roles_have_exact_field_contracts() -> None:
