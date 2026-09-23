@@ -17,7 +17,13 @@ def test_inventory_cli_rejects_reintroduced_legacy_recall_imports(
         ROOT,
         sandbox,
         ignore=shutil.ignore_patterns(
-            ".git", ".omo", ".venv", ".pytest_cache", ".ruff_cache", "__pycache__"
+            ".git",
+            ".omo",
+            ".codegraph",
+            ".venv",
+            ".pytest_cache",
+            ".ruff_cache",
+            "__pycache__",
         ),
     )
     flow = sandbox / "src/market_support_crewai_agent/runtime/recall/flow.py"
