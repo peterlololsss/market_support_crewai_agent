@@ -73,6 +73,20 @@ def canonical_deployment_tenant_ref(deployment_tenant_ref: str) -> str:
     )
 
 
+def adapter_tenant_errors(
+    capabilities: AdapterCapabilities,
+    canonical_tenant_ref: str,
+) -> list[str]:
+    # An adapter that predates the tenant field stays compatible; an adapter that
+    # advertises a tenant must advertise this deployment's tenant.
+    if (
+        capabilities.deployment_tenant_ref is not None
+        and capabilities.deployment_tenant_ref != canonical_tenant_ref
+    ):
+        return ["deployment tenant mismatch"]
+    return []
+
+
 def scene_compatibility_errors(
     capabilities: AdapterCapabilities,
     scene: Literal["direct", "group"],
@@ -80,7 +94,7 @@ def scene_compatibility_errors(
 ) -> list[str]:
     match scene:
         case "group":
-            return []
+            return adapter_tenant_errors(capabilities, canonical_tenant_ref)
         case "direct":
             errors: list[str] = []
             if (

@@ -60,7 +60,10 @@ def test_live_assistant_adapter_preflight_service_material_pack_option_contract(
             "contract_version": "conversation-identity.v1",
             "surface": "wecom",
             "scene": "group",
-            "tenant_ref": "tenant:live",
+            "tenant_ref": os.getenv(
+                "MARKET_AGENT_DEPLOYMENT_TENANT_REF",
+                "tenant:live",
+            ),
             "group_ref": "group:live-scope-group",
             "principal_ref": "principal:sender-1",
         },

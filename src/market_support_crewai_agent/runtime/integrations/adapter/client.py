@@ -8,6 +8,7 @@ from typing import Literal
 
 from market_support_crewai_agent.runtime.integrations.adapter.capability_validation import (
     adapter_capability_errors,
+    adapter_tenant_errors,
     canonical_deployment_tenant_ref,
     scene_compatibility_errors,
 )
@@ -191,6 +192,24 @@ class AdapterResolveClient:
 
     async def assert_ready_async(self) -> AdapterCapabilities:
         return await asyncio.to_thread(self.assert_ready)
+
+    async def assert_ready_for_tenant_async(
+        self,
+        tenant_ref: str,
+    ) -> AdapterCapabilities:
+        try:
+            canonical_tenant_ref = canonical_deployment_tenant_ref(tenant_ref)
+        except ValueError as exc:
+            raise AdapterClientError(
+                "adapter readiness rejected invalid deployment tenant"
+            ) from exc
+        capabilities = await self.assert_ready_async()
+        errors = adapter_tenant_errors(capabilities, canonical_tenant_ref)
+        if errors:
+            raise AdapterClientError(
+                "adapter capabilities mismatch: {}".format("; ".join(errors))
+            )
+        return capabilities
 
     async def metrics_async(self) -> AdapterMetrics:
         return await asyncio.to_thread(self.metrics)

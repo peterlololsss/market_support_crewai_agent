@@ -5,6 +5,7 @@ import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import anyio
 import pytest
 
 from market_support_crewai_agent.runtime.integrations.adapter.client import (
@@ -594,6 +595,48 @@ def test_adapter_client_group_capabilities_without_scene_fields_assert_ready_and
 
     assert first.supported_scenes is None
     assert second is first
+    assert [request["path"] for request in ResolveHandler.payloads] == [
+        "/adapter/capabilities"
+    ]
+
+
+@pytest.mark.parametrize("tenant_ref", [None, "tenant:primary"])
+def test_adapter_client_group_scene_compatibility_accepts_absent_or_matching_tenant(
+    adapter_base_url: str,
+    tenant_ref: str | None,
+):
+    ResolveHandler.capabilities_response = {
+        **_capabilities_response(),
+        "deployment_tenant_ref": tenant_ref,
+    }
+    client = _adapter_client(adapter_base_url, "secret")
+
+    first = client.assert_scene_compatible("group", "tenant:primary")
+    second = anyio.run(client.assert_ready_for_tenant_async, "tenant:primary")
+
+    assert first.deployment_tenant_ref == tenant_ref
+    assert second is first
+
+
+def test_adapter_client_group_scene_compatibility_rejects_advertised_tenant_mismatch(
+    adapter_base_url: str,
+):
+    capabilities = _capabilities_response()
+    capabilities["deployment_tenant_ref"] = "tenant:secondary"
+    ResolveHandler.capabilities_response = capabilities
+    client = _adapter_client(adapter_base_url, "secret")
+
+    with pytest.raises(
+        AdapterClientError, match="adapter scene compatibility mismatch"
+    ) as scene_error:
+        client.assert_scene_compatible("group", "tenant:primary")
+    with pytest.raises(
+        AdapterClientError, match="deployment tenant mismatch"
+    ) as ready_error:
+        anyio.run(client.assert_ready_for_tenant_async, "tenant:primary")
+
+    assert "tenant:secondary" not in str(scene_error.value)
+    assert "tenant:secondary" not in str(ready_error.value)
     assert [request["path"] for request in ResolveHandler.payloads] == [
         "/adapter/capabilities"
     ]

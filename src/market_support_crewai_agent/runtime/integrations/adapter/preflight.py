@@ -92,7 +92,9 @@ class AdapterPreflightService:
         )
         try:
             with trace_span("adapter.assert_ready"):
-                _ = await self.adapter_client.assert_ready_async()
+                _ = await self.adapter_client.assert_ready_for_tenant_async(
+                    request.identity.tenant_ref
+                )
             with trace_span(
                 "adapter.resolve_many", request_count=len(resolve_requests)
             ):

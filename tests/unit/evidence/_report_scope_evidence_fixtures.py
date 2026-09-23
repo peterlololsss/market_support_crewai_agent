@@ -11,6 +11,9 @@ from market_support_crewai_agent.runtime.integrations.adapter.preflight import (
     AdapterPreflightItem,
     AdapterPreflightSnapshot,
 )
+from market_support_crewai_agent.runtime.integrations.adapter.transport import (
+    AdapterClientError,
+)
 from market_support_crewai_agent.runtime.planning import (
     ExecutionPlanV2,
     PlanSpec,
@@ -84,8 +87,11 @@ class FakeReportScopeClient:
         product_pages: dict[int, tuple[str, ...]] | None = None,
         product_total_count: int | None = None,
         response_overrides: dict[str, str] | None = None,
+        readiness_error: str = "",
     ) -> None:
         self.calls: list[AdapterReportScopeRequest] = []
+        self.ready_tenants: list[str] = []
+        self.readiness_error: str = readiness_error
         self.product_pages: dict[int, tuple[str, ...]] = product_pages or {
             1: ("Product1", "Product2")
         }
@@ -95,6 +101,11 @@ class FakeReportScopeClient:
             else sum(len(page) for page in self.product_pages.values())
         )
         self.response_overrides: dict[str, str] = response_overrides or {}
+
+    async def assert_ready_for_tenant_async(self, tenant_ref: str) -> None:
+        self.ready_tenants.append(tenant_ref)
+        if self.readiness_error:
+            raise AdapterClientError(self.readiness_error)
 
     async def report_scope_async(
         self,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from math import ceil
 from typing import Protocol
 
@@ -43,6 +44,11 @@ from market_support_crewai_agent.settings_model import Settings
 
 
 class ReportScopeClient(Protocol):
+    async def assert_ready_for_tenant_async(
+        self,
+        tenant_ref: str,
+    ) -> object: ...
+
     async def report_scope_async(
         self,
         request: AdapterReportScopeRequest,
@@ -88,6 +94,17 @@ class ReportScopeEvidenceService:
             preflight,
             alignment_refetch_request,
         )
+        if not targets:
+            return ()
+        try:
+            _ = await self.adapter_client.assert_ready_for_tenant_async(
+                request.identity.tenant_ref
+            )
+        except AdapterClientError:
+            return _unique_facts(
+                unavailable_fact(target, "adapter_report_scope_error")
+                for target in targets
+            )
         facts: list[CanonicalEvidenceFactV1] = []
         for target in targets:
             try:
@@ -132,7 +149,7 @@ class ReportScopeEvidenceService:
                             facts.append(match_fact(target, result))
                 case "list_products":
                     facts.append(await self._collect_products_fact(request, target))
-        return tuple({fact.evidence_id: fact for fact in facts}.values())
+        return _unique_facts(facts)
 
     async def _collect_products_fact(
         self,
@@ -179,3 +196,9 @@ class ReportScopeEvidenceService:
                 "adapter_report_scope_products_error",
             )
         return products_fact(target, result, products, total_count)
+
+
+def _unique_facts(
+    facts: Iterable[CanonicalEvidenceFactV1],
+) -> tuple[CanonicalEvidenceFactV1, ...]:
+    return tuple({fact.evidence_id: fact for fact in facts}.values())

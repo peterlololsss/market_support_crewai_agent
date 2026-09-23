@@ -144,7 +144,10 @@ rejected by the strict schema.
 
 Current group resolve/preflight remains compatible with a field-absent group capability payload: when all five fields
 are absent, the existing service/version/endpoint/resolve/status checks still apply. If any additive field is present,
-it must still parse strictly, but group traffic does not require these fields merely to answer or preflight.
+it must still parse strictly, but group traffic does not require these fields merely to answer or preflight. The one
+exception is `deployment_tenant_ref`: when the adapter advertises it, it must equal the request's deployment tenant.
+Group preflight and report-scope evidence check this before any resolve or report-scope request, and a mismatch makes
+that evidence unavailable. An absent tenant field stays compatible.
 
 Direct admission is stricter. Before state reservation, the agent requires an adapter API key and an authenticated
 capability response containing `direct`, `reply-request.v2`, `action-feedback.v2`, `conversation-identity.v1`, and a

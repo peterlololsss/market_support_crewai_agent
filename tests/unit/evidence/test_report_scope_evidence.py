@@ -96,6 +96,28 @@ def test_collect_keeps_product_paging_bounded_and_marks_partial_projection() -> 
     assert payload.full_product_list_in_projection is False
 
 
+def test_collect_checks_adapter_tenant_before_any_report_scope_call() -> None:
+    # Given: an adapter whose readiness check rejects this deployment's tenant.
+    source = report_inputs()
+    client = FakeReportScopeClient(
+        readiness_error="adapter capabilities mismatch: deployment tenant mismatch"
+    )
+    service = ReportScopeEvidenceService(adapter_client=client)
+
+    # When: report-scope evidence is requested.
+    async def collect():
+        return await service.collect(
+            source.request, source.plan, source.policy, source.preflight
+        )
+
+    facts = anyio.run(collect)
+
+    # Then: no report-scope request reaches the adapter and the target is unavailable.
+    assert client.ready_tenants == [source.request.identity.tenant_ref]
+    assert client.calls == []
+    assert tuple(fact.fact_type for fact in facts) == ("report_scope_unavailable",)
+
+
 def test_execute_v2_admits_report_products_into_the_matching_unit_grounding() -> None:
     # Given: the real canonical executor with fake adapter transports.
     source = report_inputs()

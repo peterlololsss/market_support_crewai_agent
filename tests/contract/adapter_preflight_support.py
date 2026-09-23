@@ -66,6 +66,7 @@ class FakeAdapterClient(AdapterResolveClient):
         failures: set[AdapterResolveType] | None = None,
         omissions: set[AdapterResolveType] | None = None,
         readiness_error: str = "",
+        deployment_tenant_ref: str | None = None,
     ) -> None:
         super().__init__(Settings(llm_api_key="test-key"))
         self.failures = failures or set()
@@ -94,6 +95,7 @@ class FakeAdapterClient(AdapterResolveClient):
             statuses=["resolved"],
             max_batch_requests=4,
             max_request_body_bytes=1024,
+            deployment_tenant_ref=deployment_tenant_ref,
         )
         self._ready_capabilities = self.capabilities_value
 
