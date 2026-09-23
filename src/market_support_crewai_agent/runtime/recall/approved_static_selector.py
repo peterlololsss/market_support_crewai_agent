@@ -6,7 +6,7 @@ from pydantic import ConfigDict, Field
 
 from market_support_crewai_agent.runtime.policy.capabilities import ManifestRefV1
 from market_support_crewai_agent.runtime.prompts.assembler import (
-    assembleCanonicalizationPrompt,
+    assemble_canonicalization_prompt,
 )
 from market_support_crewai_agent.runtime.prompts.auxiliary_contracts import (
     ApprovedImageAssetCandidateViewV1,
@@ -147,7 +147,7 @@ def _selector_input(
 
 
 def _selector_prompt() -> str:
-    return assembleCanonicalizationPrompt(
+    return assemble_canonicalization_prompt(
         "canonicalization.approved_knowledge_selector",
         stage="approved_knowledge_selector",
         selector_input_json="",

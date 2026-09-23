@@ -11,7 +11,7 @@ from market_support_crewai_agent.runtime.integrations.document_mcp.manifest impo
     product_manifest,
 )
 from market_support_crewai_agent.runtime.prompts.assembler import (
-    assembleCanonicalizationPrompt,
+    assemble_canonicalization_prompt,
 )
 from market_support_crewai_agent.runtime.prompts.auxiliary_contracts import (
     DocumentProductSelectorInputV1,
@@ -131,7 +131,7 @@ def document_product_selector_input(
 
 
 def document_product_selector_prompt() -> str:
-    return assembleCanonicalizationPrompt(
+    return assemble_canonicalization_prompt(
         "canonicalization.document_product_selector",
         stage="document_product_selector",
         selector_input_json="",

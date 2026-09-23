@@ -49,5 +49,4 @@ class CapabilityRegistryV2:
         return self._ordered
 
 
-CapabilityRegistry = CapabilityRegistryV2
 CAPABILITY_MANIFEST_REGISTRY = CapabilityRegistryV2(BUILTIN_CAPABILITY_MANIFESTS)

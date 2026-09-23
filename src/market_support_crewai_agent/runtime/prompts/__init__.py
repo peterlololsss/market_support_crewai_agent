@@ -2,7 +2,7 @@
 
 from market_support_crewai_agent.runtime.prompts.assembler import (
     PromptProgram,
-    assembleCanonicalizationPrompt,
+    assemble_canonicalization_prompt,
     assemble_prompt_program,
 )
 from market_support_crewai_agent.runtime.prompts.context import (
@@ -24,7 +24,7 @@ __all__ = [
     "PromptProfile",
     "PromptProgram",
     "PromptStage",
-    "assembleCanonicalizationPrompt",
+    "assemble_canonicalization_prompt",
     "assemble_prompt_program",
     "model_family_from_settings",
     "prompt_profile_by_stage",

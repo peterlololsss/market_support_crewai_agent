@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 from market_support_crewai_agent.runtime.policy.capabilities.definitions import (
     ArtifactKind,
-    CapabilityManifest,
     CapabilityManifestIdV2,
+    CapabilityManifestV2,
     CapabilityName,
     ResolvableBusinessStateField,
 )
@@ -24,7 +24,7 @@ from market_support_crewai_agent.schemas.type_ids import (
 
 @dataclass(frozen=True, slots=True)
 class CurrentRuntimeCapabilityProjection:
-    manifest: CapabilityManifest
+    manifest: CapabilityManifestV2
     name: CapabilityName
     artifact_kind: ArtifactKind
     read_capability: ReadCapability | None

@@ -259,9 +259,3 @@ class CapabilityManifestV2(StrictModel):
         }:
             raise ValueError("internal knowledge requires unified sources")
         return self
-
-
-VerifierPrimitive = VerifierPrimitiveV2
-EvidenceContract = CapabilityEvidenceContractV2
-AbstentionPolicy = CapabilityAbstentionPolicyV2
-CapabilityManifest = CapabilityManifestV2

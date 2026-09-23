@@ -85,51 +85,26 @@ class PromptProgram:
         return prompt_hph1(self.prompt_text, self.agent_execution_spec)
 
 
-def assemble_prompt_program(
-    ctx: StrictStageInputV1,
-    profile: PromptProfile,
-    fragment_ids: tuple[str, ...],
-    program: PromptProgramV2,
-) -> PromptProgram:
-    return PromptAssembler().assemblePromptProgram(
-        ctx,
-        profile,
-        fragment_ids,
-        program,
+def assemble_canonicalization_prompt(
+    prompt_id: str,
+    *,
+    stage: NeutralPromptStage,
+    selector_input_json: str,
+) -> str:
+    fragment_ids = neutral_fragment_ids(stage)
+    if stage == "llm_health_probe" or fragment_ids[-1] != prompt_id:
+        raise PromptRegistryInvariantError("neutral_prompt_id_stage_mismatch")
+    return "\n\n".join(
+        render_prompt_fragment(
+            fragment_id,
+            stage,
+            selector_input_json=selector_input_json,
+        )
+        for fragment_id in fragment_ids
     )
 
 
-class PromptAssembler:
-    def assembleCanonicalizationPrompt(
-        self,
-        prompt_id: str,
-        *,
-        stage: NeutralPromptStage,
-        selector_input_json: str,
-    ) -> str:
-        fragment_ids = neutral_fragment_ids(stage)
-        if stage == "llm_health_probe" or fragment_ids[-1] != prompt_id:
-            raise PromptRegistryInvariantError("neutral_prompt_id_stage_mismatch")
-        return "\n\n".join(
-            render_prompt_fragment(
-                fragment_id,
-                stage,
-                selector_input_json=selector_input_json,
-            )
-            for fragment_id in fragment_ids
-        )
-
-    def assemblePromptProgram(
-        self,
-        ctx: StrictStageInputV1,
-        profile: PromptProfile,
-        fragment_ids: tuple[str, ...],
-        program: PromptProgramV2,
-    ) -> PromptProgram:
-        return _assemble_prompt_program(ctx, profile, fragment_ids, program)
-
-
-def _assemble_prompt_program(
+def assemble_prompt_program(
     ctx: StrictStageInputV1,
     profile: PromptProfile,
     fragment_ids: tuple[str, ...],
@@ -254,16 +229,3 @@ def _dedupe(fragment_ids: tuple[str, ...]) -> tuple[str, ...]:
 
 def _sha256(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def assembleCanonicalizationPrompt(
-    prompt_id: str,
-    *,
-    stage: NeutralPromptStage,
-    selector_input_json: str,
-) -> str:
-    return PromptAssembler().assembleCanonicalizationPrompt(
-        prompt_id,
-        stage=stage,
-        selector_input_json=selector_input_json,
-    )
