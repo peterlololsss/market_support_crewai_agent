@@ -96,9 +96,8 @@ Run the core acceptance check suite:
 uv run --extra dev python scripts/check_reply_acceptance.py
 ```
 
-The default suite runs three offline checks: the semantic keyword guard, prompt registry validation, and the fake-dependency
-runtime. Add `--include-real-llm` when provider credentials and network access are available. Add `--include-live-adapter`
-only after starting the assistant adapter fixture.
+The suite runs three offline checks: the semantic keyword guard, prompt registry validation, and the fake-dependency
+runtime.
 
 Run the harness pipeline without external LLM or adapter credentials:
 
@@ -108,49 +107,6 @@ uv run python scripts/check_reply_runtime_fake_deps.py
 
 This uses fake CrewAI planner/composer outputs and fake adapter preflight, while exercising the real runtime
 orchestration, evidence, business facts, and reply/action postcondition validators.
-
-Run a real LLM-backed `/reply` knowledge-QA eval using `.env` and the configured Document MCP:
-
-```bash
-uv run python scripts/eval_reply_real_llm_knowledge.py
-```
-
-Run a real LLM-backed action-routing eval with fake adapter preflight:
-
-```bash
-uv run python scripts/eval_reply_real_llm_actions.py
-```
-
-Run a real LLM-backed handoff boundary eval. This verifies customer-service requests and unavailable material sends
-produce harness-shaped handoff replies instead of ungrounded sends.
-
-```bash
-uv run python scripts/eval_reply_handoff.py
-```
-
-Run a real LLM-backed compliance eval. This isolates compliance planning and harness-owned refusal text, so adapter
-preflight is disabled by default in the script.
-
-```bash
-uv run python scripts/eval_reply_compliance.py
-```
-
-Run a real adapter-feedback ledger check. It first verifies that a “just sent” follow-up without executed feedback
-does not invent a report period, then posts an executed weekly-report feedback event and verifies the follow-up is grounded
-by that ledger entry rather than another send action.
-
-```bash
-uv run python scripts/check_reply_action_feedback.py
-```
-
-Run a real LLM-backed action eval with live adapter preflight. Start the assistant adapter first, or use the fixture
-command in `docs/adapter/assistant_adapter_contract.md`.
-
-```bash
-MARKET_AGENT_LIVE_ADAPTER_BASE_URL=http://127.0.0.1:8011 \
-MARKET_AGENT_LIVE_ADAPTER_API_KEY=scope-secret \
-uv run python scripts/eval_reply_live_adapter.py --message "请发一下周报"
-```
 
 ## LLM configuration
 

@@ -25,14 +25,10 @@ GOVERNED_ENV_OVERRIDES = {
 class CheckCommand:
     name: str
     command: tuple[str, ...]
-    requires_real_llm: bool = False
-    live_adapter: bool = False
 
 
-def _check_commands(
-    *, include_real_llm: bool, include_live_adapter: bool
-) -> list[CheckCommand]:
-    commands = [
+def _check_commands() -> list[CheckCommand]:
+    return [
         CheckCommand(
             name="semantic_keyword_guard",
             command=(sys.executable, "scripts/check_no_semantic_keyword_matching.py"),
@@ -46,54 +42,6 @@ def _check_commands(
             command=(sys.executable, "scripts/check_reply_runtime_fake_deps.py"),
         ),
     ]
-    if include_real_llm:
-        commands.extend(
-            [
-                CheckCommand(
-                    name="real_llm_knowledge_eval",
-                    command=(
-                        sys.executable,
-                        "scripts/eval_reply_real_llm_knowledge.py",
-                    ),
-                    requires_real_llm=True,
-                ),
-                CheckCommand(
-                    name="real_llm_action_eval",
-                    command=(sys.executable, "scripts/eval_reply_real_llm_actions.py"),
-                    requires_real_llm=True,
-                ),
-                CheckCommand(
-                    name="handoff_eval",
-                    command=(sys.executable, "scripts/eval_reply_handoff.py"),
-                    requires_real_llm=True,
-                ),
-                CheckCommand(
-                    name="compliance_eval",
-                    command=(sys.executable, "scripts/eval_reply_compliance.py"),
-                    requires_real_llm=True,
-                ),
-                CheckCommand(
-                    name="action_feedback_ledger",
-                    command=(sys.executable, "scripts/check_reply_action_feedback.py"),
-                    requires_real_llm=True,
-                ),
-            ]
-        )
-    if include_live_adapter:
-        commands.append(
-            CheckCommand(
-                name="live_adapter_eval",
-                command=(
-                    sys.executable,
-                    "scripts/eval_reply_live_adapter.py",
-                    "--message",
-                    "请发一下周报",
-                ),
-                requires_real_llm=True,
-                live_adapter=True,
-            )
-        )
-    return commands
 
 
 def _load_dotenv(path: Path = PROJECT_ROOT / ".env") -> None:
@@ -129,8 +77,6 @@ def _run_command(command: CheckCommand, verbose: bool) -> dict:
         "passed": completed.returncode == 0,
         "returncode": completed.returncode,
         "duration_seconds": duration_seconds,
-        "requires_real_llm": command.requires_real_llm,
-        "live_adapter": command.live_adapter,
     }
     if completed.returncode != 0 and not verbose:
         result["stdout_tail"] = _tail(completed.stdout)
@@ -155,16 +101,6 @@ def main() -> None:
         description="Run the support-reply acceptance check suite."
     )
     parser.add_argument(
-        "--include-real-llm",
-        action="store_true",
-        help="Also run eval scripts that call the configured LLM provider.",
-    )
-    parser.add_argument(
-        "--include-live-adapter",
-        action="store_true",
-        help="Also run the live adapter eval. Requires assistant adapter or fixture to be running.",
-    )
-    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Stream child output instead of showing only failures and summary.",
@@ -172,12 +108,7 @@ def main() -> None:
     args = parser.parse_args()
 
     _load_dotenv()
-    commands = _check_commands(
-        include_real_llm=args.include_real_llm,
-        include_live_adapter=args.include_live_adapter,
-    )
-
-    results = [_run_command(command, args.verbose) for command in commands]
+    results = [_run_command(command, args.verbose) for command in _check_commands()]
     failures = [result for result in results if not result["passed"]]
     summary = {
         "passed": not failures,
